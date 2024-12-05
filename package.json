@@ -1,5 +1,11 @@
 {
   "devDependencies": {
     "supabase": "^1.223.10"
+  },
+  "dependencies": {
+    "body-parser": "^1.20.3",
+    "express": "^5.0.1",
+    "morgan": "^1.10.0",
+    "nodemon": "^3.1.7"
   }
 }
