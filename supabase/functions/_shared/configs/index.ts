@@ -6,9 +6,16 @@ export interface FunctionResult<T = unknown> {
 }
 
 // Functions
-export function stringify(obj) { // Can stringify whilst ignoring circular objects
-  let cache = [];
-  let str = JSON.stringify(obj, function(key, value) {
+// stringify function works even if item is not an object (just returns original) or if partially circular (just discards that part)
+export function stringify(obj: any): string {
+  // Check if the input is not an object or is null
+  if (typeof obj !== "object" || obj === null) {
+    // Directly return the stringified representation of non-object types
+    return String(obj);
+  }
+
+  let cache: any[] = [];
+  let str = JSON.stringify(obj, function (key, value) {
     if (typeof value === "object" && value !== null) {
       if (cache.indexOf(value) !== -1) {
         // Circular reference found, discard key
@@ -23,9 +30,28 @@ export function stringify(obj) { // Can stringify whilst ignoring circular objec
   return str;
 }
 
-// Variables
+// Enums
+// export enum TriBool {
+//   True,
+//   False,
+//   Unknown
+// }
+
+// Consts
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
+const VANILLA_SYSTEM_INSTRUCTION = {
+  parts: [
+    {text: `You are a business data API assistant called Athenic, designed to process incoming business data, answer questions from the employees and do tasks on behalf of the business.
+      Bear in mind how we are defining the following terms:
+      "organisation" = a business that uses Athenic to help them (e.g. Yahoo, Microsoft, Braun, Nike, Pepsi,...)
+      "member" = a member, typically an employee, of the organisation who uses Athenic to help them (eg. a Yahoo employee)
+      "user" = a user/customer of the organisation's product(s)
+      "object" = a piece of data stored in the organisation's DB (database)
+      "product" = a type of object, a product is an app/product/brand that the organisation owns and wants to improve (eg. Yahoo Finance)
+    `},
+  ],
+};
 export const SLACK_REDIRECT_URI = "https://gvblzovvpfeepnhifwqh.supabase.co/functions/v1/auth/slack"

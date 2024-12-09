@@ -9,7 +9,7 @@ import * as config from "../_shared/configs/index.ts";
 const app = express();
 const port = 3000;
 
-// Configure CORS
+// Configure CORS TODO: confirm if I actually need this
 app.use(
   cors({
     origin: '*', // Allow all origins. Replace '*' with specific domains if needed.
@@ -30,7 +30,8 @@ app.get('/auth/:connection', async (req, res) => {
 
     switch (connection) {
       case 'slack':
-        const result = await MessagingService.auth(connection, connectionMetadata);
+        const messagingService: MessagingService = new MessagingService();
+        const result = await messagingService.auth(connection, connectionMetadata);
         res.status(result.status).send(result.message);
         // res.json({ success: true, data: result });
         break;
@@ -38,7 +39,8 @@ app.get('/auth/:connection', async (req, res) => {
         throw new Error('Unsupported service');
     }
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error(`Error in /auth/:connection: ${error.message}`);
+    res.status(500).send(error.message);
   }
 });
 
