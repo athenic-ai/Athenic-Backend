@@ -54,20 +54,25 @@ export class ProcessDataJob<T> {
       const structuredObjectFunctions = buildStructuredObjectFunctionsResult.data;
 
       console.log("a");
-      this.nlpService.setMemberVariables({organisationId: organisationId});
+      this.nlpService.setMemberVariables({
+        organisationId: organisationId,
+        organisationData: organisationData,
+        supportedObjectTypeNames: ["Product", "Feedback"],
+      });
       console.log("b");
       await this.nlpService.initialiseClientCore();
       console.log("c");
       const nlpServiceMathsTestResult = await this.nlpService.execute({
-        text: "hello, whats 2+3",
+        text: "You MUST call the 'predictObjectTypeBeingReferenced' function to decide which object type the following data most likely relates to: 'Hello, I'd like to provide some feedback about the app. It is mostly good, but I wish it could set timers.'",
         // text: "Some data needs to be processed and stored in the DB. Process this data by choosing the most appropriate function.",
         systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
-        limitedFunctionSupportList: [],
-        // limitedFunctionSupportList: structuredObjectFunctions,
-        useLiteModel: true,
+        functionUsage: "required",
+        // limitedFunctionSupportList: [],
+        limitedFunctionSupportList: ["predictObjectBeingReferenced"],
+        useLiteModels: true,
       });
-      // console.log("d");
-      // console.log(`nlpServiceMathsTestResult: ${JSON.stringify(nlpServiceMathsTestResult)}`);
+      console.log("d");
+      console.log(`nlpServiceMathsTestResult: ${JSON.stringify(nlpServiceMathsTestResult)}`);
 
 
       const result: FunctionResult = {

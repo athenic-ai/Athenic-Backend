@@ -52,7 +52,9 @@ Bear in mind how we are defining the following terms:
 "product" = a type of object, a product is an app/product/brand that the organisation owns and wants to improve (eg. Yahoo Finance)
 `;
 export const SLACK_REDIRECT_URI = "https://gvblzovvpfeepnhifwqh.supabase.co/functions/v1/auth/slack"
-// export const NLP_MODEL_LITE = "gpt-4o-mini";
-// export const NLP_MODEL_FULL = "gpt-4o";
-export const NLP_MODEL_LITE = "microsoft/phi-3-medium-128k-instruct:free";
-export const NLP_MODEL_FULL = "microsoft/phi-3-medium-128k-instruct:free";
+// export const NLP_MODELS_LITE = ["microsoft/phi-3-medium-128k-instruct:free", "gpt-4o-mini"];
+// export const NLP_MODELS_FULL = ["microsoft/phi-3-medium-128k-instruct:free", "gpt-4o"];
+// export const NLP_MODELS_LITE = ["meta-llama/llama-3.2-11b-vision-instruct:free", "microsoft/phi-3-medium-128k-instruct:free", "microsoft/phi-3-mini-128k-instruct:free"];
+// export const NLP_MODELS_FULL = ["meta-llama/llama-3.2-11b-vision-instruct:free", "microsoft/phi-3-medium-128k-instruct:free", "microsoft/phi-3-mini-128k-instruct:free"];
+export const NLP_MODELS_LITE = ["gpt-4o-mini"];
+export const NLP_MODELS_FULL = ["gpt-4o-mini"];

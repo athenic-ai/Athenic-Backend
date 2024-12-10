@@ -21,9 +21,10 @@ interface ExecuteParams {
   systemInstruction: string;
   chatHistory?: Array<{ role: string; content: string }>;
   temperature?: number;
+  functionUsage?: string;
   limitedFunctionSupportList?: any[];
   interpretFuncCalls?: boolean;
-  useLiteModel?: boolean;
+  useLiteModels?: boolean;
 }
 
 interface ExecuteThreadParams {
@@ -35,26 +36,26 @@ export class NlpService {
   private nlpFunctionsBase: NlpFunctionsBase;
   private storageService: StorageService;
   // private tasksPlugin: TasksPlugin;
-  private tasksService: any | null = null;
+  // private tasksService: any | null = null;
   private clientCore: OpenAI | null = null;
   private clientTextEmbedding: any | null = null;
   private adminSettings: any | null = null;
   private organisationId: string | null = null;
   private organisationData: Record<string, unknown> | null = null;
-  private productDataAll: Record<string, any> = {};
+  // private productDataAll: Record<string, any> = {};
   private memberFire: any | null = null;
   private memberData: any | null = null;
-  private threadId: string | null = null;
-  private supportedProductNames: string[] = [];
-  private defaultProductName: string | null = null;
-  private selectedProductName: string | null = null;
-  private tasksMap: Record<string, any> = {};
-  private supportedPlatformNames: string[] = ["email"];
-  private selectedPlatformName: string | null = null;
-  private dataIfFeedbackFromUser: any | null = null;
+  // private threadId: string | null = null;
+  private supportedObjectTypeNames: string[] = [];
+  // private defaultProductName: string | null = null;
+  // private selectedProductName: string | null = null;
+  // private tasksMap: Record<string, any> = {};
+  // private supportedPlatformNames: string[] = ["email"];
+  // private selectedPlatformName: string | null = null;
+  // private dataIfFeedbackFromUser: any | null = null;
   private currentFunctionSupportList: any[] | null = null;
   private functionDeclarations: any[] | null = null;
-  private selectedNlp: string = "openai";
+  // private selectedNlp: string = "openai";
   // private processingDryRun: any = config.TriBool.UNKNOWN;
 
   constructor(
@@ -67,26 +68,18 @@ export class NlpService {
   }
 
   setMemberVariables({
-    tasksService,
     organisationId,
     organisationData,
     memberFire,
     memberData,
-    threadId,
-    selectedProductName,
-    selectedPlatformName,
-    processingDryRun,
+    supportedObjectTypeNames,
   }: MemberVariables) {
     console.log("setMemberVariables called");
-    if (tasksService) this.tasksService = tasksService;
     if (organisationId) this.organisationId = organisationId;
     if (organisationData) this.organisationData = organisationData;
     if (memberFire) this.memberFire = memberFire;
     if (memberData) this.memberData = memberData;
-    if (threadId) this.threadId = threadId;
-    if (selectedProductName) this.selectedProductName = selectedProductName;
-    if (selectedPlatformName) this.selectedPlatformName = selectedPlatformName;
-    if (processingDryRun) this.processingDryRun = processingDryRun;
+    if (supportedObjectTypeNames) this.supportedObjectTypeNames = supportedObjectTypeNames;
   }
 
   async initialiseClientCore(apiKey: string): Promise<void> {
@@ -113,19 +106,22 @@ export class NlpService {
     systemInstruction,
     chatHistory = [],
     temperature = 0,
+    functionUsage = "auto", // Options: none, auto, required
     limitedFunctionSupportList,
     interpretFuncCalls = false,
-    useLiteModel = true,
+    useLiteModels = true,
   }: ExecuteParams): Promise<any> {
     if (!text) {
       throw new Error("No text provided for NLP analysis");
     }
 
+    console.log(`functionUsage: ${functionUsage}`);
+
     try {
       console.log(`NLP called with prompt: ${text}\n and chat history: ${JSON.stringify(chatHistory)}`);
-      const model = useLiteModel
-        ? config.NLP_MODEL_LITE
-        : config.NLP_MODEL_FULL;
+      const models = useLiteModels
+        ? config.NLP_MODELS_LITE
+        : config.NLP_MODELS_FULL;
 
       if (!this.functionDeclarations || limitedFunctionSupportList !== this.currentFunctionSupportList) {
         await this.nlpFunctionsBase.loadFunctions();
@@ -138,29 +134,26 @@ export class NlpService {
         { role: "user", content: text },
       ];
 
-      console.log(`functionDeclarations: ${JSON.stringify(this.functionDeclarations)}`);
-
       const initialCreateResult = await this.clientCore!.chat.completions.create({
-        model,
+        models,
         messages,
         tools: this.functionDeclarations,
+        tool_choice: functionUsage, // NOTE: not supported by a number of models
         // provider: { // TODO: enable this before going to production
         //   data_collection: "deny"
         // },
       });
-
       const createResMessage = initialCreateResult.choices[0].message;
-      console.log(`createResMessage: ${JSON.stringify(createResMessage)}`);
 
       if (createResMessage.tool_calls) {
+        console.log("tool_calls requested with current functions:", this.nlpFunctionsBase.nlpFunctions); // FYI can't JSON parse this specific var, so to show it, need to do it like this
         const functionResultsData = [];
         for (const toolCall of createResMessage.tool_calls) {
           if (toolCall.type === "function") {
             const functionName = toolCall.function.name;
             const functionArgs = JSON.parse(toolCall.function.arguments);
-            console.log(`Function called: ${functionName}`);
-            console.log(`Arguments: ${JSON.stringify(functionArgs)}`);
-            const { chosenFunctionDeclaration, chosenFunctionImplementation } = this.nlpFunctionsBase.nlpFunctions[functionName];
+            console.log(`Function called: ${functionName} with args: ${JSON.stringify(functionArgs)}`);
+            const chosenFunctionImplementation = this.nlpFunctionsBase.nlpFunctions[functionName].implementation;
             const functionResult = await chosenFunctionImplementation(functionArgs);
             functionResultsData.push({ name: functionName, functionResult });
           }
@@ -183,7 +176,7 @@ export class NlpService {
           }
 
           const interpretedCreateResult = await this.clientCore!.chat.completions.create({
-            model,
+            models,
             messages,
             tools: this.functionDeclarations,
           });
