@@ -4,7 +4,7 @@
 // import NLPGeminiPlugin from "../plugins/nlp/nlpGeminiPlugin";
 // const geminiApiKeySecret = defineSecret("GEMINI_API_KEY");
 
-import * as config from "../../configs/index.ts";
+import * as config from "../../_shared/configs/index.ts";
 import { StorageService } from "../services/storage/storageService.ts";
 import { NlpService } from "../services/nlp/nlpService.ts";
 
@@ -13,14 +13,14 @@ interface OrganisationData {
 }
 
 export class ProcessDataJob<T> {
-  // private nlpGeminiPlugin: NLPGeminiPlugin;
   private storageService: StorageService;
+  private nlpService: NlpService;
   // private tasksService: any;
 
   constructor(
     // tasksService: any,
     storageService: StorageService = new StorageService(),
-    nlpService: NLPService = new NLPService(),
+    nlpService: NLPService = new NlpService(),
   ) {
     this.storageService = storageService;
     this.nlpService = nlpService;
@@ -53,14 +53,21 @@ export class ProcessDataJob<T> {
 
       const structuredObjectFunctions = buildStructuredObjectFunctionsResult.data;
 
+      console.log("a");
       this.nlpService.setMemberVariables({organisationId: organisationId});
-      await this.nlpService.initializeClientCore({apiKey: Deno.env.get('OPENAI_API_SECRET')});
-      await this.nlpService.execute({
-        text: "Some data needs to be processed and stored in the DB. Process this data by choosing the most appropriate function.",
+      console.log("b");
+      await this.nlpService.initialiseClientCore();
+      console.log("c");
+      const nlpServiceMathsTestResult = await this.nlpService.execute({
+        text: "hello, whats 2+3",
+        // text: "Some data needs to be processed and stored in the DB. Process this data by choosing the most appropriate function.",
         systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
-        limitedFunctionSupportList: structuredObjectFunctions,
-        useLiteModel = true,
+        limitedFunctionSupportList: [],
+        // limitedFunctionSupportList: structuredObjectFunctions,
+        useLiteModel: true,
       });
+      // console.log("d");
+      // console.log(`nlpServiceMathsTestResult: ${JSON.stringify(nlpServiceMathsTestResult)}`);
 
 
       const result: FunctionResult = {
@@ -191,22 +198,7 @@ export class ProcessDataJob<T> {
         return acc;
       }, {} as Record<string, any>);
   
-      const required = relatedMetadata.map((meta) => meta.id);
-  
-      return {
-        type: "function",
-        function: {
-          name: `add${objectType.name.replace(/\s+/g, "")}Object`,
-          description: objectType.description,
-          parameters: {
-            type: "object",
-            strict: true,
-            properties,
-            required,
-            additionalProperties: false,
-          },
-        },
-      };
+      return properties;
     });
   }
 }

@@ -1,9 +1,8 @@
-import NLPSharedFunctions from "./nlpSharedFunctions";
-import StorageService from "../storage/storageService";
+import { NlpFunctionsBase } from "./nlpFunctionsBase.ts";
+import { StorageService } from "../storage/storageService.ts";
 // import TasksPlugin from "../tasks/tasksPlugin";
-import OpenAI from "openai";
-
-const nlpAssistantDeveloperIdSecret = defineSecret("NLP_ASSISTANT_DEVELOPER_ID");
+import OpenAI from "npm:openai"
+import * as config from "../../configs/index.ts";
 
 interface MemberVariables {
   tasksService?: any;
@@ -32,8 +31,8 @@ interface ExecuteThreadParams {
   systemInstruction: string;
 }
 
-class NLPService {
-  private nlpSharedFunctions: NLPSharedFunctions;
+export class NlpService {
+  private nlpFunctionsBase: NlpFunctionsBase;
   private storageService: StorageService;
   // private tasksPlugin: TasksPlugin;
   private tasksService: any | null = null;
@@ -56,15 +55,14 @@ class NLPService {
   private currentFunctionSupportList: any[] | null = null;
   private functionDeclarations: any[] | null = null;
   private selectedNlp: string = "openai";
-  private processingDryRun: any = constants.TriBool.UNKNOWN;
+  // private processingDryRun: any = config.TriBool.UNKNOWN;
 
   constructor(
-    storagePlugin: StoragePlugin = new StoragePlugin(),
+    storageService: StorageService = new StorageService(),
     // tasksPlugin: TasksPlugin = new TasksPlugin()
   ) {
-    super();
-    this.nlpSharedFunctions = new NLPSharedFunctions(this, admin);
-    this.storagePlugin = storagePlugin;
+    this.nlpFunctionsBase = new NlpFunctionsBase(this);
+    this.storageService = storageService;
     // this.tasksPlugin = tasksPlugin;
   }
 
@@ -94,7 +92,15 @@ class NLPService {
   async initialiseClientCore(apiKey: string): Promise<void> {
     console.log("initialiseClientCore called");
     try {
-      this.clientCore = new OpenAI(apiKey);
+      // this.clientCore = new OpenAI(Deno.env.get('OPENAI_API_KEY')); Use this if calling OpenAI's API directly
+      this.clientCore = new OpenAI({
+        baseURL: "https://openrouter.ai/api/v1",
+        apiKey: Deno.env.get('OPENROUTER_API_KEY'),
+        // defaultHeaders: {
+        //   "HTTP-Referer": $YOUR_SITE_URL, // Optional, for including your app on openrouter.ai rankings.
+        //   "X-Title": $YOUR_APP_NAME, // Optional. Shows in rankings on openrouter.ai.
+        // }
+      })
       console.log("OpenAI client initialised successfully");
     } catch (error) {
       console.error("Error initializing OpenAI client:", error);
@@ -118,11 +124,12 @@ class NLPService {
     try {
       console.log(`NLP called with prompt: ${text}\n and chat history: ${JSON.stringify(chatHistory)}`);
       const model = useLiteModel
-        ? constants.NLP_OPENAI_MODEL_LITE
-        : constants.NLP_OPENAI_MODEL_FULL;
+        ? config.NLP_MODEL_LITE
+        : config.NLP_MODEL_FULL;
 
       if (!this.functionDeclarations || limitedFunctionSupportList !== this.currentFunctionSupportList) {
-        this.functionDeclarations = await this.nlpSharedFunctions.getFunctionDeclarations(limitedFunctionSupportList);
+        await this.nlpFunctionsBase.loadFunctions();
+        this.functionDeclarations = this.nlpFunctionsBase.getAllFunctionDeclarations();
         this.currentFunctionSupportList = limitedFunctionSupportList;
       }
 
@@ -137,9 +144,13 @@ class NLPService {
         model,
         messages,
         tools: this.functionDeclarations,
+        // provider: { // TODO: enable this before going to production
+        //   data_collection: "deny"
+        // },
       });
 
       const createResMessage = initialCreateResult.choices[0].message;
+      console.log(`createResMessage: ${JSON.stringify(createResMessage)}`);
 
       if (createResMessage.tool_calls) {
         const functionResultsData = [];
@@ -149,7 +160,8 @@ class NLPService {
             const functionArgs = JSON.parse(toolCall.function.arguments);
             console.log(`Function called: ${functionName}`);
             console.log(`Arguments: ${JSON.stringify(functionArgs)}`);
-            const functionResult = await this.nlpSharedFunctions.nlpFunctions[functionName](functionArgs);
+            const { chosenFunctionDeclaration, chosenFunctionImplementation } = this.nlpFunctionsBase.nlpFunctions[functionName];
+            const functionResult = await chosenFunctionImplementation(functionArgs);
             functionResultsData.push({ name: functionName, functionResult });
           }
         }
@@ -199,5 +211,3 @@ class NLPService {
     return new Promise((resolve) => setTimeout(resolve, time));
   }
 }
-
-export default NLPPlugin;
