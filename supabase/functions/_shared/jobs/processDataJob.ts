@@ -243,13 +243,13 @@ export class ProcessDataJob<T> {
     // Returns a map where the keys are each object type's ID, and the values are:
     // - The object type's name
     // - The object type's description
-    // - The object type's metadata, which is a map containing metadata info, including cases where owner_object_type_id is null
+    // - The object type's metadata, which is a map containing metadata info, including cases where related_object_type_id is null
     console.log(`createObjectTypeDescriptions called with objectTypes: ${JSON.stringify(objectTypes)} and metadataTypes: ${JSON.stringify(metadataTypes)}`);
   
     return objectTypes.reduce((result, objectType) => {
-      // Find related metadata for the current object type or metadata with a null owner_object_type_id
+      // Find related metadata for the current object type or metadata with a null related_object_type_id
       const relatedMetadata = metadataTypes.filter(
-        (meta) => meta.owner_object_type_id === objectType.id || meta.owner_object_type_id === null
+        (meta) => meta.related_object_type_id === objectType.id || meta.related_object_type_id === null
       );
   
       // Transform related metadata into the desired format
@@ -287,7 +287,7 @@ export class ProcessDataJob<T> {
 
   private createObjectMetadataFunctionProperties(
     // Creates a map where key is object id and value is a structured object describing for the AI how to create this object's metadata (if passed in as property data),
-    // including metadata where owner_object_type_id is null and excluding those with allow_ai_update explicitly set to false.
+    // including metadata where related_object_type_id is null and excluding those with allow_ai_update explicitly set to false.
     objectTypes: any[],
     metadataTypes: any[]
   ) {
@@ -300,7 +300,7 @@ export class ProcessDataJob<T> {
     return objectTypes.reduce((acc, objectType) => {
       const relatedMetadata = metadataTypes.filter(
         (meta) =>
-          (meta.owner_object_type_id === objectType.id || meta.owner_object_type_id === null) &&
+          (meta.related_object_type_id === objectType.id || meta.related_object_type_id === null) &&
           meta.allow_ai_update !== false // Skip if allow_ai_update is false
       );
   
