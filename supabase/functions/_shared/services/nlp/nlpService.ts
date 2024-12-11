@@ -5,15 +5,13 @@ import OpenAI from "npm:openai"
 import * as config from "../../configs/index.ts";
 
 interface MemberVariables {
-  tasksService?: any;
   organisationId?: string;
   organisationData?: Record<string, unknown>;
   memberFire?: any;
   memberData?: any;
-  threadId?: string;
-  selectedProductName?: string;
-  selectedPlatformName?: string;
-  processingDryRun?: any;
+  supportedObjectTypeIds?: string[];
+  selectedObjectTypeId?: string;
+  objectMetadataFunctionProperties?: Record<string, unknown>;
 }
 
 interface ExecuteParams {
@@ -35,26 +33,27 @@ interface ExecuteThreadParams {
 export class NlpService {
   private nlpFunctionsBase: NlpFunctionsBase;
   private storageService: StorageService;
-  // private tasksPlugin: TasksPlugin;
-  // private tasksService: any | null = null;
   private clientCore: OpenAI | null = null;
   private clientTextEmbedding: any | null = null;
   private adminSettings: any | null = null;
   private organisationId: string | null = null;
   private organisationData: Record<string, unknown> | null = null;
-  // private productDataAll: Record<string, any> = {};
   private memberFire: any | null = null;
   private memberData: any | null = null;
+  private supportedObjectTypeIds: string[] = [];
+  private selectedObjectTypeId: string | null = null;
+  private objectMetadataFunctionProperties: Record<string, unknown> | null = null;
+  private currentFunctionSupportList: any[] | null = null;
+  private functionDeclarations: any[] | null = null;
+  // private tasksPlugin: TasksPlugin;
+  // private tasksService: any | null = null;
+  // private productDataAll: Record<string, any> = {};
   // private threadId: string | null = null;
-  private supportedObjectTypeNames: string[] = [];
   // private defaultProductName: string | null = null;
-  // private selectedProductName: string | null = null;
   // private tasksMap: Record<string, any> = {};
   // private supportedPlatformNames: string[] = ["email"];
   // private selectedPlatformName: string | null = null;
   // private dataIfFeedbackFromUser: any | null = null;
-  private currentFunctionSupportList: any[] | null = null;
-  private functionDeclarations: any[] | null = null;
   // private selectedNlp: string = "openai";
   // private processingDryRun: any = config.TriBool.UNKNOWN;
 
@@ -72,14 +71,18 @@ export class NlpService {
     organisationData,
     memberFire,
     memberData,
-    supportedObjectTypeNames,
+    supportedObjectTypeIds,
+    selectedObjectTypeId,
+    objectMetadataFunctionProperties,
   }: MemberVariables) {
     console.log("setMemberVariables called");
     if (organisationId) this.organisationId = organisationId;
     if (organisationData) this.organisationData = organisationData;
     if (memberFire) this.memberFire = memberFire;
     if (memberData) this.memberData = memberData;
-    if (supportedObjectTypeNames) this.supportedObjectTypeNames = supportedObjectTypeNames;
+    if (supportedObjectTypeIds) this.supportedObjectTypeIds = supportedObjectTypeIds;
+    if (selectedObjectTypeId) this.selectedObjectTypeId = selectedObjectTypeId;
+    if (objectMetadataFunctionProperties) this.objectMetadataFunctionProperties = objectMetadataFunctionProperties;
   }
 
   async initialiseClientCore(apiKey: string): Promise<void> {
@@ -134,6 +137,8 @@ export class NlpService {
         { role: "user", content: text },
       ];
 
+      console.log("this.functionDeclarations: ", this.functionDeclarations);
+
       const initialCreateResult = await this.clientCore!.chat.completions.create({
         models,
         messages,
@@ -155,7 +160,8 @@ export class NlpService {
             console.log(`Function called: ${functionName} with args: ${JSON.stringify(functionArgs)}`);
             const chosenFunctionImplementation = this.nlpFunctionsBase.nlpFunctions[functionName].implementation;
             const functionResult = await chosenFunctionImplementation(functionArgs);
-            functionResultsData.push({ name: functionName, functionResult });
+            functionResultsData.push({ name: functionName, functionResult: functionResult });
+            break; // Currently only allowing it to call the first function with this. Also when not interpreting, as part of this just returning the first function's data below. May want to change in the future to allow it to call all the functions it found
           }
         }
 
@@ -188,7 +194,7 @@ export class NlpService {
             return { result: interpretedCreateResult.response.text() };
           }
         } else {
-          return functionResultsData;
+          return functionResultsData[0].functionResult;
         }
       } else {
         console.log("No function calls were made by the model.");

@@ -11,6 +11,7 @@ export class NlpFunctionsBase {
   }
 
   async loadFunctions() {
+    console.log("loadFunctions called");
     const dataFunctions = await nlpFunctionsData.initialiseFunctions(this);
     Object.assign(this.nlpFunctions, dataFunctions);
     console.log("All NLP functions loaded:", this.nlpFunctions);
