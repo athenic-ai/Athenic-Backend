@@ -71,7 +71,7 @@ export class ProcessDataJob<T> {
 
       console.log("a");
 
-      // -----------Step 3: Determine which object type the data relates to----------- 
+      // -----------Step 3: Determine which object type the data relates to-----------
       this.nlpService.setMemberVariables({
         organisationId: organisationId,
         organisationData: organisationData,
@@ -86,7 +86,7 @@ export class ProcessDataJob<T> {
         text: `You MUST call the 'predictObjectTypeBeingReferenced' function to decide which object type the following data most likely relates to:\n${sampleDataIn}`,
         systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
         functionUsage: "required",
-        limitedFunctionSupportList: ["predictObjectBeingReferenced"],
+        limitedFunctionSupportList: ["predictObjectTypeBeingReferenced"],
         useLiteModels: true,
       });
       console.log("d");
@@ -113,6 +113,55 @@ export class ProcessDataJob<T> {
       }
       const objectData = processDataUsingGivenObjectsMetadataStructureResult.data;
       console.log("objectData:", objectData);
+
+      // -----------Step 5: If object type demands a parent object, determine which object should be the parent----------- 
+      const predictedObjectType = objectTypes.find(obj => obj.id === predictedObjectTypeBeingReferenced);
+      if (predictedObjectType && predictedObjectType.parent_object_type_id) {
+        // Step 5a: Retrieve all objects of this type
+        const parentObjectTypeId = predictedObjectType.parent_object_type_id;
+        const getPotentialParentObjectsResult = await this.storageService.getRows('objects', {
+          whereOrConditions: [
+            { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
+            { column: 'owner_organisation_id', operator: 'eq', value: organisationId }, // Include entries created by the org
+          ],
+          whereAndConditions: [
+            { column: 'related_type_id', operator: 'eq', value: parentObjectTypeId },
+          ],
+        });
+        const potentialParentObjects = getPotentialParentObjectsResult.data;
+        console.log(`potentialParentObjects: ${JSON.stringify(potentialParentObjects)}`);
+        if (potentialParentObjects && potentialParentObjects.length) {
+          // If there are actually some parent objects found
+          const potentialParentObjectsIds = potentialParentObjects.map(item => item.id); // List of strings of the ID of each object type
+          console.log("potentialParentObjectsIds", potentialParentObjectsIds);
+          this.nlpService.setMemberVariables({
+            selectedObjectsIds: potentialParentObjectsIds,
+          });
+          // Step 5b: Predict the appropriate object's parent
+          console.log("1");
+
+          const objectDataCopyWithoutId = structuredClone(objectData); // Create a deep copy
+          delete objectDataCopyWithoutId.id; // Remove the `id` key to help avoid the NLP getting confused and choosing this id as the chosen parent id
+
+          const predictObjectParentResult = await this.nlpService.execute({
+            text: `You MUST call the 'predictObjectParent' function to decide which object of type ${parentObjectTypeId} is the most appropriate parent for the given object.
+            \n\nObject that needs a parent:\n${JSON.stringify(objectDataCopyWithoutId)}
+            \n\nObjects that can be chosen from:\n${JSON.stringify(potentialParentObjects)}`,
+            systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
+            functionUsage: "required",
+            limitedFunctionSupportList: ["predictObjectParent"],
+            useLiteModels: true,
+          });
+          console.log("2");
+          console.log("predictObjectParentResult:", predictObjectParentResult);
+          if (predictObjectParentResult.status == 200 && predictObjectParentResult.data) {
+            // Step 5c: Assign a parent object assuming one could be found
+            objectData.parent_id = predictObjectParentResult.data;
+          }
+        } else {
+          console.log("Not adding parent to object as no objects of suitable type found");
+        }
+      }
 
       const objectsUpdateResult = await this.storageService.updateRow({
         table: "objects",

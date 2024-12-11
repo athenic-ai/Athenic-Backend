@@ -11,6 +11,7 @@ interface MemberVariables {
   memberData?: any;
   supportedObjectTypeIds?: string[];
   selectedObjectTypeId?: string;
+  selectedObjectsIds?: string[];
   objectMetadataFunctionProperties?: Record<string, unknown>;
 }
 
@@ -42,6 +43,7 @@ export class NlpService {
   private memberData: any | null = null;
   private supportedObjectTypeIds: string[] = [];
   private selectedObjectTypeId: string | null = null;
+  private selectedObjectsIds: string | null = null;
   private objectMetadataFunctionProperties: Record<string, unknown> | null = null;
   private currentFunctionSupportList: any[] | null = null;
   private functionDeclarations: any[] | null = null;
@@ -73,6 +75,7 @@ export class NlpService {
     memberData,
     supportedObjectTypeIds,
     selectedObjectTypeId,
+    selectedObjectsIds,
     objectMetadataFunctionProperties,
   }: MemberVariables) {
     console.log("setMemberVariables called");
@@ -82,6 +85,7 @@ export class NlpService {
     if (memberData) this.memberData = memberData;
     if (supportedObjectTypeIds) this.supportedObjectTypeIds = supportedObjectTypeIds;
     if (selectedObjectTypeId) this.selectedObjectTypeId = selectedObjectTypeId;
+    if (selectedObjectsIds) this.selectedObjectsIds = selectedObjectsIds;
     if (objectMetadataFunctionProperties) this.objectMetadataFunctionProperties = objectMetadataFunctionProperties;
   }
 
@@ -121,7 +125,7 @@ export class NlpService {
     console.log(`functionUsage: ${functionUsage}`);
 
     try {
-      console.log(`NLP called with prompt: ${text}\n and chat history: ${JSON.stringify(chatHistory)}`);
+      console.log(`NLP called with prompt:\n${text}\n\nand chat history:\n${JSON.stringify(chatHistory)}`);
       const models = useLiteModels
         ? config.NLP_MODELS_LITE
         : config.NLP_MODELS_FULL;

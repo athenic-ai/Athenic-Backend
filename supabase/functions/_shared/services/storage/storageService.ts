@@ -126,8 +126,7 @@ export class StorageService {
       console.log(`getRows result: ${JSON.stringify(data)}`);
     
       if (error) {
-        console.error('Error fetching rows:', error);
-        throw error;
+        throw Error(`Error fetching rows: ${error}`);
       }
     
       const result: FunctionResult = {

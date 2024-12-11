@@ -1,13 +1,14 @@
 import * as uuid from "jsr:@std/uuid";
 
 // Exporting functions and declarations
-// NOTE: must add any you add here to loadFunctions() function in nlpFunctionsBase
+// NOTE: must add this file to loadFunctions() function in nlpFunctionsBase
 export async function initialiseFunctions(baseInstance: any) {
-  console.log(`baseInstance.parent.supportedObjectTypeIds: ${baseInstance.parent.supportedObjectTypeIds}`);
+  const functionsToReturn = {};
   const selectedObjectMetadataFunctionProperties = baseInstance.parent.objectMetadataFunctionProperties[baseInstance.parent.selectedObjectTypeId];
-  console.log("selectedObjectMetadataFunctionProperties", selectedObjectMetadataFunctionProperties);
-  const functionsToReturn = {
-    predictObjectTypeBeingReferenced: {
+  
+  if (baseInstance.parent.supportedObjectTypeIds != null) {
+    console.log("baseInstance.parent.supportedObjectTypeIds", baseInstance.parent.supportedObjectTypeIds);
+    functionsToReturn.predictObjectTypeBeingReferenced = {
       declaration: {
         type: "function",
         function: {
@@ -19,7 +20,7 @@ export async function initialiseFunctions(baseInstance: any) {
             properties: {
               predictedObjectTypeId: {
                 type: "string",
-                description: "ID of estimated object type, or 'unknown' if none apply.",
+                description: "ID of predicted object type, or 'unknown' if none apply.",
                 enum: baseInstance.parent.supportedObjectTypeIds
               },
             },
@@ -30,7 +31,7 @@ export async function initialiseFunctions(baseInstance: any) {
       },
       implementation: async ({ predictedObjectTypeId }: { predictedObjectTypeId: string }) => {
         try {
-          console.log(`predictObjectBeingReferenced called with: ${predictedObjectTypeId}`);
+          console.log(`predictObjectTypeBeingReferenced called with: ${predictedObjectTypeId}`);
           const predictedObjectTypeIdProcessed = predictedObjectTypeId === "unknown" ? null : predictedObjectTypeId;
           console.log("predictedObjectTypeIdProcessed", predictedObjectTypeIdProcessed);
           const result: FunctionResult = {
@@ -47,8 +48,52 @@ export async function initialiseFunctions(baseInstance: any) {
           return result;
         }
       },
-    },
+    };
   };
+
+  if (baseInstance.parent.selectedObjectsIds != null) {
+    console.log(`baseInstance.parent.selectedObjectsIds: ${baseInstance.parent.selectedObjectsIds}`);
+    functionsToReturn.predictObjectParent = {
+      declaration: {
+        type: "function",
+        function: {
+          name: "predictObjectParent",
+          description: "Predict which object is the most appropriate parent object of the given object based on which is most related.",
+          parameters: {
+            type: "object",
+            strict: true,
+            properties: {
+              predictedObjectId: {
+                type: "string",
+                description: "ID of predicted object type",
+                enum: baseInstance.parent.selectedObjectsIds
+              },
+            },
+            required: ["predictedObjectId"],
+            additionalProperties: false,
+          },
+        }
+      },
+      implementation: async ({ predictedObjectId }: { predictedObjectId: string }) => {
+        try {
+          console.log(`predictObjectParent called with: ${predictedObjectId}`);
+          const result: FunctionResult = {
+            status: 200,
+            message: "Predicted object's parent",
+            data: predictedObjectId,
+          };
+          return result;
+        } catch (error) {
+          const result: FunctionResult = {
+            status: 500,
+            message: "Error in predictObjectParent: " + error.message,
+          };
+          return result;
+        }
+      },
+    };
+  };
+
   if (selectedObjectMetadataFunctionProperties != null) {
     functionsToReturn.processDataUsingGivenObjectsMetadataStructure = {
       declaration: {
