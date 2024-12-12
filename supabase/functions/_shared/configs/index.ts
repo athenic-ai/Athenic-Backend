@@ -38,7 +38,7 @@ export function stringify(obj: any): string {
 // }
 
 // Consts
-export const corsHeaders = {
+export const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }

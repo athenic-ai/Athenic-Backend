@@ -13,14 +13,14 @@ interface OrganisationData {
 }
 
 export class ProcessDataJob<T> {
-  private storageService: StorageService;
-  private nlpService: NlpService;
+  private readonly storageService: StorageService;
+  private readonly nlpService: NlpService;
   // private tasksService: any;
 
   constructor(
     // tasksService: any,
     storageService: StorageService = new StorageService(),
-    nlpService: NLPService = new NlpService(),
+    nlpService: NlpService = new NlpService(),
   ) {
     this.storageService = storageService;
     this.nlpService = nlpService;

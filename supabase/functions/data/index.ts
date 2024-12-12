@@ -2,26 +2,40 @@
 // import "jsr:@supabase/functions-js/edge-runtime.d.ts" // See if this is really needed
 // @deno-types="npm:@types/express@5.0.1"
 import express from 'npm:express@5.0.1';
-// import cors from 'npm:cors@2.8.5'; // Add the cors package
+import bodyParser from 'npm:body-parser';
 import { ProcessDataJob } from '../_shared/jobs/processDataJob.ts';
 import * as config from "../_shared/configs/index.ts";
 
 const app = express();
 const port = 3000;
 
-// // Configure CORS
-// app.use(
-//   cors({
-//     origin: '*', // Allow all origins. Replace '*' with specific domains if needed.
-//     methods: ['GET', 'POST', 'OPTIONS'], // Allow specific HTTP methods
-//     allowedHeaders: ['Content-Type', 'Authorization'], // Allow specific headers
-//   })
-// );
+// Middleware to handle multiple content types (as e.g. email isn't delivered as a JSON)
+app.use((req, res, next) => {
+  const contentType = req.headers['content-type'] || '';
 
-app.use(express.json());
-// app.use(express.json({ limit: '300kb' })); // If you want a payload larger than 100kb, then you can tweak it here:
+  // JSON parser
+  if (contentType.includes('application/json')) {
+    express.json()(req, res, next);
+  }
+  // URL-encoded form parser
+  else if (contentType.includes('application/x-www-form-urlencoded')) {
+    express.urlencoded({ extended: true })(req, res, next);
+  }
+  // Plain text parser
+  else if (contentType.includes('text/plain')) {
+    bodyParser.text()(req, res, next);
+  }
+  // Binary or raw data (as buffer)
+  else if (contentType.includes('application/octet-stream')) {
+    bodyParser.raw()(req, res, next);
+  }
+  // Default to raw text
+  else {
+    bodyParser.text()(req, res, next);
+  }
+});
 
-app.post('/data/:connection/:datatype/:dryrun', async (req, res) => {
+app.post('/data/con/:connection/typ/:datatype/dry/:dryrun', async (req, res) => {
   try {
     console.log('/data/:connection/:datatype/:dryrun started');
     const connection = req.params.connection;
