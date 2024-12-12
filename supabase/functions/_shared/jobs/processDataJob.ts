@@ -66,8 +66,9 @@ export class ProcessDataJob<T> {
       const objectTypeDescriptions = this.createObjectTypeDescriptions(objectTypes, objectMetadataTypes); // Example output: {"product":{"name":"Product","description":"An item that is sold to users by teams (e.g. Apple Music is sold to users by Apple).","metadata":{"product_marketing_url":{"description":"Marketing URL","type":"string"},"product_types":{"description":"Product types","type":"array","items":{"type":"string"}},"product_ids":{"description":"In the form:\n   \"android/ios/...\"\n      -> \"id\"","type":"object"}}},"feedback":{"name":"Feedback","description":"Feedback from users about topics such as a product, service, experience or even the organisation in general.","metadata":{"feedback_author_name":{"description":"Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}}
       console.log(`objectTypeDescriptions: ${JSON.stringify(objectTypeDescriptions)}`)
 
-      const objectMetadataFunctionProperties = this.createObjectMetadataFunctionProperties(objectTypes, objectMetadataTypes); // Example output: {"product":{"product_marketing_url":{"description":"Marketing URL","type":"string"},"product_types":{"description":"Product types","type":"array","items":{"type":"string"}}},"feedback":{"feedback_author_name":{"description":"Author name: Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Deal size: Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}
+      const [objectMetadataFunctionProperties, objectMetadataFunctionPropertiesRequiredIds] = this.createObjectMetadataFunctionProperties(objectTypes, objectMetadataTypes); // Example output: {"product":{"product_marketing_url":{"description":"Marketing URL","type":"string"},"product_types":{"description":"Product types","type":"array","items":{"type":"string"}}},"feedback":{"feedback_author_name":{"description":"Author name: Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Deal size: Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}
       console.log(`objectMetadataFunctionProperties: ${JSON.stringify(objectMetadataFunctionProperties)}`)
+      console.log(`objectMetadataFunctionPropertiesRequiredIds: ${JSON.stringify(objectMetadataFunctionPropertiesRequiredIds)}`);
 
       console.log("a");
 
@@ -77,13 +78,16 @@ export class ProcessDataJob<T> {
         organisationData: organisationData,
         supportedObjectTypeIds: objectTypesIds,
         objectMetadataFunctionProperties: objectMetadataFunctionProperties,
+        objectMetadataFunctionPropertiesRequiredIds: objectMetadataFunctionPropertiesRequiredIds,
       });
       console.log("b");
       await this.nlpService.initialiseClientCore();
       console.log("c");
       const sampleDataIn = "Hello, I'd like to provide some feedback about the app. It is mostly good, but I wish it could set timers.";
       const predictObjectTypeBeingReferencedResult = await this.nlpService.execute({
-        text: `You MUST call the 'predictObjectTypeBeingReferenced' function to decide which object type the following data most likely relates to:\n${sampleDataIn}`,
+        text: `You MUST call the 'predictObjectTypeBeingReferenced' function to decide which object type the following data most likely relates to.
+          \n\nObject types that can be chosen from:\n${JSON.stringify(objectTypeDescriptions)}
+          \n\nData to review:\n${sampleDataIn}`,
         systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
         functionUsage: "required",
         limitedFunctionSupportList: ["predictObjectTypeBeingReferenced"],
@@ -335,28 +339,41 @@ export class ProcessDataJob<T> {
   }
 
   private createObjectMetadataFunctionProperties(
-    // Creates a map where key is object id and value is a structured object describing for the AI how to create this object's metadata (if passed in as property data),
-    // including metadata where related_object_type_id is null and excluding those with allow_ai_update explicitly set to false.
     objectTypes: any[],
     metadataTypes: any[]
-  ) {
+  ): [Record<string, Record<string, any>>, Record<string, string[]>] {
+    // Creates two maps:  
+    // 1. `objectMetadataFunctionProperties` - A map where the key is the object ID and the value is a structured object describing for the AI how to create this object's metadata, including metadata where `related_object_type_id` is `null` and excluding those with `allow_ai_update` explicitly set to `false`.  
+    // 2. `objectMetadataFunctionPropertiesRequiredIds` - A map where the key is the metadata ID and the value is a list of all the metadata type ids where `is_required` property is `true` (if allow_ai_update marked as false, these will already be exlcuded from this even if is_required is set to true)
     console.log(
       `createStructuredObjectFunctions called with objectTypes: ${JSON.stringify(
         objectTypes
       )} and metadataTypes: ${JSON.stringify(metadataTypes)}`
     );
   
-    return objectTypes.reduce((acc, objectType) => {
+    // Initialize the result maps
+    const objectMetadataFunctionProperties: Record<string, Record<string, any>> = {};
+    const objectMetadataFunctionPropertiesRequiredIds: Record<string, string[]> = {};
+  
+    // Loop through each objectType
+    objectTypes.forEach((objectType) => {
+      // Filter metadata types relevant to this objectType
       const relatedMetadata = metadataTypes.filter(
         (meta) =>
           (meta.related_object_type_id === objectType.id || meta.related_object_type_id === null) &&
           meta.allow_ai_update !== false // Skip if allow_ai_update is false
       );
   
-      const properties = relatedMetadata.reduce((propAcc, meta) => {
+      // Initialize properties and required IDs
+      const properties: Record<string, any> = {};
+      const requiredIds: string[] = [];
+  
+      // Populate properties and requiredIds
+      relatedMetadata.forEach((meta) => {
         const description = meta.description
           ? `${meta.name}: ${meta.description}`
           : meta.name;
+  
         const property: any = {
           description,
         };
@@ -372,14 +389,20 @@ export class ProcessDataJob<T> {
           property.enum = meta.enum; // Assuming `meta.enum` is an array of possible values
         }
   
-        propAcc[meta.id] = property;
-        return propAcc;
-      }, {} as Record<string, any>);
+        properties[meta.id] = property;
   
-      acc[objectType.id] = properties;
-      return acc;
-    }, {} as Record<string, Record<string, any>>);
+        // Add to requiredIds if is_required is true
+        if (meta.is_required) {
+          requiredIds.push(meta.id);
+        }
+      });
+  
+      // Assign to the maps
+      objectMetadataFunctionProperties[objectType.id] = properties;
+      objectMetadataFunctionPropertiesRequiredIds[objectType.id] = requiredIds;
+    });
+  
+    // Return both maps
+    return [objectMetadataFunctionProperties, objectMetadataFunctionPropertiesRequiredIds];
   }
-
-  
 }

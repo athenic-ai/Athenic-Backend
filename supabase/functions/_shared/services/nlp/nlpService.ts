@@ -13,6 +13,7 @@ interface MemberVariables {
   selectedObjectTypeId?: string;
   selectedObjectsIds?: string[];
   objectMetadataFunctionProperties?: Record<string, unknown>;
+  objectMetadataFunctionPropertiesRequiredIds?: Record<string, string[]>;
 }
 
 interface ExecuteParams {
@@ -45,6 +46,7 @@ export class NlpService {
   private selectedObjectTypeId: string | null = null;
   private selectedObjectsIds: string | null = null;
   private objectMetadataFunctionProperties: Record<string, unknown> | null = null;
+  private objectMetadataFunctionPropertiesRequiredIds: Record<string, string[]> | null = null;
   private currentFunctionSupportList: any[] | null = null;
   private functionDeclarations: any[] | null = null;
   // private tasksPlugin: TasksPlugin;
@@ -77,6 +79,7 @@ export class NlpService {
     selectedObjectTypeId,
     selectedObjectsIds,
     objectMetadataFunctionProperties,
+    objectMetadataFunctionPropertiesRequiredIds,
   }: MemberVariables) {
     console.log("setMemberVariables called");
     if (organisationId) this.organisationId = organisationId;
@@ -87,6 +90,7 @@ export class NlpService {
     if (selectedObjectTypeId) this.selectedObjectTypeId = selectedObjectTypeId;
     if (selectedObjectsIds) this.selectedObjectsIds = selectedObjectsIds;
     if (objectMetadataFunctionProperties) this.objectMetadataFunctionProperties = objectMetadataFunctionProperties;
+    if (objectMetadataFunctionPropertiesRequiredIds) this.objectMetadataFunctionPropertiesRequiredIds = objectMetadataFunctionPropertiesRequiredIds;
   }
 
   async initialiseClientCore(apiKey: string): Promise<void> {
