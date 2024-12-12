@@ -6,7 +6,6 @@ export async function initialiseFunctions(baseInstance: any) {
   const functionsToReturn = {};
   const selectedObjectMetadataFunctionProperties = baseInstance.parent.objectMetadataFunctionProperties[baseInstance.parent.selectedObjectTypeId];
   const selectedObjectMetadataFunctionPropertiesRequiredIds = baseInstance.parent.objectMetadataFunctionPropertiesRequiredIds[baseInstance.parent.selectedObjectTypeId];
-  console.log(`selectedObjectMetadataFunctionPropertiesRequiredIds: ${selectedObjectMetadataFunctionPropertiesRequiredIds}`);
   if (baseInstance.parent.supportedObjectTypeIds != null) {
     console.log("baseInstance.parent.supportedObjectTypeIds", baseInstance.parent.supportedObjectTypeIds);
     functionsToReturn.predictObjectTypeBeingReferenced = {
