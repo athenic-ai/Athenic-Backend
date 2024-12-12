@@ -27,16 +27,16 @@ export class ProcessDataJob<T> {
     // this.tasksService = tasksService;
   }
 
-  async start({ connection, dataType, dryRun, data }: {
+  async start({ connection, dataType, dryRun, dataIn }: {
     connection: any;
     dataType: any;
-    data: any;
+    dataIn: any;
     dryRun: boolean;
 }): Promise<any> {
     console.log(`Processing data from connection: ${connection}`);
     try {
       // -----------Step 1: Get organisation's ID and data----------- 
-      const inferOrganisationResult = await this.inferOrganisation({ connection, data });
+      const inferOrganisationResult = await this.inferOrganisation({ connection, dataIn });
       let organisationId, organisationData;
 
       if (inferOrganisationResult.status != 200) {
@@ -83,11 +83,10 @@ export class ProcessDataJob<T> {
       console.log("b");
       await this.nlpService.initialiseClientCore();
       console.log("c");
-      const sampleDataIn = "Hello, I'd like to provide some feedback about the app. It is mostly good, but I wish it could set timers.";
       const predictObjectTypeBeingReferencedResult = await this.nlpService.execute({
         text: `You MUST call the 'predictObjectTypeBeingReferenced' function to decide which object type the following data most likely relates to.
           \n\nObject types that can be chosen from:\n${JSON.stringify(objectTypeDescriptions)}
-          \n\nData to review:\n${sampleDataIn}`,
+          \n\nData to review:\n${config.stringify(dataIn)}`,
         systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
         functionUsage: "required",
         limitedFunctionSupportList: ["predictObjectTypeBeingReferenced"],
@@ -105,7 +104,7 @@ export class ProcessDataJob<T> {
 
       // -----------Step 4: Process the data using the chosen object type's metadata----------- 
       const processDataUsingGivenObjectsMetadataStructureResult = await this.nlpService.execute({
-        text: `You MUST call the 'processDataUsingGivenObjectsMetadataStructure' function to process the following data:\n${sampleDataIn}`,
+        text: `You MUST call the 'processDataUsingGivenObjectsMetadataStructure' function to process the following data:\n${config.stringify(dataIn)}`,
         systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
         functionUsage: "required",
         limitedFunctionSupportList: ["processDataUsingGivenObjectsMetadataStructure"],
@@ -193,17 +192,17 @@ export class ProcessDataJob<T> {
     }
   }
 
-  private async inferOrganisation({ connection, data }: { connection: string; data: T }): Promise<FunctionResult> {
+  private async inferOrganisation({ connection, dataIn }: { connection: string; dataIn: T }): Promise<FunctionResult> {
     try {
       let organisationId;
-      if (data.organisationId) {
-        // See if organisationId already stored in data (connections such as CSV upload support this)
+      if (dataIn.organisationId) {
+        // See if organisationId already stored in dataIn (connections such as CSV upload support this)
         organisationId = feedbackData.organisationId;
       } else if (connection === "email") {
         // Infer organisationId from the domain of the sender if connection is email
-        organisationId = data.recipient.split("@")[0];
+        organisationId = dataIn.recipient.split("@")[0];
       } else if (connection === "productfruits") {
-        const mappingResult = await this.storageService.getRow({table: "connection_organisation_mapping", keys: {connection: connection, connection_id: data.data.projectCode}});
+        const mappingResult = await this.storageService.getRow({table: "connection_organisation_mapping", keys: {connection: connection, connection_id: dataIn.data.projectCode}});
         organisationId = mappingResult.data.organisation_id;
       }
   

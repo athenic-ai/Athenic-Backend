@@ -27,11 +27,11 @@ app.post('/data/:connection/:datatype/:dryrun', async (req, res) => {
     const connection = req.params.connection;
     const dataType = req.params.datatype;
     const dryrun = req.params.dryrun.toLowerCase() === 'true';
-    const data = req.body
-    console.log(`/data/:connection with:\nconnection: ${connection}\ntype: ${dataType}\ndryrun: ${dryrun}\ndata:${config.stringify(data)}`);
+    const dataIn = req.body
+    console.log(`/data/:connection with:\nconnection: ${connection}\ntype: ${dataType}\ndryrun: ${dryrun}\ndataIn:${config.stringify(dataIn)}`);
 
     const processDataJob: ProcessDataJob = new ProcessDataJob();
-    const result = await processDataJob.start({connection: connection, dataType: dataType, dryrun: dryrun, data: data});
+    const result = await processDataJob.start({connection: connection, dataType: dataType, dryrun: dryrun, dataIn: dataIn});
     res.status(result.status).send(result.message);
   } catch (error) {
     console.error(`Error in /data/:connection/:type: ${error.message}`);
