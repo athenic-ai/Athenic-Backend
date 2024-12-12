@@ -27,9 +27,8 @@ export class ProcessDataJob<T> {
     // this.tasksService = tasksService;
   }
 
-  async start({ connection, dataType, dryRun, dataIn }: {
+  async start({ connection, dryRun, dataIn }: {
     connection: any;
-    dataType: any;
     dataIn: any;
     dryRun: boolean;
 }): Promise<any> {

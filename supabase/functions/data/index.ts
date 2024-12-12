@@ -29,9 +29,9 @@ app.post('/data/:connection/:datatype/:dryrun', async (req, res) => {
     const dryrun = req.params.dryrun.toLowerCase() === 'true';
     const dataIn = req.body
     console.log(`/data/:connection with:\nconnection: ${connection}\ntype: ${dataType}\ndryrun: ${dryrun}\ndataIn:${config.stringify(dataIn)}`);
-
+    
     const processDataJob: ProcessDataJob = new ProcessDataJob();
-    const result = await processDataJob.start({connection: connection, dataType: dataType, dryrun: dryrun, dataIn: dataIn});
+    const result = await processDataJob.start({connection: connection, dryrun: dryrun, dataIn: dataIn}); // NOTE: datatype not currently used. Could be used to help inform the AI of the likely datatype
     res.status(result.status).send(result.message);
   } catch (error) {
     console.error(`Error in /data/:connection/:type: ${error.message}`);
