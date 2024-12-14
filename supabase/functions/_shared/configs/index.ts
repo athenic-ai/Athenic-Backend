@@ -38,9 +38,9 @@ export function stringify(obj: any): string {
 // }
 
 // Consts
-export const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+export const CORS_OPTIONS = {
+  origin: ["https://app.getathenic.com/","http://localhost:8000"],
+  optionsSuccessStatus: 200 // some legacy browsers (IE11, various SmartTVs) choke on 204
 }
 export const VANILLA_SYSTEM_INSTRUCTION =
 `You are a business data API assistant called Athenic, designed to process incoming business data, answer questions from the employees and do tasks on behalf of the business.

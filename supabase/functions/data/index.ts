@@ -2,12 +2,15 @@
 // import "jsr:@supabase/functions-js/edge-runtime.d.ts" // See if this is really needed
 // @deno-types="npm:@types/express@5.0.1"
 import express from 'npm:express@5.0.1';
+import cors from 'npm:cors';
 import bodyParser from 'npm:body-parser';
 import { ProcessDataJob } from '../_shared/jobs/processDataJob.ts';
 import * as config from "../_shared/configs/index.ts";
 
 const app = express();
 const port = 3000;
+
+app.use(cors(config.CORS_OPTIONS));
 
 // Middleware to handle multiple content types (as e.g. email isn't delivered as a JSON)
 app.use((req, res, next) => {
@@ -40,13 +43,23 @@ app.post('/data/con/:connection/typ/:datatype/dry/:dryrun', async (req, res) => 
     console.log('/data/:connection/:datatype/:dryrun started');
     const connection = req.params.connection;
     const dataType = req.params.datatype;
-    const dryrun = req.params.dryrun.toLowerCase() === 'true';
-    const dataIn = req.body
-    console.log(`/data/:connection with:\nconnection: ${connection}\ntype: ${dataType}\ndryrun: ${dryrun}\ndataIn:${config.stringify(dataIn)}`);
+    const dryRun: boolean = req.params.dryrun.toLowerCase() === 'true';
+
+    const dataIn = req.body // Will handle in any format, however if coming from Athenic, will be in a structured form to speed up processing, eg.:
+    // {
+    //  "athenicMetadata": {
+    //    "organisationId": widget.memberData.ownerOrganisationId,
+    //    "objectTypeId": constants.OBJECT_TYPE_ID_PRODUCT,
+    //    "parentObjectId": productId,
+    //    "dataDescription": inputtedFileUploadDescription.text,
+    //  },
+    //  "athenicDataContents": inputtedFileUploadData.text
+    // }
+    console.log(`/data/:connection with:\nconnection: ${connection}\ntype: ${dataType}\ndryRun: ${dryRun}\ndataIn:${config.stringify(dataIn)}`);
     
     const processDataJob: ProcessDataJob = new ProcessDataJob();
-    const result = await processDataJob.start({connection: connection, dryrun: dryrun, dataIn: dataIn}); // NOTE: datatype not currently used. Could be used to help inform the AI of the likely datatype
-    res.status(result.status).send(result.message);
+    const result = await processDataJob.start({connection: connection, dryRun: dryRun, dataIn: dataIn}); // NOTE: datatype not currently used. Could be used to help inform the AI of the likely datatype
+    res.status(result.status).send(result);
   } catch (error) {
     console.error(`Error in /data/:connection/:type: ${error.message}`);
     res.status(500).send(error.message);  }

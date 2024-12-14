@@ -29,11 +29,13 @@ export class ProcessDataJob<T> {
 
   async start({ connection, dryRun, dataIn }: {
     connection: any;
-    dataIn: any;
     dryRun: boolean;
+    dataIn: any;
 }): Promise<any> {
-    console.log(`Processing data from connection: ${connection}`);
+    console.log(`Processing data from connection: ${connection} and dryRun: ${dryRun}`);
+    let dataContents, objectTypes, objectTypeId;
     try {
+      await this.nlpService.initialiseClientCore();
       // -----------Step 1: Get organisation's ID and data----------- 
       const inferOrganisationResult = await this.inferOrganisation({ connection, dataIn });
       let organisationId, organisationData;
@@ -43,14 +45,14 @@ export class ProcessDataJob<T> {
       }
 
       [organisationId, organisationData] = inferOrganisationResult.data;
-      console.log(`Use these: organisationId: ${organisationId} and organisationData: ${JSON.stringify(organisationData)}`);
+      console.log(`✅ Completed "Step 1: Get organisation's ID and data", with organisationId: ${organisationId} and organisationData: ${JSON.stringify(organisationData)}`);
 
       // -----------Step 2: Get object types accessible to the organisation----------- 
       const getObjectTypesResult = await this.getObjectTypes({organisationId: organisationId});
       if (getObjectTypesResult.status != 200) {
         throw Error(getObjectTypesResult.message);
       }
-      const objectTypes = getObjectTypesResult.data; // List of maps of object types as in the database
+      objectTypes = getObjectTypesResult.data; // List of maps of object types as in the database
       const objectTypesIds = objectTypes.map(item => item.id); // List of strings of the ID of each object type
       objectTypesIds.push("unknown"); // Also add unknown in cases it cannot detect which to return // TODO: handle cases when data falls into this category, eg. setting it as some generic/general object type
 
@@ -69,9 +71,6 @@ export class ProcessDataJob<T> {
       console.log(`objectMetadataFunctionProperties: ${JSON.stringify(objectMetadataFunctionProperties)}`)
       console.log(`objectMetadataFunctionPropertiesRequiredIds: ${JSON.stringify(objectMetadataFunctionPropertiesRequiredIds)}`);
 
-      console.log("a");
-
-      // -----------Step 3: Determine which object type the data relates to-----------
       this.nlpService.setMemberVariables({
         organisationId: organisationId,
         organisationData: organisationData,
@@ -79,124 +78,174 @@ export class ProcessDataJob<T> {
         objectMetadataFunctionProperties: objectMetadataFunctionProperties,
         objectMetadataFunctionPropertiesRequiredIds: objectMetadataFunctionPropertiesRequiredIds,
       });
-      console.log("b");
-      await this.nlpService.initialiseClientCore();
-      console.log("c");
-      const predictObjectTypeBeingReferencedResult = await this.nlpService.execute({
-        text: `You MUST call the 'predictObjectTypeBeingReferenced' function to decide which object type the following data most likely relates to.
-          \n\nObject types that can be chosen from:\n${JSON.stringify(objectTypeDescriptions)}
-          \n\nData to review:\n${config.stringify(dataIn)}`,
-        systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
-        functionUsage: "required",
-        limitedFunctionSupportList: ["predictObjectTypeBeingReferenced"],
-        useLiteModels: true,
-      });
-      console.log("d");
-      console.log("predictObjectTypeBeingReferenced:", predictObjectTypeBeingReferencedResult);
-      if (predictObjectTypeBeingReferencedResult.status != 200) {
-        throw Error(predictObjectTypeBeingReferencedResult.message);
-      }
-      const predictedObjectTypeBeingReferenced = predictObjectTypeBeingReferencedResult.data;
-      this.nlpService.setMemberVariables({
-        selectedObjectTypeId: predictedObjectTypeBeingReferenced,
-      });
 
-      // -----------Step 4: Process the data using the chosen object type's metadata----------- 
-      const processDataUsingGivenObjectsMetadataStructureResult = await this.nlpService.execute({
-        text: `You MUST call the 'processDataUsingGivenObjectsMetadataStructure' function to process the following data:\n${config.stringify(dataIn)}`,
-        systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
-        functionUsage: "required",
-        limitedFunctionSupportList: ["processDataUsingGivenObjectsMetadataStructure"],
-        useLiteModels: true,
-      });
-      console.log("d");
-      if (processDataUsingGivenObjectsMetadataStructureResult.status != 200) {
-        throw Error(processDataUsingGivenObjectsMetadataStructureResult.message);
-      }
-      const objectData = processDataUsingGivenObjectsMetadataStructureResult.data;
-      console.log("objectData:", objectData);
+      console.log(`✅ Completed "Step 2: Get object types accessible to the organisation", with objectTypesIds: ${JSON.stringify(objectTypesIds)}, objectTypeDescriptions: ${JSON.stringify(objectTypeDescriptions)} and objectMetadataFunctionProperties: ${JSON.stringify(objectMetadataFunctionProperties)}`);
 
-      // -----------Step 5: If object type demands a parent object, determine which object should be the parent----------- 
-      const predictedObjectType = objectTypes.find(obj => obj.id === predictedObjectTypeBeingReferenced);
-      if (predictedObjectType && predictedObjectType.parent_object_type_id) {
-        // Step 5a: Retrieve all objects of this type
-        const parentObjectTypeId = predictedObjectType.parent_object_type_id;
-        const getPotentialParentObjectsResult = await this.storageService.getRows('objects', {
-          whereOrConditions: [
-            { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
-            { column: 'owner_organisation_id', operator: 'eq', value: organisationId }, // Include entries created by the org
-          ],
-          whereAndConditions: [
-            { column: 'related_type_id', operator: 'eq', value: parentObjectTypeId },
-          ],
+      // -----------Step 3: Prepare the actual data contents-----------
+      if (dataIn.athenicDataContents) {
+        dataContents = dataIn.athenicDataContents;
+      } else {
+        dataContents = dataIn; // If not sent from Athenic, include everything
+      }
+      console.log(`✅ Completed "Step 3: Prepare the actual data contents", with dataContents: ${JSON.stringify(dataContents)}`);
+
+      // -----------Step 4: Determine which object type the data relates to-----------
+      if (dataIn.athenicMetadata && dataIn.athenicMetadata.objectTypeId) {
+        // Add immediately if explictly provided
+        objectTypeId = dataIn.athenicMetadata.objectTypeId;
+      } else {
+        const predictObjectTypeBeingReferencedResult = await this.nlpService.execute({
+          text: `You MUST call the 'predictObjectTypeBeingReferenced' function to decide which object type the following data most likely relates to.
+            \n\nObject types that can be chosen from:\n${JSON.stringify(objectTypeDescriptions)}
+            \n\nData to review:\n${config.stringify(dataContents)}`,
+          systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
+          functionUsage: "required",
+          limitedFunctionSupportList: ["predictObjectTypeBeingReferenced"],
+          useLiteModels: true,
         });
-        const potentialParentObjects = getPotentialParentObjectsResult.data;
-        console.log(`potentialParentObjects: ${JSON.stringify(potentialParentObjects)}`);
-        if (potentialParentObjects && potentialParentObjects.length) {
-          // If there are actually some parent objects found
-          const potentialParentObjectsIds = potentialParentObjects.map(item => item.id); // List of strings of the ID of each object type
-          console.log("potentialParentObjectsIds", potentialParentObjectsIds);
-          this.nlpService.setMemberVariables({
-            selectedObjectsIds: potentialParentObjectsIds,
-          });
-          // Step 5b: Predict the appropriate object's parent
-          console.log("1");
-
-          const objectDataCopyWithoutId = structuredClone(objectData); // Create a deep copy
-          delete objectDataCopyWithoutId.id; // Remove the `id` key to help avoid the NLP getting confused and choosing this id as the chosen parent id
-
-          const predictObjectParentResult = await this.nlpService.execute({
-            text: `You MUST call the 'predictObjectParent' function to decide which object of type ${parentObjectTypeId} is the most appropriate parent for the given object.
-            \n\nObject that needs a parent:\n${JSON.stringify(objectDataCopyWithoutId)}
-            \n\nObjects that can be chosen from:\n${JSON.stringify(potentialParentObjects)}`,
-            systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
-            functionUsage: "required",
-            limitedFunctionSupportList: ["predictObjectParent"],
-            useLiteModels: true,
-          });
-          console.log("2");
-          console.log("predictObjectParentResult:", predictObjectParentResult);
-          if (predictObjectParentResult.status == 200 && predictObjectParentResult.data) {
-            // Step 5c: Assign a parent object assuming one could be found
-            objectData.parent_id = predictObjectParentResult.data;
-          }
-        } else {
-          console.log("Not adding parent to object as no objects of suitable type found");
+        console.log("d");
+        console.log("predictObjectTypeBeingReferenced:", predictObjectTypeBeingReferencedResult);
+        if (predictObjectTypeBeingReferencedResult.status != 200) {
+          throw Error(predictObjectTypeBeingReferencedResult.message);
         }
+        objectTypeId = predictObjectTypeBeingReferencedResult.data;
       }
-
-      const objectsUpdateResult = await this.storageService.updateRow({
-        table: "objects",
-        keys: {id: objectData.id},
-        rowData: objectData,
-        mayBeNew: true,
+      this.nlpService.setMemberVariables({
+        selectedObjectTypeId: objectTypeId,
       });
-
-      if (objectsUpdateResult.status != 200) {
-        throw Error(objectsUpdateResult.message);
-      }
-
-      const result: FunctionResult = {
-        status: 200,
-        message: "Successfully processed and stored data.",
-      };
-      return result;
-
+      console.log(`✅ Completed "Step 4: Determine which object type the data relates to", with objectTypeId: ${objectTypeId}`);
     } catch (error) {
+      // If haven't even managed to get past this stage, assume it's a critical error and return at this stage
       const result: FunctionResult = {
         status: 500,
-        message: "Error in ProcessDataJob: " + error.message,
+        message: `Failed to process data with error: ${error.message}. Please review your data and try again.`,
       };
       return result;
     }
+
+    // -----------Step 5: Process the data using the chosen object type's metadata----------- 
+    if (!Array.isArray(dataContents)) {
+      console.log(`dataContents is not array so converting it to one (it's currently a ${typeof dataContents})`);
+      dataContents = [dataContents]; // Make it a list if not already so that it can be iterated on below
+    }
+    let dataContentsOutcomes: any[] = []; // If dry run will contain data objects, otherwise will list all failed dataContentsItems
+    for (const dataContentsItem of dataContents) {
+      try {
+        // -----------Step 5a: Process the given data item----------- 
+        let processDataPrompt = `You MUST call the 'processDataUsingGivenObjectsMetadataStructure' function to process the following data:\n${config.stringify(dataContentsItem)}`;
+        if (dataIn.athenicMetadata && dataIn.athenicMetadata.dataDescription) {
+          processDataPrompt += `\n\nTo help, the member has provided the following context about the data:\n${dataIn.athenicMetadata.dataDescription}`;
+        }
+        const processDataUsingGivenObjectsMetadataStructureResult = await this.nlpService.execute({
+          text: processDataPrompt,
+          systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
+          functionUsage: "required",
+          limitedFunctionSupportList: ["processDataUsingGivenObjectsMetadataStructure"],
+          useLiteModels: true,
+        });
+        console.log("d");
+        if (processDataUsingGivenObjectsMetadataStructureResult.status != 200) {
+          throw Error(processDataUsingGivenObjectsMetadataStructureResult.message);
+        }
+        const objectData = processDataUsingGivenObjectsMetadataStructureResult.data;
+        console.log("objectData:", objectData);
+        console.log(`✅ Completed "Step 5a: Process the given data item", with objectData: ${JSON.stringify(objectData)}`);
+  
+        // -----------Step 5b: If object type demands a parent object, determine which object should be the parent-----------
+        if (dataIn.athenicMetadata && dataIn.athenicMetadata.parentObjectId) {
+          // Add immediately if explictly provided
+          objectData.parent_id = dataIn.athenicMetadata.parentObjectId;
+        } else {
+          const predictedObjectType = objectTypes.find(obj => obj.id === objectTypeId);
+          if (predictedObjectType && predictedObjectType.parent_object_type_id) {
+            // Step 5bi: Retrieve all objects of this type
+            const parentObjectTypeId = predictedObjectType.parent_object_type_id;
+            const getPotentialParentObjectsResult = await this.storageService.getRows('objects', {
+              whereOrConditions: [
+                { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
+                { column: 'owner_organisation_id', operator: 'eq', value: organisationId }, // Include entries created by the org
+              ],
+              whereAndConditions: [
+                { column: 'related_type_id', operator: 'eq', value: parentObjectTypeId },
+              ],
+            });
+            const potentialParentObjects = getPotentialParentObjectsResult.data;
+            console.log(`potentialParentObjects: ${JSON.stringify(potentialParentObjects)}`);
+            console.log(`✅ Completed "Step 5bi: Retrieve all objects of this type", with: ${JSON.stringify(potentialParentObjects)}`);
+            if (potentialParentObjects && potentialParentObjects.length) {
+              // If there are actually some parent objects found
+              const potentialParentObjectsIds = potentialParentObjects.map(item => item.id); // List of strings of the ID of each object type
+              console.log("potentialParentObjectsIds", potentialParentObjectsIds);
+              this.nlpService.setMemberVariables({
+                selectedObjectsIds: potentialParentObjectsIds,
+              });
+              // Step 5bii: Predict the appropriate object's parent
+              console.log("1");
+    
+              const objectDataCopyLimitedData = structuredClone(objectData); // Create a deep copy
+              delete objectDataCopyLimitedData.id; // Remove the `id` key to help avoid the NLP getting confused and choosing this id as the chosen parent id
+              delete objectDataCopyLimitedData.owner_organisation_id; // Remove the `owner_organisation_id` key to help avoid the NLP getting confused and taking into account the org name unecessarily
+    
+              const predictObjectParentResult = await this.nlpService.execute({
+                text: `You MUST call the 'predictObjectParent' function to decide which object of type ${parentObjectTypeId} is the most appropriate parent for the given object.
+                \n\nObject that needs a parent:\n${JSON.stringify(objectDataCopyLimitedData)}
+                \n\nObjects that can be chosen from:\n${JSON.stringify(potentialParentObjects)}`,
+                systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
+                functionUsage: "required",
+                limitedFunctionSupportList: ["predictObjectParent"],
+                useLiteModels: true,
+              });
+              console.log("2");
+              console.log("predictObjectParentResult:", predictObjectParentResult);
+              console.log(`✅ Completed "Step 5bii: Predict the appropriate object's parent", with: ${JSON.stringify(predictObjectParentResult)}`)
+              if (predictObjectParentResult.status == 200 && predictObjectParentResult.data) {
+                // Step 5biii: Assign a parent object assuming one could be found
+                objectData.parent_id = predictObjectParentResult.data;
+                console.log(`✅ Completed "Step 5biii: Assign a parent object assuming one could be found", with: ${JSON.stringify(objectData)}`);
+              }
+            } else {
+              console.log("Not adding parent to object as no objects of suitable type found");
+            }
+          }
+        }
+        
+        // -----------Step 5c: Save object as appropriate-----------
+        if (dryRun) {
+          // Not actually saving data if dry run, just returning what would be saved
+          dataContentsOutcomes.push(objectData);
+        } else {
+          const objectsUpdateResult = await this.storageService.updateRow({
+            table: "objects",
+            keys: {id: objectData.id},
+            rowData: objectData,
+            mayBeNew: true,
+          });
+    
+          if (objectsUpdateResult.status != 200) {
+            throw Error(objectsUpdateResult.message);
+          }
+        }
+        console.log(`✅ Completed "Step 5c: Save object as appropriate", with: dryRun: ${dryRun}`);
+      }
+      catch (error) {
+        dataContentsOutcomes.push(`Failed to process: ${config.stringify(dataContentsItem)}. Error: ${error.message}`);
+      }
+    }
+
+    const result: FunctionResult = {
+      status: 200,
+      message: "Successfully processed and stored data.",
+      data: dataContentsOutcomes,
+    };
+    return result;
   }
 
   private async inferOrganisation({ connection, dataIn }: { connection: string; dataIn: T }): Promise<FunctionResult> {
     try {
       let organisationId;
-      if (dataIn.organisationId) {
+      if (dataIn.athenicMetadata && dataIn.athenicMetadata.organisationId) {
         // See if organisationId already stored in dataIn (connections such as CSV upload support this)
-        organisationId = feedbackData.organisationId;
+        organisationId = dataIn.athenicMetadata.organisationId;
       } else if (connection === "email") {
         // Infer organisationId from the domain of the sender if connection is email
         organisationId = dataIn.recipient.split("@")[0];
