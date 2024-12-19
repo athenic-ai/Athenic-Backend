@@ -116,7 +116,7 @@ export async function initialiseFunctions(baseInstance: any) {
           const objectData = {
             id: uuid.v1.generate(),
             owner_organisation_id: baseInstance.parent.organisationId,
-            related_type_id: baseInstance.parent.selectedObjectTypeId,
+            related_object_type_id: baseInstance.parent.selectedObjectTypeId,
             metadata: processedMetadata
           };
           const result: FunctionResult = {

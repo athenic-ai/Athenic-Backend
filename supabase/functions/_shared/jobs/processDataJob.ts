@@ -64,10 +64,10 @@ export class ProcessDataJob<T> {
 
       console.log("AA");
 
-      const objectTypeDescriptions = this.createObjectTypeDescriptions(objectTypes, objectMetadataTypes); // Example output: {"product":{"name":"Product","description":"An item that is sold to users by teams (e.g. Apple Music is sold to users by Apple).","metadata":{"product_marketing_url":{"description":"Marketing URL","type":"string"},"product_types":{"description":"Product types","type":"array","items":{"type":"string"}},"product_ids":{"description":"In the form:\n   \"android/ios/...\"\n      -> \"id\"","type":"object"}}},"feedback":{"name":"Feedback","description":"Feedback from users about topics such as a product, service, experience or even the organisation in general.","metadata":{"feedback_author_name":{"description":"Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}}
+      const objectTypeDescriptions = this.createObjectTypeDescriptions(objectTypes, objectMetadataTypes); // Example output: {"product":{"name":"Product","description":"An item that is sold to users by teams (e.g. Apple Music is sold to users by Apple).","metadata":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}},"ids":{"description":"In the form:\n   \"android/ios/...\"\n      -> \"id\"","type":"object"}}},"feedback":{"name":"Feedback","description":"Feedback from users about topics such as a product, service, experience or even the organisation in general.","metadata":{"author_name":{"description":"Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}}
       console.log(`objectTypeDescriptions: ${JSON.stringify(objectTypeDescriptions)}`)
 
-      const [objectMetadataFunctionProperties, objectMetadataFunctionPropertiesRequiredIds] = this.createObjectMetadataFunctionProperties(objectTypes, objectMetadataTypes); // Example output: {"product":{"product_marketing_url":{"description":"Marketing URL","type":"string"},"product_types":{"description":"Product types","type":"array","items":{"type":"string"}}},"feedback":{"feedback_author_name":{"description":"Author name: Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Deal size: Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}
+      const [objectMetadataFunctionProperties, objectMetadataFunctionPropertiesRequiredIds] = this.createObjectMetadataFunctionProperties(objectTypes, objectMetadataTypes); // Example output: {"product":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}}},"feedback":{"author_name":{"description":"Author name: Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Deal size: Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}
       console.log(`objectMetadataFunctionProperties: ${JSON.stringify(objectMetadataFunctionProperties)}`)
       console.log(`objectMetadataFunctionPropertiesRequiredIds: ${JSON.stringify(objectMetadataFunctionPropertiesRequiredIds)}`);
 
@@ -166,7 +166,7 @@ export class ProcessDataJob<T> {
                 { column: 'owner_organisation_id', operator: 'eq', value: organisationId }, // Include entries created by the org
               ],
               whereAndConditions: [
-                { column: 'related_type_id', operator: 'eq', value: parentObjectTypeId },
+                { column: 'related_object_type_id', operator: 'eq', value: parentObjectTypeId },
               ],
             });
             const potentialParentObjects = getPotentialParentObjectsResult.data;
@@ -359,15 +359,11 @@ export class ProcessDataJob<T> {
           description,
         };
   
-        if (meta.is_array) {
-          property.type = "array";
-          property.items = { type: meta.data_type };
-        } else {
-          property.type = meta.data_type;
-        }
+        property.fieldType = meta.field_type; // TODO: check this is displaying as expected and consider also/instead of including the underlying data type
   
-        if (meta.enum) {
-          property.enum = meta.enum; // Assuming `meta.enum` is an array of possible values
+        // TODO: likely remove enum_options in favour of dictionary terms instead
+        if (meta.enum_options) {
+          property.enumOptions = meta.enum_options; // Assuming `meta.enum_options` is an array of possible values
         }
   
         acc[meta.id] = property;
@@ -425,15 +421,11 @@ export class ProcessDataJob<T> {
           description,
         };
   
-        if (meta.is_array) {
-          property.type = "array";
-          property.items = { type: meta.data_type };
-        } else {
-          property.type = meta.data_type;
-        }
+        property.fieldType = meta.field_type;
   
-        if (meta.enum) {
-          property.enum = meta.enum; // Assuming `meta.enum` is an array of possible values
+        // TODO: likely remove enum_options in favour of dictionary terms instead
+        if (meta.enum_options) {
+          property.enumOptions = meta.enum_options; // Assuming `meta.enum_options` is an array of possible values
         }
   
         properties[meta.id] = property;
