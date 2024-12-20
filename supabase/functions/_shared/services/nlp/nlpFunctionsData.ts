@@ -43,7 +43,7 @@ export async function initialiseFunctions(baseInstance: any) {
         } catch (error) {
           const result: FunctionResult = {
             status: 500,
-            message: "Error in predictProductBeingReferenced: " + error.message,
+            message: "❌ Error in predictProductBeingReferenced: " + error.message,
           };
           return result;
         }
@@ -86,7 +86,7 @@ export async function initialiseFunctions(baseInstance: any) {
         } catch (error) {
           const result: FunctionResult = {
             status: 500,
-            message: "Error in predictObjectParent: " + error.message,
+            message: "❌ Error in predictObjectParent: " + error.message,
           };
           return result;
         }
@@ -128,7 +128,7 @@ export async function initialiseFunctions(baseInstance: any) {
         } catch (error) {
           const result: FunctionResult = {
             status: 500,
-            message: "Error in processDataUsingGivenObjectsMetadataStructure: " + error.message,
+            message: "❌ Error in processDataUsingGivenObjectsMetadataStructure: " + error.message,
           };
           return result;
         }

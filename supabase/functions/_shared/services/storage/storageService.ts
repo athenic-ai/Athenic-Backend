@@ -74,7 +74,7 @@ export class StorageService {
     } catch (error) {
       const result: FunctionResult = {
         status: 500,
-        message: `Error in getRow: ${error.message}`,
+        message: `❌ Error in getRow: ${error.message}`,
       };
       console.error(result.message);
       return result;
@@ -138,65 +138,86 @@ export class StorageService {
     } catch (error) {
       const result: FunctionResult = {
         status: 500,
-        message: `Error in getRows: ${error.message}`,
+        message: `❌ Error in getRows: ${error.message}`,
       };
       console.error(result.message);
       return result;
     }
   }
 
-  async updateRow({ table, keys, rowData, mayBeNew = false }: { 
-    table: string; 
+  async updateRow({
+    table,
+    keys,
+    rowData,
+    mayAlreadyExist = false, // Defaults to false
+  }: {
+    table: string;
     keys: Record<string, any>; // Object where keys are column names and values are their corresponding values
-    rowData: any; 
-    mayBeNew?: boolean; // Optional parameter with a default value
-  } = {
-    mayBeNew: false, // Default value if not provided
+    rowData: any;
+    mayAlreadyExist?: boolean;
   }) {
-    try {  
+    try {
       console.log(
         `Processing row in table: ${table} with keys: ${JSON.stringify(keys)}, ` +
-        `data: ${JSON.stringify(rowData)}, mayBeNew: ${mayBeNew}`
+        `data: ${JSON.stringify(rowData)}, mayAlreadyExist: ${mayAlreadyExist}`
       );
   
-      const queryBuilder = this.supabase.from(table);
-  
-      if (mayBeNew) {
-        // Perform an upsert (only doing if mayBeNew, as upsert doesn't support only updating some columns)
-        const { error } = await queryBuilder.upsert({ ...keys, ...rowData });
-  
-        if (error) {
-          throw error;
-        }
-        console.log(`Row upserted successfully in table: ${table}`);
-      } else {
-        // Perform an update
-        let query = queryBuilder.update(rowData);
-        for (const [key, value] of Object.entries(keys)) {
-          query = query.eq(key, value);
-        }
-  
-        const { error } = await query;
-        if (error) {
-          throw error;
-        }
-        console.log(`Row updated successfully in table: ${table}`);
+      // Validate input
+      if (!table || Object.keys(keys).length === 0) {
+        throw new Error("Table name and at least one key are required.");
       }
   
+      let existingRow = null;
+  
+      if (mayAlreadyExist) {
+        const result = await this.getRow({ table, keys });
+        if (result.status === 200) {
+          existingRow = result.data;
+        } else if (result.status !== 404) {
+          throw new Error(result.message || "Error fetching existing row.");
+        }
+      }
+  
+      const mergeData = (existing: any, incoming: any): any => {
+        if (Array.isArray(existing) && Array.isArray(incoming)) {
+          // Merge arrays: combine unique values
+          return Array.from(new Set([...existing, ...incoming]));
+        } else if (typeof existing === "object" && existing !== null && typeof incoming === "object" && incoming !== null) {
+          // Merge objects recursively
+          const merged = { ...existing };
+          for (const [key, value] of Object.entries(incoming)) {
+            merged[key] = mergeData(existing[key], value);
+          }
+          return merged;
+        }
+        // Overwrite for non-object, non-array fields
+        return incoming;
+      };
+  
+      // Merge rowData with existing data
+      const mergedRowData = existingRow ? mergeData(existingRow, rowData) : { ...keys, ...rowData };  
+  
+      // Perform upsert with the merged data
+      const queryBuilder = this.supabase.from(table);
+      const { error } = await queryBuilder.upsert(mergedRowData);
+  
+      if (error) {
+        throw error;
+      }
+
+      console.log(`Row processed successfully in table: ${table}`);
       const result: FunctionResult = {
         status: 200,
         message: "Row processed successfully"
       };
       return result;
     } catch (error) {
-      console.error("Error in updateOrUpsertRow:", error);
+      console.error("Error in updateRow:", error);
       const result: FunctionResult = {
         status: 500,
-        message: "Error processing row: " + error.message,
+        message: "❌ Error processing row: " + error.message,
       };
       return result;
     }
-  }  
-
-  
+  }
 }

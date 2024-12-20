@@ -33,12 +33,12 @@ export class ProcessDataJob<T> {
     dataIn: any;
 }): Promise<any> {
     console.log(`Processing data from connection: ${connection} and dryRun: ${dryRun}`);
-    let dataContents, objectTypes, objectTypeId;
+    let organisationId, dataContents, objectTypes, objectTypeId;
     try {
       await this.nlpService.initialiseClientCore();
       // -----------Step 1: Get organisation's ID and data----------- 
       const inferOrganisationResult = await this.inferOrganisation({ connection, dataIn });
-      let organisationId, organisationData;
+      let organisationData;
 
       if (inferOrganisationResult.status != 200) {
         throw Error(inferOrganisationResult.message);
@@ -62,12 +62,24 @@ export class ProcessDataJob<T> {
       }
       const objectMetadataTypes = getObjectMetadataTypesResult.data;
 
+      const getFieldTypesResult = await this.getFieldTypes();
+      if (getFieldTypesResult.status != 200) {
+        throw Error(getFieldTypesResult.message);
+      }
+      const fieldTypes = getFieldTypesResult.data;
+
+      const getDictionaryTermsResult = await this.getDictionaryTerms();
+      if (getDictionaryTermsResult.status != 200) {
+        throw Error(getDictionaryTermsResult.message);
+      }
+      const dictionaryTerms = getDictionaryTermsResult.data;
+
       console.log("AA");
 
       const objectTypeDescriptions = this.createObjectTypeDescriptions(objectTypes, objectMetadataTypes); // Example output: {"product":{"name":"Product","description":"An item that is sold to users by teams (e.g. Apple Music is sold to users by Apple).","metadata":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}},"ids":{"description":"In the form:\n   \"android/ios/...\"\n      -> \"id\"","type":"object"}}},"feedback":{"name":"Feedback","description":"Feedback from users about topics such as a product, service, experience or even the organisation in general.","metadata":{"author_name":{"description":"Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}}
       console.log(`objectTypeDescriptions: ${JSON.stringify(objectTypeDescriptions)}`)
 
-      const [objectMetadataFunctionProperties, objectMetadataFunctionPropertiesRequiredIds] = this.createObjectMetadataFunctionProperties(objectTypes, objectMetadataTypes); // Example output: {"product":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}}},"feedback":{"author_name":{"description":"Author name: Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Deal size: Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}
+      const [objectMetadataFunctionProperties, objectMetadataFunctionPropertiesRequiredIds] = this.createObjectMetadataFunctionProperties(objectTypes, objectMetadataTypes, fieldTypes, dictionaryTerms); // Example output: {"product":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}}},"feedback":{"author_name":{"description":"Author name: Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Deal size: Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}
       console.log(`objectMetadataFunctionProperties: ${JSON.stringify(objectMetadataFunctionProperties)}`)
       console.log(`objectMetadataFunctionPropertiesRequiredIds: ${JSON.stringify(objectMetadataFunctionPropertiesRequiredIds)}`);
 
@@ -88,7 +100,7 @@ export class ProcessDataJob<T> {
         dataContents = dataIn; // If not sent from Athenic, include everything
       }
       console.log(`✅ Completed "Step 3: Prepare the actual data contents", with dataContents: ${JSON.stringify(dataContents)}`);
-
+      
       // -----------Step 4: Determine which object type the data relates to-----------
       if (dataIn.athenicMetadata && dataIn.athenicMetadata.objectTypeId) {
         // Add immediately if explictly provided
@@ -118,7 +130,7 @@ export class ProcessDataJob<T> {
       // If haven't even managed to get past this stage, assume it's a critical error and return at this stage
       const result: FunctionResult = {
         status: 500,
-        message: `Failed to process data with error: ${error.message}. Please review your data and try again.`,
+        message: `❌ Failed to process data with error: ${error.message}. Please review your data and try again.`,
       };
       return result;
     }
@@ -155,11 +167,17 @@ export class ProcessDataJob<T> {
         if (dataIn.athenicMetadata && dataIn.athenicMetadata.parentObjectId) {
           // Add immediately if explictly provided
           objectData.parent_id = dataIn.athenicMetadata.parentObjectId;
+          console.log(`✅ Completed "Step 5b: Auto assigned object's parent", with: parent id: ${objectData.parent_id}`);
         } else {
+          console.log("aa");
           const predictedObjectType = objectTypes.find(obj => obj.id === objectTypeId);
+          console.log(`predictedObjectType: ${predictedObjectType}`);
           if (predictedObjectType && predictedObjectType.parent_object_type_id) {
+            console.log("Starting Step 5bi");
             // Step 5bi: Retrieve all objects of this type
             const parentObjectTypeId = predictedObjectType.parent_object_type_id;
+            console.log(`parentObjectTypeId: ${parentObjectTypeId}`);
+            console.log(`organisationId: ${organisationId}`);
             const getPotentialParentObjectsResult = await this.storageService.getRows('objects', {
               whereOrConditions: [
                 { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
@@ -206,23 +224,45 @@ export class ProcessDataJob<T> {
             } else {
               console.log("Not adding parent to object as no objects of suitable type found");
             }
+          } else {
+            console.log(`Not adding parent to object as predictedObjectType: ${predictedObjectType} and/or predictedObjectType.parent_object_type_id: ${predictedObjectType.parent_object_type_id}`);
           }
         }
         
         // -----------Step 5c: Save object as appropriate-----------
         if (dryRun) {
           // Not actually saving data if dry run, just returning what would be saved
+          console.log(`Dry run, so just adding objectData: ${JSON.stringify(objectData)}`);
           dataContentsOutcomes.push(objectData);
         } else {
-          const objectsUpdateResult = await this.storageService.updateRow({
+          // Update the object
+          console.log(`Updating object data in DB with objectData: ${JSON.stringify(objectData)}`);
+          const objectUpdateResult = await this.storageService.updateRow({
             table: "objects",
             keys: {id: objectData.id},
             rowData: objectData,
-            mayBeNew: true,
+            mayAlreadyExist: false, // Change this to true if in future it is decided that if dupe data is uploaded, we should implement logic to merge rather than just add new
           });
-    
-          if (objectsUpdateResult.status != 200) {
-            throw Error(objectsUpdateResult.message);
+          if (objectUpdateResult.status != 200) {
+            throw Error(objectUpdateResult.message);
+          }
+
+          // Update the object's parent, if it exists, with new child_id value
+          if (objectData.parent_id) {
+            console.log("Update the object's parent with new child_id value");
+            const objectParentUpdateResult = await this.storageService.updateRow({
+              table: "objects",
+              keys: {id: objectData.parent_id},
+              rowData: {
+                child_ids: {[objectData.related_object_type_id]: [objectData.id]},
+              },
+              mayAlreadyExist: true,
+            });
+            if (objectParentUpdateResult.status != 200) {
+              throw Error(objectParentUpdateResult.message);
+            }
+          } else {
+            console.log("No parent so not updating any other object");
           }
         }
         console.log(`✅ Completed "Step 5c: Save object as appropriate", with: dryRun: ${dryRun}`);
@@ -272,7 +312,7 @@ export class ProcessDataJob<T> {
     } catch (error) {
       const result: FunctionResult = {
         status: 500,
-        message: error.message,
+        message: `❌ ${error.message}`,
       };
       console.error(result.message);
       return result;
@@ -302,7 +342,7 @@ export class ProcessDataJob<T> {
     } catch(error) {
       const result: FunctionResult = {
         status: 500,
-        message: error.message,
+        message: `❌ ${error.message}`,
       };
       console.error(result.message);
       return result;
@@ -332,7 +372,59 @@ export class ProcessDataJob<T> {
     } catch(error) {
       const result: FunctionResult = {
         status: 500,
-        message: error.message,
+        message: `❌ ${error.message}`,
+      };
+      console.error(result.message);
+      return result;
+    }
+  }
+
+  private async getFieldTypes(): Promise<FunctionResult> {
+    try {
+      console.log("getFieldTypes() called");
+      const getFieldTypesResult = await this.storageService.getRows('field_types', {
+      });
+      if (getFieldTypesResult.status != 200) {
+        return new Error(getFieldTypesResult.message);
+      }
+      const fieldTypes = getFieldTypesResult.data;
+      console.log(`fieldTypes: ${JSON.stringify(fieldTypes)}`)
+      const result: FunctionResult = {
+        status: 200,
+        message: "Success running getFieldTypes",
+        data: fieldTypes,
+      };
+      return result;
+    } catch(error) {
+      const result: FunctionResult = {
+        status: 500,
+        message: `❌ ${error.message}`,
+      };
+      console.error(result.message);
+      return result;
+    }
+  }
+
+  private async getDictionaryTerms(): Promise<FunctionResult> {
+    try {
+      console.log("getDictionaryTerms() called");
+      const getDictionaryTermsResult = await this.storageService.getRows('dictionary_terms', {
+      });
+      if (getDictionaryTermsResult.status != 200) {
+        return new Error(getDictionaryTermsResult.message);
+      }
+      const dictionaryTerms = getDictionaryTermsResult.data;
+      console.log(`dictionaryTerms: ${JSON.stringify(dictionaryTerms)}`)
+      const result: FunctionResult = {
+        status: 200,
+        message: "Success running getDictionaryTerms",
+        data: dictionaryTerms,
+      };
+      return result;
+    } catch(error) {
+      const result: FunctionResult = {
+        status: 500,
+        message: `❌ ${error.message}`,
       };
       console.error(result.message);
       return result;
@@ -340,6 +432,7 @@ export class ProcessDataJob<T> {
   }
 
   private createObjectTypeDescriptions(objectTypes: any[], metadataTypes: any[]) {
+    // TODO: possibly remove this and reuse createObjectMetadataFunctionProperties instead?
     // Returns a map where the keys are each object type's ID, and the values are:
     // - The object type's name
     // - The object type's description
@@ -359,12 +452,8 @@ export class ProcessDataJob<T> {
           description,
         };
   
-        property.fieldType = meta.field_type; // TODO: check this is displaying as expected and consider also/instead of including the underlying data type
+        property.fieldType = meta.field_type_id; // TODO: check this is displaying as expected and consider also/instead of including the underlying data type
   
-        // TODO: likely remove enum_options in favour of dictionary terms instead
-        if (meta.enum_options) {
-          property.enumOptions = meta.enum_options; // Assuming `meta.enum_options` is an array of possible values
-        }
   
         acc[meta.id] = property;
         return acc;
@@ -383,7 +472,9 @@ export class ProcessDataJob<T> {
 
   private createObjectMetadataFunctionProperties(
     objectTypes: any[],
-    metadataTypes: any[]
+    metadataTypes: any[],
+    fieldTypes: any[],
+    dictionaryTerms: any[]
   ): [Record<string, Record<string, any>>, Record<string, string[]>] {
     // Creates two maps:  
     // 1. `objectMetadataFunctionProperties` - A map where the key is the object ID and the value is a structured object describing for the AI how to create this object's metadata, including metadata where `related_object_type_id` is `null` and excluding those with `allow_ai_update` explicitly set to `false`.  
@@ -391,7 +482,9 @@ export class ProcessDataJob<T> {
     console.log(
       `createStructuredObjectFunctions called with objectTypes: ${JSON.stringify(
         objectTypes
-      )} and metadataTypes: ${JSON.stringify(metadataTypes)}`
+      )} and metadataTypes: ${JSON.stringify(metadataTypes)}
+       and fieldTypes: ${JSON.stringify(fieldTypes)}
+        and dictionaryTerms: ${JSON.stringify(dictionaryTerms)}`
     );
   
     // Initialize the result maps
@@ -413,30 +506,63 @@ export class ProcessDataJob<T> {
   
       // Populate properties and requiredIds
       relatedMetadata.forEach((meta) => {
-        const description = meta.description
-          ? `${meta.name}: ${meta.description}`
-          : meta.name;
-  
-        const property: any = {
-          description,
-        };
-  
-        property.fieldType = meta.field_type;
-  
-        // TODO: likely remove enum_options in favour of dictionary terms instead
-        if (meta.enum_options) {
-          property.enumOptions = meta.enum_options; // Assuming `meta.enum_options` is an array of possible values
-        }
-  
-        properties[meta.id] = property;
-  
-        // Add to requiredIds if is_required is true
-        if (meta.is_required) {
-          requiredIds.push(meta.id);
+        if (meta.allow_ai_update) {
+          console.log(`Adding metadata objectType.id: ${objectType.id}, meta: ${JSON.stringify(meta)}`);
+          const property: any = {};
+          let description = meta.description
+            ? `${meta.name}: ${meta.description}`
+            : meta.name;
+          if (meta.max_value) {
+            description += `\nThe max value is: ${meta.max_value}`;
+          }
+          if (meta.dictionary_term_type) {
+            // 1. List of IDs matching the given type.
+            const idsMatchingType = dictionaryTerms
+            .filter(term => term.type === meta.dictionary_term_type)
+            .map(term => term.id);
+
+            console.log("IDs matching type:", idsMatchingType);
+
+            // 2. List of maps with id and description for matching items.
+            const mapsMatchingType = dictionaryTerms
+            .filter(term => term.type === meta.dictionary_term_type)
+            .map(term => ({ id: term.id, description: term.description }));
+
+            console.log("Maps matching type:", mapsMatchingType);
+
+            description += `\nDescriptions for the enums are: ${JSON.stringify(mapsMatchingType)}`;
+
+            property.enum = idsMatchingType;
+          }
+
+          property.description = description;
+    
+          const fieldTypeMap = fieldTypes.find((entry) => entry.id === meta.field_type_id);
+          property.type = fieldTypeMap.data_type; // Assign data type by retrieving the data type based on the matching field_type_id
+          if (fieldTypeMap.is_array) {
+            // If true, surround property within an array structure
+            const propertyArrContainer: any = {
+              type: "array",
+              description: `Array of ${meta.name} items`,
+              items: property,
+            };
+            properties[meta.id] = propertyArrContainer;
+          } else {
+            properties[meta.id] = property;
+          }
+          console.log(`properties[meta.id] (where meta.id=${meta.id}) is now set to: ${JSON.stringify(properties[meta.id])}`)
+
+          // Add to requiredIds if is_required is true
+          if (meta.is_required) {
+            requiredIds.push(meta.id);
+          }
+        } else {
+          console.log(`Skipping metadata as allow_ai_update is false for objectType.id: ${objectType.id}, meta: ${JSON.stringify(meta)}`);
         }
       });
   
       // Assign to the maps
+      console.log(`For objectType.id: ${objectType.id}, properties: ${JSON.stringify(properties)}`);
       objectMetadataFunctionProperties[objectType.id] = properties;
       objectMetadataFunctionPropertiesRequiredIds[objectType.id] = requiredIds;
     });

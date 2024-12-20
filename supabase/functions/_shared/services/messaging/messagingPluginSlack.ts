@@ -73,7 +73,7 @@ export class MessagingPluginSlack implements MessagingInterface {
       console.error("Auth callback error:", error);
       const result: FunctionResult = {
         status: 500,
-        message: `An error occurred while connecting Slack.\nError: ${error.message}`,
+        message: `❌ An error occurred while connecting Slack.\nError: ${error.message}`,
       };
     }
   }
