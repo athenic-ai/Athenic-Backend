@@ -44,7 +44,7 @@ export class NlpService {
   private memberData: any | null = null;
   private supportedObjectTypeIds: string[] = [];
   private selectedObjectTypeId: string | null = null;
-  private selectedObjectsIds: string | null = null;
+  private selectedObjectsIds: string[] = [];
   private objectMetadataFunctionProperties: Record<string, unknown> | null = null;
   private objectMetadataFunctionPropertiesRequiredIds: Record<string, string[]> | null = null;
   private currentFunctionSupportList: any[] | null = null;
