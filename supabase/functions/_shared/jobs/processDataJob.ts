@@ -54,8 +54,8 @@ export class ProcessDataJob<T> {
       }
       objectTypes = getObjectTypesResult.data; // List of maps of object types as in the database
       const objectTypesIds = objectTypes
-        .filter(item => item.category === "organisation_data") // Filter by category NOTE: this line is untested
-        .map(item => item.id); // List of strings of the ID of each object type of the organisation_data category
+        .filter(item => item.category === "organisation_data_static") // Filter by category NOTE: this line is untested
+        .map(item => item.id); // List of strings of the ID of each object type of the organisation_data_static category
       objectTypesIds.push("unknown"); // Also add unknown in cases it cannot detect which to return // TODO: handle cases when data falls into this category, eg. setting it as some generic/general object type
 
       const getObjectMetadataTypesResult = await this.getObjectMetadataTypes({organisationId: organisationId});
