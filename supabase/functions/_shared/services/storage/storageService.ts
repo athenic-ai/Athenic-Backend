@@ -1,5 +1,6 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import * as config from "../../configs/index.ts";
+import { NlpService } from "../nlp/nlpService.ts";
 
 type WhereCondition = {
   column: string;
@@ -22,7 +23,11 @@ type GetRowsOptions = {
 export class StorageService {
   private supabase: SupabaseClient;
 
-  constructor({ accessToken }: { accessToken?: string | null } = {}) {
+  constructor(
+    {
+      accessToken,
+    }: { accessToken?: string | null } = {}
+  ) {
     console.log("Initialising Supabase client");
     // Initialise Supabase client
     try {
@@ -149,11 +154,13 @@ export class StorageService {
     table,
     keys,
     rowData,
+    nlpService,
     mayAlreadyExist = false, // Defaults to false
   }: {
     table: string;
     keys: Record<string, any>; // Object where keys are column names and values are their corresponding values
     rowData: any;
+    nlpService: any
     mayAlreadyExist?: boolean;
   }) {
     try {
@@ -195,7 +202,15 @@ export class StorageService {
       };
   
       // Merge rowData with existing data
-      const mergedRowData = existingRow ? mergeData(existingRow, rowData) : { ...keys, ...rowData };  
+      let mergedRowData = existingRow ? mergeData(existingRow, rowData) : { ...keys, ...rowData };  
+
+      // Generate embeddings value (guide: https://supabase.com/docs/guides/ai/vector-columns)
+      console.log("Adding embeddings to data...");
+      const embeddingRes = await nlpService.addEmbeddingToObject(mergedRowData);
+      if (embeddingRes.status != 200) {
+        throw new Error(embeddingRes.message || "Error embedding data.");
+      }
+      mergedRowData = embeddingRes.data;
   
       // Perform upsert with the merged data
       const queryBuilder = this.supabase.from(table);

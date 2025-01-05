@@ -2,6 +2,7 @@ import { MessagingInterface } from './messagingInterface.ts';
 import axios from 'npm:axios@1.7.9';
 import * as config from "../../configs/index.ts";
 import { StorageService } from "../storage/storageService.ts";
+import { NlpService } from "../nlp/nlpService.ts";
 
 export class MessagingPluginSlack implements MessagingInterface {
   async auth(connection: string, connectionMetadata: Map<string, any>) {
@@ -47,7 +48,14 @@ export class MessagingPluginSlack implements MessagingInterface {
       };
 
       const storageService = new StorageService({accessToken: stateMap.accessToken});
-      const membersUpdateResult = await storageService.updateRow({table: "members", keys: {id: stateMap.memberId}, rowData: memberRow})
+      const nlpService = new NlpService();
+      await nlpService.initialiseClientCore();
+      const membersUpdateResult = await storageService.updateRow({
+        table: "members", 
+        keys: {id: stateMap.memberId}, 
+        rowData: memberRow,
+        nlpService: nlpService, // TODO: check this is implemented correctly
+      })
 
       if (membersUpdateResult.status != 200) {
         return membersUpdateResult;
@@ -58,6 +66,7 @@ export class MessagingPluginSlack implements MessagingInterface {
         keys: {connection: "slack", connection_id: slackTeam.id},
         rowData: {member_id: stateMap.memberId},
         mayBeNew: true,
+        nlpService: nlpService, // TODO: check this is implemented correctly
       });
 
       if (membersUpdateResult.status == 200) {

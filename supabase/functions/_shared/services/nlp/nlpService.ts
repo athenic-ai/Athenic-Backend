@@ -4,18 +4,6 @@ import { StorageService } from "../storage/storageService.ts";
 import OpenAI from "npm:openai"
 import * as config from "../../configs/index.ts";
 
-interface MemberVariables {
-  organisationId?: string;
-  organisationData?: Record<string, unknown>;
-  memberFire?: any;
-  memberData?: any;
-  supportedObjectTypeIds?: string[];
-  selectedObjectTypeId?: string;
-  selectedObjectsIds?: string[];
-  objectMetadataFunctionProperties?: Record<string, unknown>;
-  objectMetadataFunctionPropertiesRequiredIds?: Record<string, string[]>;
-}
-
 interface ExecuteParams {
   text: string;
   systemInstruction: string;
@@ -36,7 +24,7 @@ export class NlpService {
   private nlpFunctionsBase: NlpFunctionsBase;
   private storageService: StorageService;
   private clientCore: OpenAI | null = null;
-  private clientTextEmbedding: any | null = null;
+  private clientEmbedding: OpenAI | null = null;
   private adminSettings: any | null = null;
   private organisationId: string | null = null;
   private organisationData: Record<string, unknown> | null = null;
@@ -80,23 +68,34 @@ export class NlpService {
     selectedObjectsIds,
     objectMetadataFunctionProperties,
     objectMetadataFunctionPropertiesRequiredIds,
-  }: MemberVariables) {
+  }: {
+    organisationId?: string;
+    organisationData?: Record<string, unknown>;
+    memberFire?: any;
+    memberData?: any;
+    supportedObjectTypeIds?: string[];
+    selectedObjectTypeId?: string;
+    selectedObjectsIds?: string[];
+    objectMetadataFunctionProperties?: Record<string, unknown>;
+    objectMetadataFunctionPropertiesRequiredIds?: Record<string, string[]>;
+  } = {}) {
     console.log("setMemberVariables called");
-    if (organisationId) this.organisationId = organisationId;
-    if (organisationData) this.organisationData = organisationData;
-    if (memberFire) this.memberFire = memberFire;
-    if (memberData) this.memberData = memberData;
-    if (supportedObjectTypeIds) this.supportedObjectTypeIds = supportedObjectTypeIds;
-    if (selectedObjectTypeId) this.selectedObjectTypeId = selectedObjectTypeId;
-    if (selectedObjectsIds) this.selectedObjectsIds = selectedObjectsIds;
-    if (objectMetadataFunctionProperties) this.objectMetadataFunctionProperties = objectMetadataFunctionProperties;
-    if (objectMetadataFunctionPropertiesRequiredIds) this.objectMetadataFunctionPropertiesRequiredIds = objectMetadataFunctionPropertiesRequiredIds;
+  
+    this.organisationId = organisationId ?? this.organisationId;
+    this.organisationData = organisationData ?? this.organisationData;
+    this.memberFire = memberFire ?? this.memberFire;
+    this.memberData = memberData ?? this.memberData;
+    this.supportedObjectTypeIds = supportedObjectTypeIds ?? this.supportedObjectTypeIds;
+    this.selectedObjectTypeId = selectedObjectTypeId ?? this.selectedObjectTypeId;
+    this.selectedObjectsIds = selectedObjectsIds ?? this.selectedObjectsIds;
+    this.objectMetadataFunctionProperties = objectMetadataFunctionProperties ?? this.objectMetadataFunctionProperties;
+    this.objectMetadataFunctionPropertiesRequiredIds =
+      objectMetadataFunctionPropertiesRequiredIds ?? this.objectMetadataFunctionPropertiesRequiredIds;
   }
 
   async initialiseClientCore(apiKey: string): Promise<void> {
     console.log("initialiseClientCore called");
     try {
-      // this.clientCore = new OpenAI(Deno.env.get('OPENAI_API_KEY')); Use this if calling OpenAI's API directly
       this.clientCore = new OpenAI({
         baseURL: "https://openrouter.ai/api/v1",
         apiKey: Deno.env.get('OPENROUTER_API_KEY'),
@@ -105,9 +104,20 @@ export class NlpService {
         //   "X-Title": $YOUR_APP_NAME, // Optional. Shows in rankings on openrouter.ai.
         // }
       })
-      console.log("OpenAI client initialised successfully");
+      console.log("OpenAI client core initialised successfully");
     } catch (error) {
-      console.error("Error initializing OpenAI client:", error);
+      console.error("Error initializing OpenAI client core:", error);
+      throw error;
+    }
+  }
+
+  async initialiseClientEmbedding(apiKey: string): Promise<void> {
+    console.log("initialiseClientEmbedding called");
+    try {
+      this.clientEmbedding = new OpenAI({apiKey: Deno.env.get('OPENAI_API_KEY')}); // Use this if calling OpenAI's API directly (needed as OpenRouter doesn't support embeddings right now)
+      console.log("OpenAI client embedding initialised successfully");
+    } catch (error) {
+      console.error("Error initializing OpenAI client embedding:", error);
       throw error;
     }
   }
@@ -124,6 +134,10 @@ export class NlpService {
   }: ExecuteParams): Promise<any> {
     if (!text) {
       throw new Error("No text provided for NLP analysis");
+    }
+
+    if (!this.clientCore) {
+      throw new Error("this.clientCore not initialised. Please call initialiseClientCore first.");
     }
 
     console.log(`functionUsage: ${functionUsage}`);
@@ -211,6 +225,212 @@ export class NlpService {
     } catch (error) {
       console.error("Error during NLP execution:", error);
       return "Oops! I was unable to get a result. Please try again shortly.";
+    }
+  }
+
+  async addEmbeddingToObject(objectIn: Record<string, any>): Promise<Record<string, any>> {
+    try {
+      console.log("addEmbeddingToObject called");
+      const embeddingRes = await this.generateTextEmbedding(objectIn);  
+      console.log(`embeddingRes: ${JSON.stringify(embeddingRes)}`);
+      if (embeddingRes.status != 200) {
+        throw new Error(embeddingRes.message || "Error embedding data.");
+      }
+      const objectUpdated = { ...objectIn, embedding: embeddingRes.data };
+      console.log(`objectUpdated: ${JSON.stringify(objectUpdated)}`);
+      
+      const result: FunctionResult = {
+        status: 200,
+        message: "Embedding added successfully",
+        data: objectUpdated,
+      };
+      return result;
+    } catch (error) {
+      const result: FunctionResult = {
+        status: 500,
+        message: `❌ Failed to embed data with error: ${error.message}.`,
+      };
+      return result;
+    }
+  }
+
+  /**
+   * Checks if the input is a plain object (map-like)
+   */
+  private isPlainObject(input: any): boolean {
+    return input && typeof input === 'object' && !Array.isArray(input);
+  }
+
+  /**
+   * Splits text into chunks while respecting sentence boundaries
+   */
+  private splitTextIntoChunks(
+    text: string,
+    chunkSize: number,
+    overlap: number,
+    respectSentences: boolean
+  ): string[] {
+    const cleanText = text.replace(/\s+/g, ' ').trim();
+    const chunks: string[] = [];
+
+    if (cleanText.length <= chunkSize) {
+      return [cleanText];
+    }
+
+    let startIndex = 0;
+    while (startIndex < cleanText.length) {
+      let endIndex = startIndex + chunkSize;
+      
+      if (endIndex > cleanText.length) {
+        endIndex = cleanText.length;
+      } else if (respectSentences) {
+        // Look for sentence boundaries within the last 100 characters of the chunk
+        const searchArea = cleanText.slice(Math.max(endIndex - 100, startIndex), endIndex);
+        const lastSentenceMatch = searchArea.match(/[.!?][^\w]*(?=[A-Z]|$)/);
+        
+        if (lastSentenceMatch) {
+          endIndex = endIndex - (100 - lastSentenceMatch.index);
+        }
+      }
+
+      chunks.push(cleanText.slice(startIndex, endIndex).trim());
+      startIndex = endIndex - overlap;
+    }
+
+    return chunks;
+  }
+
+  /**
+   * Splits a map object into chunks based on character count of stringified values
+   */
+  private splitMapIntoChunks(
+    inputMap: Record<string, any>,
+    chunkSize: number
+  ): Record<string, any>[] {
+    const chunks: Record<string, any>[] = [{}];
+    let currentChunkSize = 0;
+    let currentChunkIndex = 0;
+
+    // Sort keys by value length to try to optimize chunk distribution
+    const sortedEntries = Object.entries(inputMap).sort((a, b) => 
+      JSON.stringify(b[1]).length - JSON.stringify(a[1]).length
+    );
+
+    for (const [key, value] of sortedEntries) {
+      const valueSize = JSON.stringify(value).length;
+      
+      // If a single value is larger than chunk size, split it if it's a string
+      if (valueSize > chunkSize && typeof value === 'string') {
+        const textChunks = this.splitTextIntoChunks(
+          value,
+          chunkSize,
+          this.DEFAULT_OVERLAP,
+          this.DEFAULT_RESPECT_SENTENCES
+        );
+        
+        textChunks.forEach((chunk, index) => {
+          if (index === 0 && currentChunkSize < chunkSize) {
+            chunks[currentChunkIndex][key] = chunk;
+            currentChunkSize += chunk.length;
+          } else {
+            chunks.push({ [key]: chunk });
+            currentChunkIndex++;
+            currentChunkSize = chunk.length;
+          }
+        });
+        continue;
+      }
+
+      // If adding this value would exceed chunk size, create new chunk
+      if (currentChunkSize + valueSize > chunkSize && Object.keys(chunks[currentChunkIndex]).length > 0) {
+        chunks.push({});
+        currentChunkIndex++;
+        currentChunkSize = 0;
+      }
+
+      // Add the key-value pair to current chunk
+      chunks[currentChunkIndex][key] = value;
+      currentChunkSize += valueSize;
+    }
+
+    return chunks;
+  }
+
+  /**
+   * Main chunking function that handles both text and map inputs
+   */
+  private splitIntoChunks(
+    input: string | Record<string, any>,
+    chunkSize = config.NLP_EMBEDDING_CHUNK_SIZE,
+    overlap = config.NLP_EMBEDDING_OVERLAP,
+    respectSentences = config.NLP_EMBEDDING_RESPECT_SENTENCES
+  ): (string | Record<string, any>)[] {
+    if (typeof input === 'string') {
+      return this.splitTextIntoChunks(input, chunkSize, overlap, respectSentences);
+    }
+    
+    if (this.isPlainObject(input)) {
+      return this.splitMapIntoChunks(input, chunkSize);
+    }
+
+    throw new Error('Input must be either a string or a plain object');
+  }
+
+  /**
+   * Generates embeddings for the input, handling both text and map inputs
+   */
+  async generateTextEmbedding(
+    input: string | Record<string, any>,
+    chunkSize?: number,
+    overlap?: number,
+    respectSentences?: boolean
+  ): Promise<FunctionResult> {
+    try {
+      if (!input) {
+        throw new Error('No input provided for NLP analysis');
+      }
+
+      if (!this.clientEmbedding) {
+        throw new Error("this.clientEmbedding not initialised. Please call initialiseClientEmbedding first.");
+      }  
+
+      const chunks = this.splitIntoChunks(input, chunkSize, overlap, respectSentences);
+      const embeddings: any = [];
+
+      // Generate embeddings for each chunk
+      for (const chunk of chunks) {
+        const textToEmbed = typeof chunk === 'string' 
+          ? chunk 
+          : JSON.stringify(chunk);
+
+        console.log(`Generating embeddings for chunk of length ${textToEmbed.length}`);
+        console.log(`Model: ${config.NLP_EMBEDDING_MODEL}`);
+        console.log(`Chunk: ${textToEmbed}`);
+        console.log(`this.clientEmbedding: ${this.clientEmbedding}`);
+        const createEmbeddingsResult = await this.clientEmbedding.embeddings.create({
+          model: config.NLP_EMBEDDING_MODEL,
+          input: textToEmbed,
+          encoding_format: "float",
+        });
+
+        embeddings.push(createEmbeddingsResult.data[0].embedding);
+      }
+
+      const result: FunctionResult = {
+        status: 200,
+        message: embeddings.length === 1 
+          ? "Embedding generated successfully"
+          : `Successfully generated embeddings for ${chunks.length} chunks`,
+        data: embeddings.length === 1 ? embeddings[0] : embeddings,
+      };
+      return result;
+
+    } catch (error) {
+      const result: FunctionResult = {
+        status: 500,
+        message: `❌ Failed to embed data with error: ${error.message}`,
+      };
+      return result;
     }
   }
 

@@ -33,9 +33,12 @@ export class ProcessDataJob<T> {
     dataIn: any;
 }): Promise<any> {
     console.log(`Processing data from connection: ${connection} and dryRun: ${dryRun}`);
+    console.log(`dataIn: ${dataIn}`);
+
     let organisationId, dataContents, objectTypes, objectTypeId;
     try {
       await this.nlpService.initialiseClientCore();
+      await this.nlpService.initialiseClientEmbedding();
       // -----------Step 1: Get organisation's ID and data----------- 
       const inferOrganisationResult = await this.inferOrganisation({ connection, dataIn });
       let organisationData;
@@ -94,6 +97,9 @@ export class ProcessDataJob<T> {
       });
 
       console.log(`✅ Completed "Step 2: Get object types accessible to the organisation", with objectTypesIds: ${JSON.stringify(objectTypesIds)}, objectTypeDescriptions: ${JSON.stringify(objectTypeDescriptions)} and objectMetadataFunctionProperties: ${JSON.stringify(objectMetadataFunctionProperties)}`);
+      console.log("Test");
+
+      console.log(`dataIn: ${dataIn}`);
 
       // -----------Step 3: Prepare the actual data contents-----------
       if (dataIn.athenicDataContents) {
@@ -243,6 +249,7 @@ export class ProcessDataJob<T> {
             table: "objects",
             keys: {id: objectData.id},
             rowData: objectData,
+            nlpService: this.nlpService,
             mayAlreadyExist: false, // Change this to true if in future it is decided that if dupe data is uploaded, we should implement logic to merge rather than just add new
           });
           if (objectUpdateResult.status != 200) {
@@ -258,6 +265,7 @@ export class ProcessDataJob<T> {
               rowData: {
                 child_ids: {[objectData.related_object_type_id]: [objectData.id]},
               },
+              nlpService: this.nlpService,
               mayAlreadyExist: true,
             });
             if (objectParentUpdateResult.status != 200) {
