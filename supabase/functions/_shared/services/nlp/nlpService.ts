@@ -4,22 +4,6 @@ import { StorageService } from "../storage/storageService.ts";
 import OpenAI from "npm:openai"
 import * as config from "../../configs/index.ts";
 
-interface ExecuteParams {
-  text: string;
-  systemInstruction: string;
-  chatHistory?: Array<{ role: string; content: string }>;
-  temperature?: number;
-  functionUsage?: string;
-  limitedFunctionSupportList?: any[];
-  interpretFuncCalls?: boolean;
-  useLiteModels?: boolean;
-}
-
-interface ExecuteThreadParams {
-  text: string;
-  systemInstruction: string;
-}
-
 export class NlpService {
   private nlpFunctionsBase: NlpFunctionsBase;
   private storageService: StorageService;
@@ -37,10 +21,10 @@ export class NlpService {
   private objectMetadataFunctionPropertiesRequiredIds: Record<string, string[]> | null = null;
   private currentFunctionSupportList: any[] | null = null;
   private functionDeclarations: any[] | null = null;
+  private selectedMessageThreadId: string | null = null;
   // private tasksPlugin: TasksPlugin;
   // private tasksService: any | null = null;
   // private productDataAll: Record<string, any> = {};
-  // private threadId: string | null = null;
   // private defaultProductName: string | null = null;
   // private tasksMap: Record<string, any> = {};
   // private supportedPlatformNames: string[] = ["email"];
@@ -68,6 +52,7 @@ export class NlpService {
     selectedObjectsIds,
     objectMetadataFunctionProperties,
     objectMetadataFunctionPropertiesRequiredIds,
+    selectedMessageThreadId
   }: {
     organisationId?: string;
     organisationData?: Record<string, unknown>;
@@ -78,6 +63,7 @@ export class NlpService {
     selectedObjectsIds?: string[];
     objectMetadataFunctionProperties?: Record<string, unknown>;
     objectMetadataFunctionPropertiesRequiredIds?: Record<string, string[]>;
+    selectedMessageThreadId?: string;
   } = {}) {
     console.log("setMemberVariables called");
   
@@ -91,6 +77,7 @@ export class NlpService {
     this.objectMetadataFunctionProperties = objectMetadataFunctionProperties ?? this.objectMetadataFunctionProperties;
     this.objectMetadataFunctionPropertiesRequiredIds =
       objectMetadataFunctionPropertiesRequiredIds ?? this.objectMetadataFunctionPropertiesRequiredIds;
+    this.selectedMessageThreadId = selectedMessageThreadId ?? this.selectedMessageThreadId;
   }
 
   async initialiseClientCore(apiKey: string): Promise<void> {
@@ -122,8 +109,9 @@ export class NlpService {
     }
   }
 
+
   async execute({
-    text,
+    promptParts,
     systemInstruction,
     chatHistory = [],
     temperature = 0,
@@ -131,9 +119,18 @@ export class NlpService {
     limitedFunctionSupportList,
     interpretFuncCalls = false,
     useLiteModels = true,
-  }: ExecuteParams): Promise<any> {
-    if (!text) {
-      throw new Error("No text provided for NLP analysis");
+  }: {
+    promptParts: Array;
+    systemInstruction: string;
+    chatHistory?: Array<{ role: string; content: string }>;
+    temperature?: number;
+    functionUsage?: string;
+    limitedFunctionSupportList?: any[];
+    interpretFuncCalls?: boolean;
+    useLiteModels?: boolean;
+  }): Promise<any> {
+    if (!promptParts) {
+      throw new Error("No promptParts provided for NLP analysis");
     }
 
     if (!this.clientCore) {
@@ -143,7 +140,7 @@ export class NlpService {
     console.log(`functionUsage: ${functionUsage}`);
 
     try {
-      console.log(`NLP called with prompt:\n${text}\n\nand chat history:\n${JSON.stringify(chatHistory)}`);
+      console.log(`NLP called with prompt:\n${promptParts}\n\nand chat history:\n${JSON.stringify(chatHistory)}`);
       const models = useLiteModels
         ? config.NLP_MODELS_LITE
         : config.NLP_MODELS_FULL;
@@ -154,12 +151,18 @@ export class NlpService {
         this.currentFunctionSupportList = limitedFunctionSupportList;
       }
 
+      console.log("promptPartss: ", promptParts);
       const messages = [
-        { role: "system", content: systemInstruction },
-        { role: "user", content: text },
+        { role: "developer", content: systemInstruction },
+        ...promptParts.map((part) => ({ role: "user", content: [part] })), // Add user's prompt parts
       ];
 
       console.log("this.functionDeclarations: ", this.functionDeclarations);
+
+      console.log("messages: ", messages);
+      console.log("chatHistory: ", chatHistory);
+      console.log("models: ", models);
+      console.log("functionUsage: ", functionUsage);
 
       const initialCreateResult = await this.clientCore!.chat.completions.create({
         models,
@@ -170,7 +173,9 @@ export class NlpService {
         //   data_collection: "deny"
         // },
       });
+      console.log("initialCreateResult: ", initialCreateResult);
       const createResMessage = initialCreateResult.choices[0].message;
+      console.log("createResMessage: ", createResMessage);
 
       if (createResMessage.tool_calls) {
         console.log("tool_calls requested with current functions:", this.nlpFunctionsBase.nlpFunctions); // FYI can't JSON parse this specific var, so to show it, need to do it like this
@@ -211,20 +216,41 @@ export class NlpService {
 
           if (referencesList.length > 0) {
             const referencesStr = referencesList.map((ref, idx) => `<${ref}|here>`).join(", ");
-            return { result: `${interpretedCreateResult.response.text()}\n_References: ${referencesStr}._` };
+            const result: FunctionResult = {
+              status: 200,
+              message: interpretedCreateResult.response.text(),
+              references: referencesStr
+            };
+            return result;
           } else {
-            return { result: interpretedCreateResult.response.text() };
+            const result: FunctionResult = {
+              status: 200,
+              message: interpretedCreateResult.response.text()
+            };
+            return result;
           }
         } else {
-          return functionResultsData[0].functionResult;
+          const result: FunctionResult = {
+            status: 200,
+            message: functionResultsData[0].functionResult
+          };
+          return result;
         }
       } else {
         console.log("No function calls were made by the model.");
-        return { result: createResMessage.content };
+        const result: FunctionResult = {
+          status: 200,
+          message: createResMessage.content
+        };
+        return result;
       }
     } catch (error) {
       console.error("Error during NLP execution:", error);
-      return "Oops! I was unable to get a result. Please try again shortly.";
+      const result: FunctionResult = {
+        status: 500,
+        message: "Oops! I was unable to get a result. Please try again shortly."
+      };
+      return result;
     }
   }
 

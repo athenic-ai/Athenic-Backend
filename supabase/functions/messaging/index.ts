@@ -1,19 +1,68 @@
+// NOTE: This function has JWT checks disabled in settings (as typically can't ask eg. Slack API to pass a bearer token when sending data to Athenic)
 // import "jsr:@supabase/functions-js/edge-runtime.d.ts" // See if this is really needed
-// @deno-types="npm:@types/express@5.0.1"
-import express from 'npm:express@5.0.1'
-import { MessagingService } from '../_shared/services/messaging/messagingService.ts';
+import express from 'npm:express@5.0.1';
+import cors from 'npm:cors';
+import bodyParser from 'npm:body-parser';
+import { ProcessMessageJob } from '../_shared/jobs/processMessageJob.ts';
+import * as config from "../_shared/configs/index.ts";
 
-const app = express()
-const port = 3000
+const app = express();
+const port = 3000;
 
-app.use(express.json())
-// app.use( express.json({ limit : "300kb" })); // If you want a payload larger than 100kb, then you can tweak it here:
+app.use(cors(config.CORS_OPTIONS));
 
-app.post('/messaging', (req, res) => {
-  const { name } = req.body
-  res.send(`Hello 1 ${name}!`)
-})
+// Middleware to handle multiple content types (as e.g. email isn't delivered as a JSON)
+app.use((req, res, next) => {
+  const contentType = req.headers['content-type'] || '';
+
+  // JSON parser
+  if (contentType.includes('application/json')) {
+    express.json()(req, res, next);
+  }
+  // URL-encoded form parser
+  else if (contentType.includes('application/x-www-form-urlencoded')) {
+    express.urlencoded({ extended: true })(req, res, next);
+  }
+  // Plain text parser
+  else if (contentType.includes('text/plain')) {
+    bodyParser.text()(req, res, next);
+  }
+  // Binary or raw data (as buffer)
+  else if (contentType.includes('application/octet-stream')) {
+    bodyParser.raw()(req, res, next);
+  }
+  // Default to raw text
+  else {
+    bodyParser.text()(req, res, next);
+  }
+});
+
+app.post('/messaging/con/:connection', async (req, res) => {
+  try {
+    console.log('/messaging/:connection started');
+    const connection = req.params.connection;
+
+    const dataIn = req.body // Will handle in any format, however if coming from Athenic, will be in a structured form to speed up processing, eg.:
+    // {
+    //  "companyMetadata": {
+    //    "organisationId": widget.memberData.ownerOrganisationId,
+    //    "memberId": widget.memberData.id,
+    //  },
+    //  "companyDataContents": inputtedFileUploadData.text
+    // }
+    console.log(`/messaging/con/:connection with:\nconnection: ${connection}\ndataIn:${config.stringify(dataIn)}`);
+    
+    const processMessageJob: ProcessMessageJob = new ProcessMessageJob();
+    const processMessageJobResult = await processMessageJob.start({connection: connection, dataIn: dataIn});
+    if (processMessageJobResult.status != 200) {
+      throw Error(processMessageJobResult.message);
+    }
+    res.status(processMessageJobResult.status).send(processMessageJobResult.data);
+  } catch (error) {
+    console.error(`Error in /messaging/:connection/:type: ${error.message}`);
+    res.status(500).send(error.message);  }
+});
 
 app.listen(port, () => {
-  console.log(`Messaging app listening on port ${port}`)
-})
+  console.log(`Data app listening on port ${port}`);
+});

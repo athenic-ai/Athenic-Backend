@@ -3,6 +3,7 @@ export interface FunctionResult<T = unknown> {
   status: number; // HTTP or custom status code
   data: T | null; // The data being returned, or null if there's none or an error
   message: string | null; // A message describing success or the error, or null if not applicable
+  references: string | null; // A message describing success or the error, or null if not applicable
 }
 
 // Functions
@@ -30,6 +31,45 @@ export function stringify(obj: any): string {
   return str;
 }
 
+export async function inferOrganisation({ connection, dataIn, storageService }: { connection: string; dataIn: T, storageService: StorageService }): Promise<FunctionResult> {
+  try {
+    let organisationId;
+    if (dataIn.companyMetadata && dataIn.companyMetadata.organisationId) {
+      // See if organisationId already stored in dataIn (connections such as CSV upload support this)
+      organisationId = dataIn.companyMetadata.organisationId;
+    } else if (connection === "email") {
+      // Infer organisationId from the domain of the sender if connection is email
+      organisationId = dataIn.recipient.split("@")[0];
+    } else if (connection === "productfruits") {
+      const mappingResult = await storageService.getRow({table: "connection_organisation_mapping", keys: {connection: connection, connection_id: dataIn.data.projectCode}});
+      organisationId = mappingResult.data.organisation_id;
+    }
+
+    if (organisationId) {
+      const organisationDataResult = await storageService.getRow({table: "organisations", keys: {id: organisationId}});
+      if (organisationDataResult.data) {
+        console.log(`inferOrganisation successful with organisationId: ${organisationId}`)
+        const result: FunctionResult = {
+          status: 200,
+          data: [organisationId, organisationDataResult.data],
+        };
+        return result;
+      } else {
+        throw new Error(`Unable to find organisationData for organisationId ${organisationId}`);
+      }
+    } else {
+      throw new Error(`Unable to inferOrganisation from connection ${connection}`);
+    }
+  } catch (error) {
+    const result: FunctionResult = {
+      status: 500,
+      message: `❌ ${error.message}`,
+    };
+    console.error(result.message);
+    return result;
+  }
+}
+
 // Enums
 // export enum TriBool {
 //   True,
@@ -42,8 +82,8 @@ export const CORS_OPTIONS = {
   origin: ["https://app.getathenic.com/","http://localhost:8000"],
   optionsSuccessStatus: 200 // some legacy browsers (IE11, various SmartTVs) choke on 204
 }
-export const VANILLA_SYSTEM_INSTRUCTION =
-`You are a business data API assistant called Athenic, designed to process incoming business data, answer questions from the employees and do tasks on behalf of the business.
+export const VANILLA_SYSTEM_INSTRUCTION = `
+You are a business data API assistant called Athenic, designed to process incoming business data, answer questions from the employees and do tasks on behalf of the business.
 Bear in mind how we are defining the following terms:
 "organisation" = a business that uses Athenic to help them (e.g. Yahoo, Microsoft, Braun, Nike, Pepsi,...)
 "member" = a member, typically an employee, of the organisation who uses Athenic to help them (eg. a Yahoo employee)

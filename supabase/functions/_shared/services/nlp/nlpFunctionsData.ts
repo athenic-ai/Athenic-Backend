@@ -4,8 +4,16 @@ import * as uuid from "jsr:@std/uuid";
 // NOTE: must add this file to loadFunctions() function in nlpFunctionsBase
 export async function initialiseFunctions(baseInstance: any) {
   const functionsToReturn = {};
-  const selectedObjectMetadataFunctionProperties = baseInstance.parent.objectMetadataFunctionProperties[baseInstance.parent.selectedObjectTypeId];
-  const selectedObjectMetadataFunctionPropertiesRequiredIds = baseInstance.parent.objectMetadataFunctionPropertiesRequiredIds[baseInstance.parent.selectedObjectTypeId];
+
+  let selectedObjectMetadataFunctionProperties;
+  let selectedObjectMetadataFunctionPropertiesRequiredIds;
+  if (baseInstance.parent.objectMetadataFunctionProperties && baseInstance.parent.selectedObjectTypeId) {
+    selectedObjectMetadataFunctionProperties = baseInstance.parent.objectMetadataFunctionProperties[baseInstance.parent.selectedObjectTypeId];
+  }
+  if (baseInstance.parent.objectMetadataFunctionPropertiesRequiredIds && baseInstance.parent.selectedObjectTypeId) {
+    selectedObjectMetadataFunctionPropertiesRequiredIds = baseInstance.parent.objectMetadataFunctionPropertiesRequiredIds[baseInstance.parent.selectedObjectTypeId];
+  }
+  
   if (baseInstance.parent.supportedObjectTypeIds != null) {
     console.log("baseInstance.parent.supportedObjectTypeIds", baseInstance.parent.supportedObjectTypeIds);
     functionsToReturn.predictObjectTypeBeingReferenced = {

@@ -40,7 +40,7 @@ export class ProcessDataJob<T> {
       await this.nlpService.initialiseClientCore();
       await this.nlpService.initialiseClientEmbedding();
       // -----------Step 1: Get organisation's ID and data----------- 
-      const inferOrganisationResult = await this.inferOrganisation({ connection, dataIn });
+      const inferOrganisationResult = await config.inferOrganisation({ connection, dataIn, storageService: this.storageService });
       let organisationData;
 
       if (inferOrganisationResult.status != 200) {
@@ -57,8 +57,8 @@ export class ProcessDataJob<T> {
       }
       objectTypes = getObjectTypesResult.data; // List of maps of object types as in the database
       const objectTypesIds = objectTypes
-        .filter(item => item.category === "organisation_data_static") // Filter by category NOTE: this line is untested
-        .map(item => item.id); // List of strings of the ID of each object type of the organisation_data_static category
+        .filter(item => item.category === "organisation_data_standard") // Filter by category NOTE: this line is untested
+        .map(item => item.id); // List of strings of the ID of each object type of the organisation_data_standard category
       objectTypesIds.push("unknown"); // Also add unknown in cases it cannot detect which to return // TODO: handle cases when data falls into this category, eg. setting it as some generic/general object type
 
       const getObjectMetadataTypesResult = await this.getObjectMetadataTypes({organisationId: organisationId});
@@ -102,22 +102,22 @@ export class ProcessDataJob<T> {
       console.log(`dataIn: ${dataIn}`);
 
       // -----------Step 3: Prepare the actual data contents-----------
-      if (dataIn.athenicDataContents) {
-        dataContents = dataIn.athenicDataContents;
+      if (dataIn.companyDataContents) {
+        dataContents = dataIn.companyDataContents;
       } else {
         dataContents = dataIn; // If not sent from Athenic, include everything
       }
       console.log(`✅ Completed "Step 3: Prepare the actual data contents", with dataContents: ${JSON.stringify(dataContents)}`);
       
       // -----------Step 4: Determine which object type the data relates to-----------
-      if (dataIn.athenicMetadata && dataIn.athenicMetadata.objectTypeId) {
+      if (dataIn.companyMetadata && dataIn.companyMetadata.objectTypeId) {
         // Add immediately if explictly provided
-        objectTypeId = dataIn.athenicMetadata.objectTypeId;
+        objectTypeId = dataIn.companyMetadata.objectTypeId;
       } else {
         const predictObjectTypeBeingReferencedResult = await this.nlpService.execute({
-          text: `You MUST call the 'predictObjectTypeBeingReferenced' function to decide which object type the following data most likely relates to.
+          promptParts: [{"type": "text", "text": `You MUST call the 'predictObjectTypeBeingReferenced' function to decide which object type the following data most likely relates to.
             \n\nObject types that can be chosen from:\n${JSON.stringify(objectTypeDescriptions)}
-            \n\nData to review:\n${config.stringify(dataContents)}`,
+            \n\nData to review:\n${config.stringify(dataContents)}`}],
           systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
           functionUsage: "required",
           limitedFunctionSupportList: ["predictObjectTypeBeingReferenced"],
@@ -153,11 +153,11 @@ export class ProcessDataJob<T> {
       try {
         // -----------Step 5a: Process the given data item----------- 
         let processDataPrompt = `You MUST call the 'processDataUsingGivenObjectsMetadataStructure' function to process the following data:\n${config.stringify(dataContentsItem)}`;
-        if (dataIn.athenicMetadata && dataIn.athenicMetadata.dataDescription) {
-          processDataPrompt += `\n\nTo help, the member has provided the following context about the data:\n${dataIn.athenicMetadata.dataDescription}`;
+        if (dataIn.companyMetadata && dataIn.companyMetadata.dataDescription) {
+          processDataPrompt += `\n\nTo help, the member has provided the following context about the data:\n${dataIn.companyMetadata.dataDescription}`;
         }
         const processDataUsingGivenObjectsMetadataStructureResult = await this.nlpService.execute({
-          text: processDataPrompt,
+          promptParts: [{"type": "text", "text": processDataPrompt}],
           systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
           functionUsage: "required",
           limitedFunctionSupportList: ["processDataUsingGivenObjectsMetadataStructure"],
@@ -172,9 +172,9 @@ export class ProcessDataJob<T> {
         console.log(`✅ Completed "Step 5a: Process the given data item", with objectData: ${JSON.stringify(objectData)}`);
   
         // -----------Step 5b: If object type demands a parent object, determine which object should be the parent-----------
-        if (dataIn.athenicMetadata && dataIn.athenicMetadata.parentObjectId) {
+        if (dataIn.companyMetadata && dataIn.companyMetadata.parentObjectId) {
           // Add immediately if explictly provided
-          objectData.parent_id = dataIn.athenicMetadata.parentObjectId;
+          objectData.parent_id = dataIn.companyMetadata.parentObjectId;
           console.log(`✅ Completed "Step 5b: Auto assigned object's parent", with: parent id: ${objectData.parent_id}`);
         } else {
           console.log("aa");
@@ -213,9 +213,9 @@ export class ProcessDataJob<T> {
               delete objectDataCopyLimitedData.owner_organisation_id; // Remove the `owner_organisation_id` key to help avoid the NLP getting confused and taking into account the org name unecessarily
     
               const predictObjectParentResult = await this.nlpService.execute({
-                text: `You MUST call the 'predictObjectParent' function to decide which object of type ${parentObjectTypeId} is the most appropriate parent for the given object.
+                promptParts: [{"type": "text", "text": `You MUST call the 'predictObjectParent' function to decide which object of type ${parentObjectTypeId} is the most appropriate parent for the given object.
                 \n\nObject that needs a parent:\n${JSON.stringify(objectDataCopyLimitedData)}
-                \n\nObjects that can be chosen from:\n${JSON.stringify(potentialParentObjects)}`,
+                \n\nObjects that can be chosen from:\n${JSON.stringify(potentialParentObjects)}`}],
                 systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
                 functionUsage: "required",
                 limitedFunctionSupportList: ["predictObjectParent"],
@@ -288,45 +288,6 @@ export class ProcessDataJob<T> {
       data: dataContentsOutcomes,
     };
     return result;
-  }
-
-  private async inferOrganisation({ connection, dataIn }: { connection: string; dataIn: T }): Promise<FunctionResult> {
-    try {
-      let organisationId;
-      if (dataIn.athenicMetadata && dataIn.athenicMetadata.organisationId) {
-        // See if organisationId already stored in dataIn (connections such as CSV upload support this)
-        organisationId = dataIn.athenicMetadata.organisationId;
-      } else if (connection === "email") {
-        // Infer organisationId from the domain of the sender if connection is email
-        organisationId = dataIn.recipient.split("@")[0];
-      } else if (connection === "productfruits") {
-        const mappingResult = await this.storageService.getRow({table: "connection_organisation_mapping", keys: {connection: connection, connection_id: dataIn.data.projectCode}});
-        organisationId = mappingResult.data.organisation_id;
-      }
-  
-      if (organisationId) {
-        const organisationDataResult = await this.storageService.getRow({table: "organisations", keys: {id: organisationId}});
-        if (organisationDataResult.data) {
-          console.log(`inferOrganisation successful with organisationId: ${organisationId}`)
-          const result: FunctionResult = {
-            status: 200,
-            data: [organisationId, organisationDataResult.data],
-          };
-          return result;
-        } else {
-          throw new Error(`Unable to find organisationData for organisationId ${organisationId}`);
-        }
-      } else {
-        throw new Error(`Unable to inferOrganisation from connection ${connection}`);
-      }
-    } catch (error) {
-      const result: FunctionResult = {
-        status: 500,
-        message: `❌ ${error.message}`,
-      };
-      console.error(result.message);
-      return result;
-    }
   }
 
   private async getObjectTypes({ organisationId }: { organisationId: string }): Promise<FunctionResult> {
@@ -572,9 +533,14 @@ export class ProcessDataJob<T> {
       });
   
       // Assign to the maps
-      console.log(`For objectType.id: ${objectType.id}, properties: ${JSON.stringify(properties)}`);
-      objectMetadataFunctionProperties[objectType.id] = properties;
-      objectMetadataFunctionPropertiesRequiredIds[objectType.id] = requiredIds;
+      console.log(`For objectType.id: ${objectType.id}, properties: ${JSON.stringify(properties)}, requiredIds: ${JSON.stringify(requiredIds)}`);
+      if (properties) {
+        objectMetadataFunctionProperties[objectType.id] = properties;
+      }
+      if (requiredIds) {
+        objectMetadataFunctionPropertiesRequiredIds[objectType.id] = requiredIds;
+      }
+      console.log(`objectMetadataFunctionProperties[objectType.id] is now set to: ${JSON.stringify(objectMetadataFunctionProperties[objectType.id])}`);
     });
   
     // Return both maps

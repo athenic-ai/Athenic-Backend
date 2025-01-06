@@ -27,11 +27,11 @@
 //       await this.nlpService.initialiseClientCore();
 //       // -----------Step 5a: Process the given data item----------- 
 //       let processDataPrompt = `You MUST call the 'processDataUsingGivenObjectsMetadataStructure' function to process the following data:\n${config.stringify(dataContentsItem)}`;
-//       if (dataIn.athenicMetadata && dataIn.athenicMetadata.dataDescription) {
-//         processDataPrompt += `\n\nTo help, the member has provided the following context about the data:\n${dataIn.athenicMetadata.dataDescription}`;
+//       if (dataIn.companyMetadata && dataIn.companyMetadata.dataDescription) {
+//         processDataPrompt += `\n\nTo help, the member has provided the following context about the data:\n${dataIn.companyMetadata.dataDescription}`;
 //       }
 //       const processDataUsingGivenObjectsMetadataStructureResult = await this.nlpService.execute({
-//         text: processDataPrompt,
+//         promptParts: [{"type": "text", "text": processDataPrompt}],
 //         systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
 //         functionUsage: "required",
 //         limitedFunctionSupportList: ["processDataUsingGivenObjectsMetadataStructure"],
@@ -46,9 +46,9 @@
 //       console.log(`✅ Completed "Step 5a: Process the given data item", with objectData: ${JSON.stringify(objectData)}`);
 
 //       // -----------Step 5b: If object type demands a parent object, determine which object should be the parent-----------
-//       if (dataIn.athenicMetadata && dataIn.athenicMetadata.parentObjectId) {
+//       if (dataIn.companyMetadata && dataIn.companyMetadata.parentObjectId) {
 //         // Add immediately if explictly provided
-//         objectData.parent_id = dataIn.athenicMetadata.parentObjectId;
+//         objectData.parent_id = dataIn.companyMetadata.parentObjectId;
 //         console.log(`✅ Completed "Step 5b: Auto assigned object's parent", with: parent id: ${objectData.parent_id}`);
 //       } else {
 //         console.log("aa");
@@ -87,9 +87,9 @@
 //             delete objectDataCopyLimitedData.owner_organisation_id; // Remove the `owner_organisation_id` key to help avoid the NLP getting confused and taking into account the org name unecessarily
   
 //             const predictObjectParentResult = await this.nlpService.execute({
-//               text: `You MUST call the 'predictObjectParent' function to decide which object of type ${parentObjectTypeId} is the most appropriate parent for the given object.
+//               promptParts: [{"type": "text", "text": `You MUST call the 'predictObjectParent' function to decide which object of type ${parentObjectTypeId} is the most appropriate parent for the given object.
 //               \n\nObject that needs a parent:\n${JSON.stringify(objectDataCopyLimitedData)}
-//               \n\nObjects that can be chosen from:\n${JSON.stringify(potentialParentObjects)}`,
+//               \n\nObjects that can be chosen from:\n${JSON.stringify(potentialParentObjects)}`}],
 //               systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
 //               functionUsage: "required",
 //               limitedFunctionSupportList: ["predictObjectParent"],
@@ -166,9 +166,9 @@
 //   private async inferOrganisation({ connection, dataIn }: { connection: string; dataIn: T }): Promise<FunctionResult> {
 //     try {
 //       let organisationId;
-//       if (dataIn.athenicMetadata && dataIn.athenicMetadata.organisationId) {
+//       if (dataIn.companyMetadata && dataIn.companyMetadata.organisationId) {
 //         // See if organisationId already stored in dataIn (connections such as CSV upload support this)
-//         organisationId = dataIn.athenicMetadata.organisationId;
+//         organisationId = dataIn.companyMetadata.organisationId;
 //       } else if (connection === "email") {
 //         // Infer organisationId from the domain of the sender if connection is email
 //         organisationId = dataIn.recipient.split("@")[0];

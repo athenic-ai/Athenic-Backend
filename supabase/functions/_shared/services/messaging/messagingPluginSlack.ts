@@ -86,8 +86,4 @@ export class MessagingPluginSlack implements MessagingInterface {
       };
     }
   }
-
-  // async send(message: string, userId: string) {
-  //   // Logic to send a Slack message
-  // }
 }

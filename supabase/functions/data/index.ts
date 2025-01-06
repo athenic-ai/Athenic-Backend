@@ -47,13 +47,13 @@ app.post('/data/con/:connection/typ/:datatype/dry/:dryrun', async (req, res) => 
 
     const dataIn = req.body // Will handle in any format, however if coming from Athenic, will be in a structured form to speed up processing, eg.:
     // {
-    //  "athenicMetadata": {
+    //  "companyMetadata": {
     //    "organisationId": widget.memberData.ownerOrganisationId,
     //    "objectTypeId": constants.OBJECT_TYPE_ID_PRODUCT,
     //    "parentObjectId": productId,
     //    "dataDescription": inputtedFileUploadDescription.text,
     //  },
-    //  "athenicDataContents": inputtedFileUploadData.text
+    //  "companyDataContents": inputtedFileUploadData.text
     // }
     console.log(`/data/:connection with:\nconnection: ${connection}\ntype: ${dataType}\ndryRun: ${dryRun}\ndataIn:${config.stringify(dataIn)}`);
     
