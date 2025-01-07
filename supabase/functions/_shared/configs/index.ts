@@ -102,3 +102,13 @@ export const NLP_EMBEDDING_MODEL = "text-embedding-3-small";
 export const NLP_EMBEDDING_CHUNK_SIZE = 8000; // OpenAI's text-embedding-3-small has a token limit
 export const NLP_EMBEDDING_OVERLAP = 200;
 export const NLP_EMBEDDING_RESPECT_SENTENCES = true;
+
+export const OBJECT_TYPE_ID_CONNECTION = "connection";
+export const OBJECT_TYPE_ID_MESSAGE_THREAD = "message_thread";
+export const OBJECT_TYPE_ID_MESSAGE = "message";
+
+export const OBJECT_METADATA_DEFAULT_TITLE = "title";
+export const OBJECT_METADATA_DEFAULT_CREATED_AT = "created_at";
+
+export const OBJECT_METADATA_TYPE_ID_MESSAGE_AUTHOR_ID = "author_id";
+export const OBJECT_MESSAGE_AUTHOR_ID_VALUE_IF_COMPANY = "company";

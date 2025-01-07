@@ -2,15 +2,19 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 import * as config from "../../configs/index.ts";
 import { NlpService } from "../nlp/nlpService.ts";
 
+type JsonPath = string[]; // e.g. ['metadata', 'id'] represents metadata->>'id'
+
 type WhereCondition = {
   column: string;
   operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'ilike' | 'is' | 'in';
   value: any;
+  jsonPath?: JsonPath; // Optional path for JSON/JSONB columns
 };
 
 type OrderByCondition = {
   column: string;
   ascending?: boolean; // Defaults to true if not provided
+  jsonPath?: JsonPath; // Optional path for JSON/JSONB columns
 };
 
 type GetRowsOptions = {
@@ -89,7 +93,7 @@ export class StorageService {
   async getRows(
     table: string, 
     options: GetRowsOptions = {}
-  ): Promise<any[]> {
+  ): Promise<FunctionResult> {
     try {
       const { 
         whereAndConditions = [], // If included, all of those params must be true
@@ -101,22 +105,41 @@ export class StorageService {
       console.log(`getRows called with table: ${table}, options: ${JSON.stringify(options)}`);
       let query = this.supabase.from(table).select('*');
     
+      // Helper function to format column path for JSON/JSONB queries
+      const formatColumnPath = (condition: WhereCondition | OrderByCondition): string => {
+        if (!condition.jsonPath?.length) {
+          return condition.column;
+        }
+        
+        // For JSON/JSONB columns, we need to use the -> operator for nested access
+        // and ->> for the final value to get it as text
+        const path = condition.jsonPath;
+        return `${condition.column}${path.map((key, index) => 
+          index === path.length - 1 ? `->>'${key}'` : `->'${key}'`
+        ).join('')}`;
+      };
+  
       // Apply "AND" conditions
       whereAndConditions.forEach((condition) => {
-        query = query[condition.operator](condition.column, condition.value);
+        const columnPath = formatColumnPath(condition);
+        query = query[condition.operator](columnPath, condition.value);
       });
     
       // Apply "OR" conditions
       if (whereOrConditions.length > 0) {
         const orQuery = whereOrConditions
-          .map((condition) => `${condition.column}.${condition.operator}.${condition.value}`)
+          .map((condition) => {
+            const columnPath = formatColumnPath(condition);
+            return `${columnPath}.${condition.operator}.${condition.value}`;
+          })
           .join(',');
         query = query.or(orQuery);
       }
     
       // Apply "orderBy" conditions
       orderByConditions.forEach((condition) => {
-        query = query.order(condition.column, { ascending: condition.ascending ?? true });
+        const columnPath = formatColumnPath(condition);
+        query = query.order(columnPath, { ascending: condition.ascending ?? true });
       });
     
       // Apply "limit" if provided

@@ -40,7 +40,7 @@ app.use((req, res, next) => {
 app.post('/messaging/con/:connection', async (req, res) => {
   try {
     console.log('/messaging/:connection started');
-    const connection = req.params.connection;
+    const connectionId = req.params.connection;
 
     const dataIn = req.body // Will handle in any format, however if coming from Athenic, will be in a structured form to speed up processing, eg.:
     // {
@@ -50,10 +50,10 @@ app.post('/messaging/con/:connection', async (req, res) => {
     //  },
     //  "companyDataContents": inputtedFileUploadData.text
     // }
-    console.log(`/messaging/con/:connection with:\nconnection: ${connection}\ndataIn:${config.stringify(dataIn)}`);
+    console.log(`/messaging/con/:connection with:\nconnection: ${connectionId}\ndataIn:${config.stringify(dataIn)}`);
     
     const processMessageJob: ProcessMessageJob = new ProcessMessageJob();
-    const processMessageJobResult = await processMessageJob.start({connection: connection, dataIn: dataIn});
+    const processMessageJobResult = await processMessageJob.start({connectionId: connectionId, dataIn: dataIn});
     if (processMessageJobResult.status != 200) {
       throw Error(processMessageJobResult.message);
     }
