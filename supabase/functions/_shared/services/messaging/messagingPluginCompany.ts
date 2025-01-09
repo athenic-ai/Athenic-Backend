@@ -1,17 +1,18 @@
 import { MessagingInterface } from './messagingInterface.ts';
+import * as config from "../../../_shared/configs/index.ts";
 
 export class MessagingPluginCompany implements MessagingInterface {
-  async receiveMessage(messageData: Map<string, any>) {
+  async receiveMessage(dataIn: Map<string, any>) {
     try {
-      console.log(`receiveMessage data is: ${JSON.stringify(messageData)}`);
+      console.log(`receiveMessage data is: ${config.stringify(dataIn)}`);
       
-      if (Array.isArray(messageData.parts)) {
-        const messageDataThreadId = messageData.threadId;
-        const messageDataAuthorId = messageData.authorId;
-        const messageDataParts = messageData.parts;
+      if (Array.isArray(dataIn.companyDataContents.parts)) {
+        const messageDataThreadId = dataIn.companyMetadata.parentObjectId;
+        const messageDataAuthorId = dataIn.companyDataContents.authorId;
+        const messageDataParts = dataIn.companyDataContents.parts;
 
         const processedMessageData = {
-          threadId: messageDataThreadId,
+          messageThreadId: messageDataThreadId,
           authorId: messageDataAuthorId,
           messageParts: messageDataParts,
         };
@@ -23,7 +24,7 @@ export class MessagingPluginCompany implements MessagingInterface {
         };
         return result;
       }
-      throw new Error("messageData is not a valid array.");
+      throw new Error("dataIn is not a valid array.");
     } catch (error) {
       console.error("receiveMessage error:", error);
       const result: FunctionResult = {

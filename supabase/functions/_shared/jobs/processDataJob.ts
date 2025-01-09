@@ -27,13 +27,12 @@ export class ProcessDataJob<T> {
     // this.tasksService = tasksService;
   }
 
-  async start({ connection, reply, dryRun, dataIn }: {
+  async start({ connection, dryRun, dataIn }: {
     connection: any;
-    reply: boolean;
     dryRun: boolean;
     dataIn: any;
 }): Promise<any> {
-    console.log(`Processing data from connection: ${connection} and reply: ${reply} and dryRun: ${dryRun}`);
+    console.log(`Processing data from connection: ${connection} and dryRun: ${dryRun}`);
     console.log(`dataIn: ${dataIn}`);
 
     let organisationId, dataContents, objectTypes, objectTypeId;
@@ -163,7 +162,6 @@ export class ProcessDataJob<T> {
           systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
           functionUsage: "required",
           limitedFunctionSupportList: ["processDataUsingGivenObjectsMetadataStructure"],
-          interpretFuncCalls: reply,
           useLiteModels: true,
         });
         console.log("processDataUsingGivenObjectsMetadataStructure complete");

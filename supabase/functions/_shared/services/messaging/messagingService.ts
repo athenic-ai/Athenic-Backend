@@ -14,9 +14,9 @@ export class MessagingService {
     return plugin.auth(connection, connectionMetadata);
   }
 
-  async receiveMessage(connection: string, messageData: Map<string, any>) {
+  async receiveMessage(connection: string, dataIn: Map<string, any>) {
     const plugin = connectionPlugins[connection];
     if (!plugin) throw new Error(`Unsupported connection: ${connection}`);
-    return plugin.receiveMessage(messageData);
+    return plugin.receiveMessage(dataIn);
   }
 }
