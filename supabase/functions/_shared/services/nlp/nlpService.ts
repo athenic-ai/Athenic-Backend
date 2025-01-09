@@ -140,7 +140,7 @@ export class NlpService {
     console.log(`functionUsage: ${functionUsage}`);
 
     try {
-      console.log(`NLP called with prompt:\n${promptParts}\n\nand chat history:\n${JSON.stringify(chatHistory)}`);
+      console.log(`NLP called with prompt:\n${config.stringify(promptParts)}\n\nand chat history:\n${config.stringify(chatHistory)}`);
       const models = useLiteModels
         ? config.NLP_MODELS_LITE
         : config.NLP_MODELS_FULL;
@@ -231,8 +231,9 @@ export class NlpService {
           }
         } else {
           const result: FunctionResult = {
-            status: 200,
-            message: functionResultsData[0].functionResult
+            status: functionResultsData[0].functionResult.status,
+            message: functionResultsData[0].functionResult.message,
+            data: functionResultsData[0].functionResult.data,
           };
           return result;
         }
@@ -412,6 +413,7 @@ export class NlpService {
     respectSentences?: boolean
   ): Promise<FunctionResult> {
     try {
+      console.log("generateTextEmbedding called with input:", input);
       if (!input) {
         throw new Error('No input provided for NLP analysis');
       }

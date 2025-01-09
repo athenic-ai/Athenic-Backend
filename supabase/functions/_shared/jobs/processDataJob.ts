@@ -99,7 +99,7 @@ export class ProcessDataJob<T> {
       console.log(`✅ Completed "Step 2: Get object types accessible to the organisation", with objectTypesIds: ${JSON.stringify(objectTypesIds)}, objectTypeDescriptions: ${JSON.stringify(objectTypeDescriptions)} and objectMetadataFunctionProperties: ${JSON.stringify(objectMetadataFunctionProperties)}`);
       console.log("Test");
 
-      console.log(`dataIn: ${dataIn}`);
+      console.log(`dataIn: ${config.stringify(dataIn)}`);
 
       // -----------Step 3: Prepare the actual data contents-----------
       if (dataIn.companyDataContents) {
@@ -107,7 +107,7 @@ export class ProcessDataJob<T> {
       } else {
         dataContents = dataIn; // If not sent from Athenic, include everything
       }
-      console.log(`✅ Completed "Step 3: Prepare the actual data contents", with dataContents: ${JSON.stringify(dataContents)}`);
+      console.log(`✅ Completed "Step 3: Prepare the actual data contents", with dataContents: ${config.stringify(dataContents)}`);
       
       // -----------Step 4: Determine which object type the data relates to-----------
       if (dataIn.companyMetadata && dataIn.companyMetadata.objectTypeId) {
@@ -123,7 +123,7 @@ export class ProcessDataJob<T> {
           limitedFunctionSupportList: ["predictObjectTypeBeingReferenced"],
           useLiteModels: true,
         });
-        console.log("d");
+        console.log("predictObjectTypeBeingReferenced complete");
         console.log("predictObjectTypeBeingReferenced:", predictObjectTypeBeingReferencedResult);
         if (predictObjectTypeBeingReferencedResult.status != 200) {
           throw Error(predictObjectTypeBeingReferencedResult.message);
@@ -148,7 +148,8 @@ export class ProcessDataJob<T> {
       console.log(`dataContents is not array so converting it to one (it's currently a ${typeof dataContents})`);
       dataContents = [dataContents]; // Make it a list if not already so that it can be iterated on below
     }
-    let dataContentsOutcomes: any[] = []; // If dry run will contain data objects, otherwise will list all failed dataContentsItems
+    let dataContentsOutcomes: any[] = []; // If dry run will contain data objects
+    let dataContentsFailures: any[] = []; // Lists all failed dataContentsItems
     for (const dataContentsItem of dataContents) {
       try {
         // -----------Step 5a: Process the given data item----------- 
@@ -163,11 +164,14 @@ export class ProcessDataJob<T> {
           limitedFunctionSupportList: ["processDataUsingGivenObjectsMetadataStructure"],
           useLiteModels: true,
         });
-        console.log("d");
+        console.log("processDataUsingGivenObjectsMetadataStructure complete");
         if (processDataUsingGivenObjectsMetadataStructureResult.status != 200) {
           throw Error(processDataUsingGivenObjectsMetadataStructureResult.message);
         }
         const objectData = processDataUsingGivenObjectsMetadataStructureResult.data;
+        if (!objectData) {
+          throw Error("Failed to process data using the given object's metadata structure");
+        }
         console.log("objectData:", objectData);
         console.log(`✅ Completed "Step 5a: Process the given data item", with objectData: ${JSON.stringify(objectData)}`);
   
@@ -278,16 +282,26 @@ export class ProcessDataJob<T> {
         console.log(`✅ Completed "Step 5c: Save object as appropriate", with: dryRun: ${dryRun}`);
       }
       catch (error) {
-        dataContentsOutcomes.push(`Failed to process: ${config.stringify(dataContentsItem)}. Error: ${error.message}`);
+        dataContentsFailures.push(`Failed to process data with error: ${error.message}.\n Data: ${config.stringify(dataContentsItem)}.`);
       }
     }
 
-    const result: FunctionResult = {
-      status: 200,
-      message: "Successfully processed and stored data.",
-      data: dataContentsOutcomes,
-    };
-    return result;
+    if (dataContentsFailures.length) {
+      console.error(`Failed to process data:\n\n${dataContentsFailures.join("\n")}`);
+      const result: FunctionResult = {
+        status: 500,
+        message: "Failed to process data. The data that failed was:\n\n" + dataContentsFailures.join("\n"),
+        data: dryRun ? dataContentsOutcomes : null,
+      };
+      return result;
+    } else {
+      const result: FunctionResult = {
+        status: 200,
+        message: dryRun ? "Successfully processed data." : "Successfully processed and stored data.",
+        data: dryRun ? dataContentsOutcomes : null,
+      };
+      return result;
+    }
   }
 
   private async getObjectTypes({ organisationId }: { organisationId: string }): Promise<FunctionResult> {
@@ -478,7 +492,6 @@ export class ProcessDataJob<T> {
       // Populate properties and requiredIds
       relatedMetadata.forEach((meta) => {
         if (meta.allow_ai_update) {
-          console.log(`Adding metadata objectType.id: ${objectType.id}, meta: ${JSON.stringify(meta)}`);
           const property: any = {};
           let description = meta.description
             ? `${meta.name}: ${meta.description}`
@@ -492,14 +505,10 @@ export class ProcessDataJob<T> {
             .filter(term => term.type === meta.dictionary_term_type)
             .map(term => term.id);
 
-            console.log("IDs matching type:", idsMatchingType);
-
             // 2. List of maps with id and description for matching items.
             const mapsMatchingType = dictionaryTerms
             .filter(term => term.type === meta.dictionary_term_type)
             .map(term => ({ id: term.id, description: term.description }));
-
-            console.log("Maps matching type:", mapsMatchingType);
 
             description += `\nDescriptions for the enums are: ${JSON.stringify(mapsMatchingType)}`;
 
@@ -521,26 +530,23 @@ export class ProcessDataJob<T> {
           } else {
             properties[meta.id] = property;
           }
-          console.log(`properties[meta.id] (where meta.id=${meta.id}) is now set to: ${JSON.stringify(properties[meta.id])}`)
 
           // Add to requiredIds if is_required is true
           if (meta.is_required) {
             requiredIds.push(meta.id);
           }
         } else {
-          console.log(`Skipping metadata as allow_ai_update is false for objectType.id: ${objectType.id}, meta: ${JSON.stringify(meta)}`);
+          // Skipping metadata as allow_ai_update is false for objectType.id
         }
       });
   
       // Assign to the maps
-      console.log(`For objectType.id: ${objectType.id}, properties: ${JSON.stringify(properties)}, requiredIds: ${JSON.stringify(requiredIds)}`);
       if (properties) {
         objectMetadataFunctionProperties[objectType.id] = properties;
       }
       if (requiredIds) {
         objectMetadataFunctionPropertiesRequiredIds[objectType.id] = requiredIds;
       }
-      console.log(`objectMetadataFunctionProperties[objectType.id] is now set to: ${JSON.stringify(objectMetadataFunctionProperties[objectType.id])}`);
     });
   
     // Return both maps
