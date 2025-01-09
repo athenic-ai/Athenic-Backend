@@ -38,11 +38,12 @@ app.use((req, res, next) => {
   }
 });
 
-app.post('/data/con/:connection/typ/:datatype/dry/:dryrun', async (req, res) => {
+app.post('/data/con/:connection/typ/:datatype/rep/:reply/dry/:dryrun', async (req, res) => {
   try {
-    console.log('/data/:connection/:datatype/:dryrun started');
+    console.log('/data/con/:connection/typ/:datatype/rep/:reply/dry/:dryrun started');
     const connection = req.params.connection;
     const dataType = req.params.datatype;
+    const reply: boolean = req.params.reply.toLowerCase() === 'true';
     const dryRun: boolean = req.params.dryrun.toLowerCase() === 'true';
 
     const dataIn = req.body // Will handle in any format, however if coming from Athenic, will be in a structured form to speed up processing, eg.:
@@ -55,10 +56,10 @@ app.post('/data/con/:connection/typ/:datatype/dry/:dryrun', async (req, res) => 
     //  },
     //  "companyDataContents": inputtedFileUploadData.text
     // }
-    console.log(`/data/:connection with:\nconnection: ${connection}\ntype: ${dataType}\ndryRun: ${dryRun}\ndataIn:${config.stringify(dataIn)}`);
+    console.log(`/data/:connection with:\nconnection: ${connection}\ntype: ${dataType}\nreply: ${reply}\ndryRun: ${dryRun}\ndataIn:${config.stringify(dataIn)}`);
     
     const processDataJob: ProcessDataJob = new ProcessDataJob();
-    const result = await processDataJob.start({connection: connection, dryRun: dryRun, dataIn: dataIn}); // NOTE: datatype not currently used. Could be used to help inform the AI of the likely datatype
+    const result = await processDataJob.start({connection: connection, reply: reply, dryRun: dryRun, dataIn: dataIn}); // NOTE: datatype not currently used. Could be used to help inform the AI of the likely datatype
     res.status(result.status).send(result);
   } catch (error) {
     console.error(`Error in /data/:connection/:type: ${error.message}`);

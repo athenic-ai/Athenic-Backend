@@ -99,9 +99,7 @@ export const SLACK_REDIRECT_URI = "https://gvblzovvpfeepnhifwqh.supabase.co/func
 export const NLP_MODELS_LITE = ["gpt-4o-mini"];
 export const NLP_MODELS_FULL = ["gpt-4o-mini"];
 export const NLP_EMBEDDING_MODEL = "text-embedding-3-small";
-export const NLP_EMBEDDING_CHUNK_SIZE = 8000; // OpenAI's text-embedding-3-small has a token limit
-export const NLP_EMBEDDING_OVERLAP = 200;
-export const NLP_EMBEDDING_RESPECT_SENTENCES = true;
+export const NLP_EMBEDDING_MAX_CHARS = 10000; // OpenAI's text-embedding-3-small has a token limit of 8191, so we're setting this to 10000 to be safe
 
 export const OBJECT_TYPE_ID_CONNECTION = "connection";
 export const OBJECT_TYPE_ID_MESSAGE_THREAD = "message_thread";

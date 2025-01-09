@@ -208,24 +208,14 @@ export class StorageService {
         }
       }
   
-      const mergeData = (existing: any, incoming: any): any => {
-        if (Array.isArray(existing) && Array.isArray(incoming)) {
-          // Merge arrays: combine unique values
-          return Array.from(new Set([...existing, ...incoming]));
-        } else if (typeof existing === "object" && existing !== null && typeof incoming === "object" && incoming !== null) {
-          // Merge objects recursively
-          const merged = { ...existing };
-          for (const [key, value] of Object.entries(incoming)) {
-            merged[key] = mergeData(existing[key], value);
-          }
-          return merged;
-        }
-        // Overwrite for non-object, non-array fields
-        return incoming;
-      };
-  
-      // Merge rowData with existing data
-      let mergedRowData = existingRow ? mergeData(existingRow, rowData) : { ...keys, ...rowData };  
+      // Merge with overwrite fields specified directly
+      let mergedRowData = existingRow 
+      ? this.mergeData({
+          existing: existingRow,
+          incoming: rowData,
+          overwriteFields: ['embedding']
+        }) 
+      : { ...keys, ...rowData };
 
       // Generate embeddings value (guide: https://supabase.com/docs/guides/ai/vector-columns)
       console.log("Adding embeddings to data...");
@@ -257,5 +247,55 @@ export class StorageService {
       };
       return result;
     }
+  }
+
+  /**
+   * Merges two objects with support for specifying fields that should be overwritten
+   * @param existing - The existing object to merge into
+   * @param incoming - The incoming object with new values
+   * @param overwriteFields - Array of field paths that should be overwritten instead of merged (can also do inner keys like ['user.preferences'])
+   * @param currentPath - Internal parameter for tracking nested object paths
+   * @returns The merged result
+   */
+  mergeData({
+    existing,
+    incoming,
+    overwriteFields = [],
+    currentPath = ''
+  }: {
+    existing: any;
+    incoming: any;
+    overwriteFields?: string[];
+    currentPath?: string;
+  }): any {
+    // If the current path is in overwriteFields, overwrite instead of merging
+    if (overwriteFields.includes(currentPath)) {
+      return incoming;
+    }
+  
+    if (Array.isArray(existing) && Array.isArray(incoming)) {
+      // Merge arrays: combine unique values
+      return Array.from(new Set([...existing, ...incoming]));
+    } else if (
+      typeof existing === 'object' && existing !== null &&
+      typeof incoming === 'object' && incoming !== null
+    ) {
+      // Merge objects recursively
+      const merged = { ...existing };
+      for (const [key, value] of Object.entries(incoming)) {
+        // Build the path for nested properties
+        const newPath = currentPath ? `${currentPath}.${key}` : key;
+        merged[key] = this.mergeData({
+          existing: existing[key],
+          incoming: value,
+          overwriteFields,
+          currentPath: newPath
+        });
+      }
+      return merged;
+    }
+  
+    // Overwrite for non-object, non-array fields
+    return incoming;
   }
 }
