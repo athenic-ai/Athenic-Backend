@@ -221,14 +221,16 @@ export class NlpService {
             const referencesStr = referencesList.map((ref, idx) => `<${ref}|here>`).join(", ");
             const result: FunctionResult = {
               status: 200,
-              message: interpretedCreateResult.response.text(),
+              message: interpretedCreateResult.choices[0].message,
+              data: functionResultsData[0].functionResult.data,
               references: referencesStr
             };
             return result;
           } else {
             const result: FunctionResult = {
               status: 200,
-              message: interpretedCreateResult.response.text()
+              message: interpretedCreateResult.choices[0].message,
+              data: functionResultsData[0].functionResult.data,
             };
             return result;
           }
@@ -396,6 +398,11 @@ async addEmbeddingToObject(
 ): Promise<FunctionResult> {
     try {
         console.log("addEmbeddingToObject called");
+
+        // Remove the 'embedding' key if it exists, as we'll be creating a new one
+        if ('embedding' in objectIn) {
+          delete objectIn.embedding;
+        }
         
         const embeddingRes = await this.generateTextEmbedding(
             objectIn,
