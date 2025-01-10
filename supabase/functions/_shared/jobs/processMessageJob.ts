@@ -97,7 +97,7 @@ export class ProcessMessageJob<T> {
       .join(" "); // Join the text values into a single string
 
       // Step 3: Store the message in the database
-      this.storeMessage({organisationId, memberId, connectionId, messageThreadId, messageIsFromBot, authorId, message: messageTextPartsStr}); // Purposely NOT doing await as for efficiency want everything else to proceed. TODO: confirm that this can be done and won't slow the main thread or reduce reliability
+      this.messagingService.storeMessage({organisationId, memberId, connectionId, messageThreadId, messageIsFromBot, authorId, message: messageTextPartsStr, storageService: this.storageService, nlpService: this.nlpService}); // Purposely NOT doing await as for efficiency want everything else to proceed. TODO: confirm that this can be done and won't slow the main thread or reduce reliability
 
       // Step 4: Check if the message is from the bot itself
       if (messageIsFromBot) {
@@ -112,13 +112,12 @@ export class ProcessMessageJob<T> {
       console.log("Starting NLP processing for message:", messageParts);
 
       console.log("Getting chat history");
-      // const chatHistory = await this.messagingService.getChatHistory({
-      //   organisationId: organisationId,
-      //   memberFire: memberFire,
-      //   platformSource: platformSource,
-      //   threadId: messageThreadId,
-      // });
-      const chatHistory = [];
+      const chatHistory = await this.messagingService.getChatHistory({
+        organisationId,
+        memberId,
+        messageThreadId,
+        storageService: this.storageService,
+      });
 
       console.log("Getting model response");
 
@@ -148,7 +147,7 @@ export class ProcessMessageJob<T> {
         // TODO: currently when Athenic, we're not storing references in db. We may well not care about this or even prefer this, but may want to align either way with Slack where we do
         const aiResponseData = dataIn;
         aiResponseData.companyDataContents = messageReply;        
-        this.storeMessage({organisationId, memberId, connectionId, messageThreadId, messageIsFromBot: true, authorId, message: messageReply}); // Purposely NOT doing await as for efficiency want everything else to proceed. TODO: confirm that this can be done and won't slow the main thread or reduce reliability
+        this.messagingService.storeMessage({organisationId, memberId, connectionId, messageThreadId, messageIsFromBot: true, authorId, message: messageReply, storageService: this.storageService, nlpService: this.nlpService}); // Purposely NOT doing await as for efficiency want everything else to proceed. TODO: confirm that this can be done and won't slow the main thread or reduce reliability
       }
 
       const result: FunctionResult = {
@@ -161,57 +160,6 @@ export class ProcessMessageJob<T> {
       const result: FunctionResult = {
         status: 500,
         message: `❌ Failed to process message with error: ${error.message}. Please review your message and try again.`,
-      };
-      return result;
-    }
-  }
-
-  async storeMessage({organisationId, memberId = null, connectionId, messageThreadId, messageIsFromBot, authorId, message}) {
-    try {
-      // Step 1: Create and store the message object
-      const messageObjectData = {
-        id: uuid.v1.generate(),
-        owner_organisation_id: organisationId,
-        owner_member_id: memberId,
-        related_object_type_id: config.OBJECT_TYPE_ID_MESSAGE,
-        metadata: {
-          [config.OBJECT_METADATA_DEFAULT_TITLE]: message,
-          [config.OBJECT_METADATA_TYPE_ID_MESSAGE_AUTHOR_ID]: messageIsFromBot ? config.OBJECT_MESSAGE_AUTHOR_ID_VALUE_IF_COMPANY : authorId,
-        },
-        created_at: new Date(),
-        parent_id: messageThreadId,
-      };
-      console.log(`Updating object data in DB with messageObjectData: ${JSON.stringify(messageObjectData)}`);
-      const messageUpdateResult = await this.storageService.updateRow({
-        table: "objects",
-        keys: {id: messageObjectData.id},
-        rowData: messageObjectData,
-        nlpService: this.nlpService,
-        mayAlreadyExist: false,
-      });
-      if (messageUpdateResult.status != 200) {
-        throw Error(messageUpdateResult.message);
-      }
-
-      // Step 2: Update the message thread object with the message object as a child
-      const messageThreadObjectData = {
-        child_ids: {[config.OBJECT_TYPE_ID_MESSAGE]: [messageObjectData.id]},
-      };
-      console.log(`Updating message thead object data in DB with messageThreadObjectData: ${JSON.stringify(messageThreadObjectData)}`);
-      const messageThreadUpdateResult = await this.storageService.updateRow({
-        table: "objects",
-        keys: {id: messageThreadId},
-        rowData: messageThreadObjectData,
-        nlpService: this.nlpService,
-        mayAlreadyExist: true,
-      });
-      if (messageThreadUpdateResult.status != 200) {
-        throw Error(messageThreadUpdateResult.message);
-      }
-    } catch (error) {
-      const result: FunctionResult = {
-        status: 500,
-        message: `❌ Failed to store message with error: ${error.message}. Please try again.`,
       };
       return result;
     }

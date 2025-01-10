@@ -157,13 +157,14 @@ export class NlpService {
       console.log("promptPartss: ", promptParts);
       const messages = [
         { role: "developer", content: systemInstruction },
+        ...chatHistory, // Add chat history
         ...promptParts.map((part) => ({ role: "user", content: [part] })), // Add user's prompt parts
       ];
 
       console.log("this.functionDeclarations: ", this.functionDeclarations);
 
       console.log("messages: ", messages);
-      console.log("chatHistory: ", chatHistory);
+      console.log("chatHistory within nlpService: ", chatHistory);
       console.log("models: ", models);
       console.log("functionUsage: ", functionUsage);
 
