@@ -31,7 +31,7 @@ export function stringify(obj: any): string {
   return str;
 }
 
-export async function inferOrganisation({ connection, dataIn, storageService }: { connection: string; dataIn: T, storageService: StorageService }): Promise<FunctionResult> {
+export async function inferOrganisation({ connection, dataIn, storageService }: { connection: string; dataIn: T; storageService: StorageService }): Promise<FunctionResult> {
   try {
     let organisationId;
     if (dataIn.companyMetadata && dataIn.companyMetadata.organisationId) {
@@ -68,6 +68,121 @@ export async function inferOrganisation({ connection, dataIn, storageService }: 
     console.error(result.message);
     return result;
   }
+}
+
+export async function getObjectTypes({ storageService, organisationId, memberId }: { storageService: StorageService; organisationId: string; memberId: string }): Promise<FunctionResult> {
+  try {
+    console.log(`getObjectTypes() called with organisationId: ${organisationId} and memberId: ${memberId}`);
+
+    const whereOrConditions = [
+      { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
+      { column: 'owner_member_id', operator: 'is', value: null }, // Include default entries where owner member not set
+    ];
+    if (organisationId) {
+      whereOrConditions.push({ column: 'owner_organisation_id', operator: 'eq', value: organisationId }); // Include entries created by the org
+    }
+    if (memberId) {
+      whereOrConditions.push({ column: 'owner_member_id', operator: 'eq', value: memberId }); // Include entries created by the member
+    }
+    const getObjectTypesResult = await storageService.getRows('object_types', {
+      whereOrConditions: whereOrConditions,
+    });
+    if (getObjectTypesResult.status != 200) {
+      return new Error(getObjectTypesResult.message);
+    }
+    const objectTypes = getObjectTypesResult.data;
+    console.log(`objectTypes: ${JSON.stringify(objectTypes)}`)
+    const result: FunctionResult = {
+      status: 200,
+      message: "Success running getObjectTypes",
+      data: objectTypes,
+    };
+    return result;
+  } catch(error) {
+    const result: FunctionResult = {
+      status: 500,
+      message: `❌ ${error.message}`,
+    };
+    console.error(result.message);
+    return result;
+  }
+}
+
+export async function getObjectMetadataTypes({ storageService, organisationId, memberId }: { storageService: StorageService; organisationId: string; memberId: string }): Promise<FunctionResult> {
+  try {
+    console.log(`getObjectMetadataTypes() called with organisationId: ${organisationId} and memberId: ${memberId}`);
+
+    const whereOrConditions = [
+      { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
+      { column: 'owner_member_id', operator: 'is', value: null }, // Include default entries where owner member not set
+    ];
+    if (organisationId) {
+      whereOrConditions.push({ column: 'owner_organisation_id', operator: 'eq', value: organisationId }); // Include entries created by the org
+    }
+    if (memberId) {
+      whereOrConditions.push({ column: 'owner_member_id', operator: 'eq', value: memberId }); // Include entries created by the member
+    }
+    const getObjectMetadataTypesResult = await storageService.getRows('object_metadata_types', {
+      whereOrConditions: whereOrConditions,
+    });
+    if (getObjectMetadataTypesResult.status != 200) {
+      return new Error(getObjectMetadataTypesResult.message);
+    }
+    const objectMetadataTypes = getObjectMetadataTypesResult.data;
+    console.log(`objectMetadataTypes: ${JSON.stringify(objectMetadataTypes)}`)
+    const result: FunctionResult = {
+      status: 200,
+      message: "Success running getObjectMetadataTypes",
+      data: objectMetadataTypes,
+    };
+    return result;
+  } catch(error) {
+    const result: FunctionResult = {
+      status: 500,
+      message: `❌ ${error.message}`,
+    };
+    console.error(result.message);
+    return result;
+  }
+}
+
+export function createObjectTypeDescriptions(objectTypes: any[], metadataTypes: any[]) {
+  // TODO: possibly remove this and reuse createObjectMetadataFunctionProperties instead?
+  // Returns a map where the keys are each object type's ID, and the values are:
+  // - The object type's name
+  // - The object type's description
+  // - The object type's metadata, which is a map containing metadata info, including cases where related_object_type_id is null
+  console.log(`createObjectTypeDescriptions called with objectTypes: ${JSON.stringify(objectTypes)} and metadataTypes: ${JSON.stringify(metadataTypes)}`);
+
+  return objectTypes.reduce((result, objectType) => {
+    // Find related metadata for the current object type or metadata with a null related_object_type_id
+    const relatedMetadata = metadataTypes.filter(
+      (meta) => meta.related_object_type_id === objectType.id || meta.related_object_type_id === null
+    );
+
+    // Transform related metadata into the desired format
+    const metadataMap = relatedMetadata.reduce((acc, meta) => {
+      const description = meta.description || meta.name;
+      const property: any = {
+        description,
+      };
+
+      property.fieldType = meta.field_type_id; // TODO: check this is displaying as expected and consider also/instead of including the underlying data type
+
+
+      acc[meta.id] = property;
+      return acc;
+    }, {} as Record<string, any>);
+
+    // Add the object type entry to the result map
+    result[objectType.id] = {
+      name: objectType.name,
+      description: objectType.description,
+      metadata: metadataMap,
+    };
+
+    return result;
+  }, {} as Record<string, any>);
 }
 
 // Enums

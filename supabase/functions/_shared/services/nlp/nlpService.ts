@@ -15,6 +15,7 @@ export class NlpService {
   private memberId: any | null = null;
   private memberData: any | null = null;
   private supportedObjectTypeIds: string[] = [];
+  private supportedObjectTypeDescriptions: string[] = [];
   private selectedObjectTypeId: string | null = null;
   private selectedObjectsIds: string[] = [];
   private objectMetadataFunctionProperties: Record<string, unknown> | null = null;
@@ -48,6 +49,7 @@ export class NlpService {
     memberId,
     memberData,
     supportedObjectTypeIds,
+    supportedObjectTypeDescriptions,
     selectedObjectTypeId,
     selectedObjectsIds,
     objectMetadataFunctionProperties,
@@ -59,6 +61,7 @@ export class NlpService {
     memberId?: any;
     memberData?: any;
     supportedObjectTypeIds?: string[];
+    supportedObjectTypeDescriptions?: string[];
     selectedObjectTypeId?: string;
     selectedObjectsIds?: string[];
     objectMetadataFunctionProperties?: Record<string, unknown>;
@@ -72,6 +75,7 @@ export class NlpService {
     this.memberId = memberId ?? this.memberId;
     this.memberData = memberData ?? this.memberData;
     this.supportedObjectTypeIds = supportedObjectTypeIds ?? this.supportedObjectTypeIds;
+    this.supportedObjectTypeDescriptions = supportedObjectTypeDescriptions ?? this.supportedObjectTypeDescriptions;
     this.selectedObjectTypeId = selectedObjectTypeId ?? this.selectedObjectTypeId;
     this.selectedObjectsIds = selectedObjectsIds ?? this.selectedObjectsIds;
     this.objectMetadataFunctionProperties = objectMetadataFunctionProperties ?? this.objectMetadataFunctionProperties;
@@ -140,8 +144,6 @@ export class NlpService {
       throw new Error("this.clientCore not initialised. Please call initialiseClientCore first.");
     }
 
-    console.log(`functionUsage: ${functionUsage}`);
-
     try {
       console.log(`NLP called with prompt:\n${config.stringify(promptParts)}\n\nand chat history:\n${config.stringify(chatHistory)}`);
       const models = useLiteModels
@@ -160,39 +162,33 @@ export class NlpService {
         ...promptParts.map((part) => ({ role: "user", content: [part] })), // Add user's prompt parts
       ];
 
-      console.log("this.functionDeclarations: ", this.functionDeclarations);
-
-      console.log("messages: ", messages);
-      console.log("chatHistory within nlpService: ", chatHistory);
-      console.log("models: ", models);
-      console.log("functionUsage: ", functionUsage);
-      console.log("this.storageService: ", this.storageService);
-
       const initialCreateResult = await this.clientCore!.chat.completions.create({
         models,
         messages,
+        temperature,
         tools: this.functionDeclarations,
         tool_choice: functionUsage, // NOTE: not supported by a number of models
         // provider: { // TODO: enable this before going to production
         //   data_collection: "deny"
         // },
       });
-      console.log("initialCreateResult: ", initialCreateResult);
       const createResMessage = initialCreateResult.choices[0].message;
       console.log("createResMessage: ", createResMessage);
 
       if (createResMessage.tool_calls) {
-        console.log("tool_calls requested with current functions:", this.nlpFunctionsBase.nlpFunctions); // FYI can't JSON parse this specific var, so to show it, need to do it like this
+        console.log("tool_calls requested");
         const functionResultsData = [];
         for (const toolCall of createResMessage.tool_calls) {
           if (toolCall.type === "function") {
             const functionName = toolCall.function.name;
             const functionArgs = JSON.parse(toolCall.function.arguments);
-            console.log(`Function called: ${functionName} with args: ${JSON.stringify(functionArgs)}`);
+            console.log(`tool_calls function called: ${functionName} with args: ${JSON.stringify(functionArgs)}`);
             const chosenFunctionImplementation = this.nlpFunctionsBase.nlpFunctions[functionName].implementation;
             const functionResult = await chosenFunctionImplementation(functionArgs);
             functionResultsData.push({ name: functionName, functionResult: functionResult });
             break; // Currently only allowing it to call the first function with this. Also when not interpreting, as part of this just returning the first function's data below. May want to change in the future to allow it to call all the functions it found
+          } else {
+            console.error("tool_calls type not function, so not calling any function");
           }
         }
 
@@ -255,7 +251,7 @@ export class NlpService {
           return result;
         }
       } else {
-        console.log("No function calls were made by the model.");
+        console.log("No tool_calls were requested by the model.");
         const result: FunctionResult = {
           status: 200,
           message: createResMessage.content

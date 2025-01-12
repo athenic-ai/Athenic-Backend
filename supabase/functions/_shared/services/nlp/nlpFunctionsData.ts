@@ -149,6 +149,9 @@ export async function initialiseFunctions(baseInstance: any) {
   }
 
   // searchForObjects
+  console.log("Define searchForObjects");
+  console.log(`baseInstance.parent.supportedObjectTypeDescriptions: ${JSON.stringify(baseInstance.parent.supportedObjectTypeDescriptions)}`);
+  console.log(`baseInstance.parent.supportedObjectTypeIds: ${JSON.stringify(baseInstance.parent.supportedObjectTypeIds)}`);
   functionsToReturn.searchForObjects = {
     declaration: {
       type: "function",
@@ -165,8 +168,8 @@ export async function initialiseFunctions(baseInstance: any) {
             },
             relatedObjectTypeId: {
               type: "string",
-              description: "Specify the type of object to search for if appropriate.",
-              // TODO: specify enum based on available object types
+              description: `If appropriate to only search for a specific type of object, the object types that can be chosen from are:\n${JSON.stringify(baseInstance.parent.supportedObjectTypeDescriptions)}`,
+              enum: baseInstance.parent.supportedObjectTypeIds,
             },
           },
           required: ["queryText"],
@@ -178,8 +181,6 @@ export async function initialiseFunctions(baseInstance: any) {
       try {
         console.log(`searchForObjects called with: queryText: ${queryText} and relatedObjectTypeId: ${relatedObjectTypeId}`);
 
-        console.log(`searchForObjects: baseInstance.parent.storageService`, baseInstance.parent.storageService);
-        console.log(`searchForObjects: baseInstance.parent.nlpService`, baseInstance.parent);
         const searchRowsResult = await baseInstance.parent.storageService.searchRows({
           table: "objects",
           queryText,

@@ -51,7 +51,7 @@ export class ProcessDataJob<T> {
       console.log(`✅ Completed "Step 1: Get organisation's ID and data", with organisationId: ${organisationId} and organisationData: ${JSON.stringify(organisationData)}`);
 
       // -----------Step 2: Get object types accessible to the organisation----------- 
-      const getObjectTypesResult = await this.getObjectTypes({organisationId: organisationId});
+      const getObjectTypesResult = await config.getObjectTypes({storageService: this.storageService, organisationId: organisationId});
       if (getObjectTypesResult.status != 200) {
         throw Error(getObjectTypesResult.message);
       }
@@ -61,7 +61,7 @@ export class ProcessDataJob<T> {
         .map(item => item.id); // List of strings of the ID of each object type of the organisation_data_standard category
       objectTypesIds.push("unknown"); // Also add unknown in cases it cannot detect which to return // TODO: handle cases when data falls into this category, eg. setting it as some generic/general object type
 
-      const getObjectMetadataTypesResult = await this.getObjectMetadataTypes({organisationId: organisationId});
+      const getObjectMetadataTypesResult = await config.getObjectMetadataTypes({storageService: this.storageService, organisationId: organisationId});
       if (getObjectMetadataTypesResult.status != 200) {
         throw Error(getObjectMetadataTypesResult.message);
       }
@@ -81,7 +81,7 @@ export class ProcessDataJob<T> {
 
       console.log("AA");
 
-      const objectTypeDescriptions = this.createObjectTypeDescriptions(objectTypes, objectMetadataTypes); // Example output: {"product":{"name":"Product","description":"An item that is sold to users by teams (e.g. Apple Music is sold to users by Apple).","metadata":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}},"ids":{"description":"In the form:\n   \"android/ios/...\"\n      -> \"id\"","type":"object"}}},"feedback":{"name":"Feedback","description":"Feedback from users about topics such as a product, service, experience or even the organisation in general.","metadata":{"author_name":{"description":"Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}}
+      const objectTypeDescriptions = config.createObjectTypeDescriptions(objectTypes, objectMetadataTypes); // Example output: {"product":{"name":"Product","description":"An item that is sold to users by teams (e.g. Apple Music is sold to users by Apple).","metadata":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}},"ids":{"description":"In the form:\n   \"android/ios/...\"\n      -> \"id\"","type":"object"}}},"feedback":{"name":"Feedback","description":"Feedback from users about topics such as a product, service, experience or even the organisation in general.","metadata":{"author_name":{"description":"Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}}
       console.log(`objectTypeDescriptions: ${JSON.stringify(objectTypeDescriptions)}`)
 
       const [objectMetadataFunctionProperties, objectMetadataFunctionPropertiesRequiredIds] = this.createObjectMetadataFunctionProperties(objectTypes, objectMetadataTypes, fieldTypes, dictionaryTerms); // Example output: {"product":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}}},"feedback":{"author_name":{"description":"Author name: Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Deal size: Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}
@@ -304,66 +304,6 @@ export class ProcessDataJob<T> {
     }
   }
 
-  private async getObjectTypes({ organisationId }: { organisationId: string }): Promise<FunctionResult> {
-    try {
-      console.log("buildStructuredObjectFunctions() called");
-      const getObjectTypesResult = await this.storageService.getRows('object_types', {
-        whereOrConditions: [
-          { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
-          { column: 'owner_organisation_id', operator: 'eq', value: organisationId }, // Include entries created by the org
-        ],
-      });
-      if (getObjectTypesResult.status != 200) {
-        return new Error(getObjectTypesResult.message);
-      }
-      const objectTypes = getObjectTypesResult.data;
-      console.log(`objectTypes: ${JSON.stringify(objectTypes)}`)
-      const result: FunctionResult = {
-        status: 200,
-        message: "Success running getObjectTypes",
-        data: objectTypes,
-      };
-      return result;
-    } catch(error) {
-      const result: FunctionResult = {
-        status: 500,
-        message: `❌ ${error.message}`,
-      };
-      console.error(result.message);
-      return result;
-    }
-  }
-
-  private async getObjectMetadataTypes({ organisationId }: { organisationId: string }): Promise<FunctionResult> {
-    try {
-      console.log("getObjectMetadataTypes() called");
-      const getObjectMetadataTypesResult = await this.storageService.getRows('object_metadata_types', {
-        whereOrConditions: [
-          { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
-          { column: 'owner_organisation_id', operator: 'eq', value: organisationId }, // Include entries created by the org
-        ],
-      });
-      if (getObjectMetadataTypesResult.status != 200) {
-        return new Error(getObjectMetadataTypesResult.message);
-      }
-      const objectMetadataTypes = getObjectMetadataTypesResult.data;
-      console.log(`objectMetadataTypes: ${JSON.stringify(objectMetadataTypes)}`)
-      const result: FunctionResult = {
-        status: 200,
-        message: "Success running getObjectMetadataTypes",
-        data: objectMetadataTypes,
-      };
-      return result;
-    } catch(error) {
-      const result: FunctionResult = {
-        status: 500,
-        message: `❌ ${error.message}`,
-      };
-      console.error(result.message);
-      return result;
-    }
-  }
-
   private async getFieldTypes(): Promise<FunctionResult> {
     try {
       console.log("getFieldTypes() called");
@@ -414,45 +354,6 @@ export class ProcessDataJob<T> {
       console.error(result.message);
       return result;
     }
-  }
-
-  private createObjectTypeDescriptions(objectTypes: any[], metadataTypes: any[]) {
-    // TODO: possibly remove this and reuse createObjectMetadataFunctionProperties instead?
-    // Returns a map where the keys are each object type's ID, and the values are:
-    // - The object type's name
-    // - The object type's description
-    // - The object type's metadata, which is a map containing metadata info, including cases where related_object_type_id is null
-    console.log(`createObjectTypeDescriptions called with objectTypes: ${JSON.stringify(objectTypes)} and metadataTypes: ${JSON.stringify(metadataTypes)}`);
-  
-    return objectTypes.reduce((result, objectType) => {
-      // Find related metadata for the current object type or metadata with a null related_object_type_id
-      const relatedMetadata = metadataTypes.filter(
-        (meta) => meta.related_object_type_id === objectType.id || meta.related_object_type_id === null
-      );
-  
-      // Transform related metadata into the desired format
-      const metadataMap = relatedMetadata.reduce((acc, meta) => {
-        const description = meta.description || meta.name;
-        const property: any = {
-          description,
-        };
-  
-        property.fieldType = meta.field_type_id; // TODO: check this is displaying as expected and consider also/instead of including the underlying data type
-  
-  
-        acc[meta.id] = property;
-        return acc;
-      }, {} as Record<string, any>);
-  
-      // Add the object type entry to the result map
-      result[objectType.id] = {
-        name: objectType.name,
-        description: objectType.description,
-        metadata: metadataMap,
-      };
-  
-      return result;
-    }, {} as Record<string, any>);
   }
 
   private createObjectMetadataFunctionProperties(
