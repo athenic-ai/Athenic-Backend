@@ -12,7 +12,7 @@ export class NlpService {
   private adminSettings: any | null = null;
   private organisationId: string | null = null;
   private organisationData: Record<string, unknown> | null = null;
-  private memberFire: any | null = null;
+  private memberId: any | null = null;
   private memberData: any | null = null;
   private supportedObjectTypeIds: string[] = [];
   private selectedObjectTypeId: string | null = null;
@@ -45,7 +45,7 @@ export class NlpService {
   setMemberVariables({
     organisationId,
     organisationData,
-    memberFire,
+    memberId,
     memberData,
     supportedObjectTypeIds,
     selectedObjectTypeId,
@@ -56,7 +56,7 @@ export class NlpService {
   }: {
     organisationId?: string;
     organisationData?: Record<string, unknown>;
-    memberFire?: any;
+    memberId?: any;
     memberData?: any;
     supportedObjectTypeIds?: string[];
     selectedObjectTypeId?: string;
@@ -69,7 +69,7 @@ export class NlpService {
   
     this.organisationId = organisationId ?? this.organisationId;
     this.organisationData = organisationData ?? this.organisationData;
-    this.memberFire = memberFire ?? this.memberFire;
+    this.memberId = memberId ?? this.memberId;
     this.memberData = memberData ?? this.memberData;
     this.supportedObjectTypeIds = supportedObjectTypeIds ?? this.supportedObjectTypeIds;
     this.selectedObjectTypeId = selectedObjectTypeId ?? this.selectedObjectTypeId;
@@ -154,7 +154,6 @@ export class NlpService {
         this.currentFunctionSupportList = limitedFunctionSupportList;
       }
 
-      console.log("promptPartss: ", promptParts);
       const messages = [
         { role: "developer", content: systemInstruction },
         ...chatHistory, // Add chat history
@@ -167,6 +166,7 @@ export class NlpService {
       console.log("chatHistory within nlpService: ", chatHistory);
       console.log("models: ", models);
       console.log("functionUsage: ", functionUsage);
+      console.log("this.storageService: ", this.storageService);
 
       const initialCreateResult = await this.clientCore!.chat.completions.create({
         models,
@@ -199,18 +199,27 @@ export class NlpService {
         if (interpretFuncCalls) {
           const referencesList: any[] = [];
           for (const functionResultData of functionResultsData) {
+            console.log(`functionResultData: ${JSON.stringify(functionResultData)}`);
             if (functionResultData.functionResult.references) {
               referencesList.push(functionResultData.functionResult.references);
             }
-            const result = typeof functionResultData.result === "object"
-              ? JSON.stringify(functionResultData.result)
-              : functionResultData.result;
+            const resultDataStr = config.stringify(functionResultData.functionResult.data);
 
             messages.push({
               role: "assistant",
-              content: `Response after running function "${functionResultData.name}": ${result}`,
+              content: `Response after running function "${functionResultData.name}": ${resultDataStr}`,
             });
           }
+
+          // TODO: Currently only returning the first function's data. May want to change in the future to allow it to return all the functions' data it has found
+          if (functionResultsData.length > 1) {
+            messages.push({
+              role: "assistant",
+              content: "Please note when interpreting these function calls, that multiple function calls have been run, however only the first function's data is being returned for viewing.",
+            });
+          }
+
+          console.log(`messages after function calls, prior to interpretedCreateResult: ${JSON.stringify(messages)}`);
 
           const interpretedCreateResult = await this.clientCore!.chat.completions.create({
             models,
@@ -218,11 +227,13 @@ export class NlpService {
             tools: this.functionDeclarations,
           });
 
+          console.log(`interpretedCreateResult stringified: ${JSON.stringify(interpretedCreateResult)}`);
+
           if (referencesList.length > 0) {
             const referencesStr = referencesList.map((ref, idx) => `<${ref}|here>`).join(", ");
             const result: FunctionResult = {
               status: 200,
-              message: interpretedCreateResult.choices[0].message,
+              message: interpretedCreateResult.choices[0].message.content,
               data: functionResultsData[0].functionResult.data,
               references: referencesStr
             };
@@ -230,7 +241,7 @@ export class NlpService {
           } else {
             const result: FunctionResult = {
               status: 200,
-              message: interpretedCreateResult.choices[0].message,
+              message: interpretedCreateResult.choices[0].message.content,
               data: functionResultsData[0].functionResult.data,
             };
             return result;
@@ -238,7 +249,7 @@ export class NlpService {
         } else {
           const result: FunctionResult = {
             status: functionResultsData[0].functionResult.status,
-            message: functionResultsData[0].functionResult.message,
+            message: functionResultsData[0].functionResult.message.content,
             data: functionResultsData[0].functionResult.data,
           };
           return result;
@@ -399,14 +410,21 @@ async addEmbeddingToObject(
 ): Promise<FunctionResult> {
     try {
         console.log("addEmbeddingToObject called");
+        const objectToGenEmbeddingsFor = structuredClone(objectIn); // Create a deep copy
 
-        // Remove the 'embedding' key if it exists, as we'll be creating a new one
-        if ('embedding' in objectIn) {
-          delete objectIn.embedding;
+        // Remove the following keys we don't want to be a part of the embedding
+        if ('embedding' in objectToGenEmbeddingsFor) {
+          delete objectToGenEmbeddingsFor.embedding;
+        }
+        if ('child_ids' in objectToGenEmbeddingsFor) {
+          delete objectToGenEmbeddingsFor.child_ids;
+        }
+        if ('related_ids' in objectToGenEmbeddingsFor) {
+          delete objectToGenEmbeddingsFor.related_ids;
         }
         
         const embeddingRes = await this.generateTextEmbedding(
-            objectIn,
+          objectToGenEmbeddingsFor,
         );
         
         console.log(`embeddingRes: ${JSON.stringify(embeddingRes)}`);

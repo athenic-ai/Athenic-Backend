@@ -13,7 +13,7 @@ interface MemberVariables {
   tasksService?: any;
   organisationId?: string;
   organisationData?: Record<string, unknown>;
-  memberFire?: any;
+  memberId?: any;
   memberData?: any;
   threadId?: string;
   selectedProductName?: string;
@@ -47,7 +47,7 @@ class NLPPlugin extends PluginInterface {
   private organisationId: string | null = null;
   private organisationData: Record<string, unknown> | null = null;
   private productDataAll: Record<string, any> = {};
-  private memberFire: any | null = null;
+  private memberId: any | null = null;
   private memberData: any | null = null;
   private threadId: string | null = null;
   private supportedProductNames: string[] = [];
@@ -76,7 +76,7 @@ class NLPPlugin extends PluginInterface {
     tasksService,
     organisationId,
     organisationData,
-    memberFire,
+    memberId,
     memberData,
     threadId,
     selectedProductName,
@@ -87,7 +87,7 @@ class NLPPlugin extends PluginInterface {
     if (tasksService) this.tasksService = tasksService;
     if (organisationId) this.organisationId = organisationId;
     if (organisationData) this.organisationData = organisationData;
-    if (memberFire) this.memberFire = memberFire;
+    if (memberId) this.memberId = memberId;
     if (memberData) this.memberData = memberData;
     if (threadId) this.threadId = threadId;
     if (selectedProductName) this.selectedProductName = selectedProductName;

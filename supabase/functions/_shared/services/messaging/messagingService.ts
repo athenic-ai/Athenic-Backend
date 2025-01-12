@@ -60,11 +60,16 @@ export class MessagingService {
 
         console.log(`messageData: ${JSON.stringify(messageObject)}`);
 
-        // Push the formatted message into the history array
-        chatHistory.push({
-          role: role,
-          content: messageObject.metadata.title,
-        });
+        // Push the formatted message into the history array IF title is a string as expected (otherwise future NLP calls may fail)
+        if (typeof messageObject.metadata.title === "string") {
+          // Only add the message to the chat history if it's a different role to the previous message (otherwise, there was probably an error with previous message)
+          if (chatHistory.length === 0 || chatHistory[chatHistory.length - 1].role !== role) {
+            chatHistory.push({
+              role: role,
+              content: messageObject.metadata.title,
+            });
+          }
+        }
       }
 
       chatHistory.reverse(); // need to reverse so that it shows the older messages in the right order

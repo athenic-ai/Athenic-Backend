@@ -46,10 +46,10 @@ export class NLPSharedFunctions {
     }
   }
 
-  async ensureMemberDataRetrieved(memberFire) {
+  async ensureMemberDataRetrieved(memberId) {
     if (!this.parent.memberData) {
       // This presumes we are happy to assume that by the time the Firebase Function has completed, we havent saved member data (without updating it here) and then wanted to retrieve that updated data
-      const memberDoc = await this.parent.storagePlugin.getDoc(`members/${memberFire}`);
+      const memberDoc = await this.parent.storagePlugin.getDoc(`members/${memberId}`);
       this.parent.memberData = memberDoc.data();
     }
   }

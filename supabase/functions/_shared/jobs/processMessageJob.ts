@@ -58,8 +58,8 @@ export class ProcessMessageJob<T> {
       console.log(`✅ Completed "Step 1: Get organisation's ID and data", with organisationId: ${organisationId} and organisationData: ${JSON.stringify(organisationData)}`);
 
       this.nlpService.setMemberVariables({
-        organisationId: organisationId,
-        organisationData: organisationData,
+        organisationId,
+        organisationData,
       });
 
       console.log("test 1");
@@ -139,7 +139,7 @@ export class ProcessMessageJob<T> {
 
       // Step 5: Send the response back to the messaging platform if not Athenic (if it is, will send it back via return statement)
       if (connectionId != "company" && messageReply && messageReply.length > 0) {
-        // await this.messagingService.sendMessage(memberFire, messageThreadId, messageReply);
+        // await this.messagingService.sendMessage(memberId, messageThreadId, messageReply);
       }
 
       // Step 6: If Athenic, we won't get another call of this function to then store the AI's response, so instead, store it now

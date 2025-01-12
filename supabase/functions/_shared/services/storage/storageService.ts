@@ -173,6 +173,64 @@ export class StorageService {
     }
   }
 
+  async searchRows({ 
+    table, 
+    queryText, 
+    nlpService,
+    organisationId, 
+    memberId,
+    relatedObjectTypeId,
+  }: { 
+    table: string;
+    queryText: string;
+    nlpService: NlpService;
+    organisationId?: string;
+    memberId?: string;
+    relatedObjectTypeId?: string;
+  }): Promise<FunctionResult> {
+    try {
+      console.log(`Searching table for organisation: ${organisationId} for query: ${queryText}`);
+
+      // Generate the embedding for the query text
+      const embeddingRes = await nlpService.generateTextEmbedding(queryText);
+      if (embeddingRes.status !== 200) {
+          throw new Error(embeddingRes.message || "Error embedding data.");
+      }
+      const queryEmbedding = embeddingRes.data;
+      console.log(`Query embedding: ${JSON.stringify(queryEmbedding)}`);
+      // Query the database using the stored procedure
+      const { data, error } = await this.supabase.rpc('match_table_rows', {
+        query_embedding: queryEmbedding,
+        match_threshold: 0.1, // was 0.7
+        match_count: 10,
+        search_table_name: table,
+        filter_org_id: organisationId || null, // If included, gets only rows for that organisation or null. If null, gets rows where null
+        filter_member_id: memberId || null, // If included, gets only rows for that organisation or null. If null, gets rows where null
+        required_object_type_id: relatedObjectTypeId || null // If included, gets only rows for that object type or null. If null, gets all rows
+      });
+
+      console.log(`Search results: ${JSON.stringify(data)}`);
+
+      if (error) {
+        throw new Error(`Database query failed: ${error.message}`);
+      }
+
+      const result: FunctionResult = {
+        status: 200,
+        data: data,
+        message: "Row search successful",
+      };
+      return result;
+    } catch (error) {
+      const result: FunctionResult = {
+        status: 500,
+        message: `❌ Error in searchRows: ${error.message}`,
+      };
+      console.error(result.message);
+      return result;
+    }
+  }    
+
   async updateRow({
     table,
     keys,

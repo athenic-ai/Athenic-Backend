@@ -89,8 +89,8 @@ export class ProcessDataJob<T> {
       console.log(`objectMetadataFunctionPropertiesRequiredIds: ${JSON.stringify(objectMetadataFunctionPropertiesRequiredIds)}`);
 
       this.nlpService.setMemberVariables({
-        organisationId: organisationId,
-        organisationData: organisationData,
+        organisationId,
+        organisationData,
         supportedObjectTypeIds: objectTypesIds,
         objectMetadataFunctionProperties: objectMetadataFunctionProperties,
         objectMetadataFunctionPropertiesRequiredIds: objectMetadataFunctionPropertiesRequiredIds,
