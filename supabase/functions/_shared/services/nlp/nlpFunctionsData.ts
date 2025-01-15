@@ -8,12 +8,17 @@ export async function initialiseFunctions(baseInstance: any) {
 
   let selectedObjectMetadataFunctionProperties;
   let selectedObjectMetadataFunctionPropertiesRequiredIds;
+  let processDataFunctionDescription;
   if (baseInstance.parent.objectMetadataFunctionProperties && baseInstance.parent.selectedObjectTypeId) {
     selectedObjectMetadataFunctionProperties = baseInstance.parent.objectMetadataFunctionProperties[baseInstance.parent.selectedObjectTypeId];
   }
   if (baseInstance.parent.objectMetadataFunctionPropertiesRequiredIds && baseInstance.parent.selectedObjectTypeId) {
     selectedObjectMetadataFunctionPropertiesRequiredIds = baseInstance.parent.objectMetadataFunctionPropertiesRequiredIds[baseInstance.parent.selectedObjectTypeId];
   }
+  if (baseInstance.parent.processDataFunctionDescription) {
+    processDataFunctionDescription = baseInstance.parent.processDataFunctionDescription;
+  }
+  
   
   // predictObjectTypeBeingReferenced
   if (baseInstance.parent.supportedObjectTypeIds != null) {
@@ -103,12 +108,14 @@ export async function initialiseFunctions(baseInstance: any) {
 
   // processDataUsingGivenObjectsMetadataStructure
   if (selectedObjectMetadataFunctionProperties != null) {
+    console.log(`selectedObjectMetadataFunctionProperties are: ${JSON.stringify(selectedObjectMetadataFunctionProperties)}`);
+    console.log(`processDataFunctionDescription is: ${processDataFunctionDescription}`);
     functionsToReturn.processDataUsingGivenObjectsMetadataStructure = {
       declaration: {
         type: "function",
         function: {
           name: "processDataUsingGivenObjectsMetadataStructure",
-          description: "Given some data, process it to extract data that matches a given metadata structure. Typically used on data being passed to Athenic to be then stored in the database.",
+          description: processDataFunctionDescription,
           parameters: {
             type: "object",
             strict: true,

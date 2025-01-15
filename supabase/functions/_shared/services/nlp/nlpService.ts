@@ -20,6 +20,7 @@ export class NlpService {
   private selectedObjectsIds: string[] = [];
   private objectMetadataFunctionProperties: Record<string, unknown> | null = null;
   private objectMetadataFunctionPropertiesRequiredIds: Record<string, string[]> | null = null;
+  private processDataFunctionDescription: string | null = null;
   private currentFunctionSupportList: any[] | null = null;
   private functionDeclarations: any[] | null = null;
   private selectedMessageThreadId: string | null = null;
@@ -54,6 +55,7 @@ export class NlpService {
     selectedObjectsIds,
     objectMetadataFunctionProperties,
     objectMetadataFunctionPropertiesRequiredIds,
+    processDataFunctionDescription,
     selectedMessageThreadId
   }: {
     organisationId?: string;
@@ -66,6 +68,7 @@ export class NlpService {
     selectedObjectsIds?: string[];
     objectMetadataFunctionProperties?: Record<string, unknown>;
     objectMetadataFunctionPropertiesRequiredIds?: Record<string, string[]>;
+    processDataFunctionDescription?: string;
     selectedMessageThreadId?: string;
   } = {}) {
     console.log("setMemberVariables called");
@@ -81,10 +84,8 @@ export class NlpService {
     this.objectMetadataFunctionProperties = objectMetadataFunctionProperties ?? this.objectMetadataFunctionProperties;
     this.objectMetadataFunctionPropertiesRequiredIds =
       objectMetadataFunctionPropertiesRequiredIds ?? this.objectMetadataFunctionPropertiesRequiredIds;
+    this.processDataFunctionDescription = processDataFunctionDescription ?? this.processDataFunctionDescription;
     this.selectedMessageThreadId = selectedMessageThreadId ?? this.selectedMessageThreadId;
-
-    console.log("this.objectMetadataFunctionProperties NOW", this.objectMetadataFunctionProperties);
-    console.log("this.objectMetadataFunctionPropertiesRequiredIds NOW", this.objectMetadataFunctionPropertiesRequiredIds);
   }
 
   async initialiseClientCore(apiKey: string): Promise<void> {

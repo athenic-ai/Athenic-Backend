@@ -48,7 +48,6 @@ export async function inferOrganisation({ connection, dataIn, storageService }: 
     if (organisationId) {
       const organisationDataResult = await storageService.getRow({table: "organisations", keys: {id: organisationId}});
       if (organisationDataResult.data) {
-        console.log(`inferOrganisation successful with organisationId: ${organisationId}`)
         const result: FunctionResult = {
           status: 200,
           data: [organisationId, organisationDataResult.data],
@@ -72,8 +71,6 @@ export async function inferOrganisation({ connection, dataIn, storageService }: 
 
 export async function getObjectTypes({ storageService, organisationId, memberId }: { storageService: StorageService; organisationId: string; memberId: string }): Promise<FunctionResult> {
   try {
-    console.log(`getObjectTypes() called with organisationId: ${organisationId} and memberId: ${memberId}`);
-
     const whereOrConditions = [
       { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
       { column: 'owner_member_id', operator: 'is', value: null }, // Include default entries where owner member not set
@@ -91,7 +88,6 @@ export async function getObjectTypes({ storageService, organisationId, memberId 
       return new Error(getObjectTypesResult.message);
     }
     const objectTypes = getObjectTypesResult.data;
-    console.log(`objectTypes: ${JSON.stringify(objectTypes)}`)
     const result: FunctionResult = {
       status: 200,
       message: "Success running getObjectTypes",
@@ -110,8 +106,6 @@ export async function getObjectTypes({ storageService, organisationId, memberId 
 
 export async function getObjectMetadataTypes({ storageService, organisationId, memberId }: { storageService: StorageService; organisationId: string; memberId: string }): Promise<FunctionResult> {
   try {
-    console.log(`getObjectMetadataTypes() called with organisationId: ${organisationId} and memberId: ${memberId}`);
-
     const whereOrConditions = [
       { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
       { column: 'owner_member_id', operator: 'is', value: null }, // Include default entries where owner member not set
@@ -129,7 +123,6 @@ export async function getObjectMetadataTypes({ storageService, organisationId, m
       return new Error(getObjectMetadataTypesResult.message);
     }
     const objectMetadataTypes = getObjectMetadataTypesResult.data;
-    console.log(`objectMetadataTypes: ${JSON.stringify(objectMetadataTypes)}`)
     const result: FunctionResult = {
       status: 200,
       message: "Success running getObjectMetadataTypes",
@@ -152,7 +145,6 @@ export function createObjectTypeDescriptions(objectTypes: any[], metadataTypes: 
   // - The object type's name
   // - The object type's description
   // - The object type's metadata, which is a map containing metadata info, including cases where related_object_type_id is null
-  console.log(`createObjectTypeDescriptions called with objectTypes: ${JSON.stringify(objectTypes)} and metadataTypes: ${JSON.stringify(metadataTypes)}`);
 
   return objectTypes.reduce((result, objectType) => {
     // Find related metadata for the current object type or metadata with a null related_object_type_id
@@ -204,7 +196,6 @@ Bear in mind how we are defining the following terms:
 "member" = a member, typically an employee, of the organisation who uses Athenic to help them (eg. a Yahoo employee)
 "user" = a user/customer of the organisation's product(s)
 "object" = a piece of data stored in the organisation's DB (database)
-"product" = a type of object, a product is an app/product/brand that the organisation owns and wants to improve (eg. Yahoo Finance)
 `;
 export const SLACK_REDIRECT_URI = "https://gvblzovvpfeepnhifwqh.supabase.co/functions/v1/auth/slack"
 // export const NLP_MODELS_LITE = ["microsoft/phi-3-medium-128k-instruct:free", "gpt-4o-mini"];

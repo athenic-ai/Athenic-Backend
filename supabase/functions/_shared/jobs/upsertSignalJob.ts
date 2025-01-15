@@ -15,7 +15,7 @@ export class UpsertSignalJob<T> {
     this.nlpService = nlpService;
   }
 
-  async start({ sourceObjectId, sourceObjectTypeId, triggerMessage, relevantData, organisationId, organisationData, memberId }: {
+  async start({ sourceObjectId, sourceObjectTypeId, triggerMessage, relevantData, organisationId, organisationData, memberId, objectTypes, objectMetadataTypes, objectTypeDescriptions, fieldTypes, dictionaryTerms }: {
     sourceObjectId: string;
     sourceObjectTypeId: string;
     triggerMessage: string;
@@ -23,6 +23,11 @@ export class UpsertSignalJob<T> {
     organisationId: string;
     organisationData: any;
     memberId?: string;
+    objectTypes?: any;
+    objectMetadataTypes?: any;
+    objectTypeDescriptions?: any;
+    fieldTypes?: any;
+    dictionaryTerms?: any;
 }): Promise<any> {
     try {
       console.log(`Upserting signal with triggerMessage: ${triggerMessage}\nrelevantData: ${relevantData}\norganisationId: ${organisationId}\nmemberId: ${memberId}\nsourceObjectId: ${sourceObjectId}\nsourceObjectTypeId: ${sourceObjectTypeId}`);
@@ -47,18 +52,31 @@ export class UpsertSignalJob<T> {
           "requiredMatchThreshold": 0.8,
           "newRelatedIds": {
             [sourceObjectTypeId]: [sourceObjectId],
-          }
+          },
+          processDataFunctionDescription: `Given some data, critically analyse it as the Athenic AI, and then create a ${objectTypeDescriptions[config.OBJECT_TYPE_ID_SIGNAL].name} object type based on your analysis. For context: ${objectTypeDescriptions[config.OBJECT_TYPE_ID_SIGNAL].description}`,
         },
         "companyDataContents": `The creation of this signal was triggered with the following message: ${config.stringify(triggerMessage)}.`
       };
 
       if (relevantData) {
-        signalDataIn.companyDataContents += `\n\nSome relevant data is: ${config.stringify(relevantData)}.`;
+        signalDataIn.companyDataContents += `\n\nRelevant data: ${config.stringify(relevantData)}.`;
       }
 
       // TODO: pass in data to processDataJob that we may have already retrieved, like eg. objectMetadataFunctionProperties, ...
       console.log(`processDataJob.start() from upsertSignalJob with signalDataIn: ${config.stringify(signalDataIn)}`);
-      const processSignalDataJobResult = await processDataJob.start({connection: "company", dryRun: false, dataIn: signalDataIn}); 
+      const processSignalDataJobResult = await processDataJob.start({
+        connection: "company", 
+        dryRun: false, 
+        dataIn: signalDataIn,
+        organisationId,
+        organisationData,
+        memberId,
+        objectTypes,
+        objectMetadataTypes,
+        objectTypeDescriptions,
+        fieldTypes,
+        dictionaryTerms
+      }); 
 
       // TODO: Decide whether any jobs need to be created/updated. If so, it will call the relevant job creation/updating function and also store a reference to the job in this signal (and visa versa) via the related_ids column
 

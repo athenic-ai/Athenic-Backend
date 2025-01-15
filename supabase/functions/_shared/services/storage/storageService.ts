@@ -35,8 +35,6 @@ export class StorageService {
     console.log("Initialising Supabase client");
     // Initialise Supabase client
     try {
-      console.log(`A: ${Deno.env.get('SUPABASE_URL')}`);
-      console.log(`B: ${Deno.env.get('SUPABASE_ANON_KEY')}}`)
       const authJtw = accessToken ? accessToken : Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'); // JWT token here. Prefer to use user-specific one if passed for RLS, otherwise using master key. Context: https://supabase.com/docs/guides/auth/jwts
       this.supabase = createClient(
         Deno.env.get('SUPABASE_URL') ?? '',
@@ -52,9 +50,7 @@ export class StorageService {
     table: string; 
     keys: Record<string, any>; // Object where keys are column names and values are their corresponding values
   }) {
-    try {
-      console.log(`Getting row from table: ${table} with keys: ${JSON.stringify(keys)}`);
-  
+    try {  
       // Validate input
       if (!table || Object.keys(keys).length === 0) {
         throw new Error("Table name and at least one key are required.");
@@ -77,8 +73,6 @@ export class StorageService {
         data: rowData,
         message: "Row retrieved successfully",
       };
-  
-      console.log(result.message);
       return result;
     } catch (error) {
       const result: FunctionResult = {
@@ -102,7 +96,6 @@ export class StorageService {
         limitCount = null // Eg. limitCount: 10,
       } = options;
     
-      console.log(`getRows called with table: ${table}, options: ${JSON.stringify(options)}`);
       let query = this.supabase.from(table).select('*');
     
       // Helper function to format column path for JSON/JSONB queries
@@ -146,13 +139,9 @@ export class StorageService {
       if (limitCount) {
         query = query.limit(limitCount);
       }
-  
-      console.log(`Ready to execute query: ${JSON.stringify(query)}`);
-    
+      
       const { data, error } = await query;
-  
-      console.log(`getRows result: ${JSON.stringify(data)}`);
-    
+      
       if (error) {
         throw Error(`Error fetching rows: ${error}`);
       }
@@ -193,15 +182,12 @@ export class StorageService {
     relatedObjectTypeId?: string;
   }): Promise<FunctionResult> {
     try {
-      console.log(`Searching table for organisation: ${organisationId} for query: ${queryText} with matchThreshold: ${matchThreshold} and matchCount: ${matchCount}`);
-
       // Generate the embedding for the query text
       const embeddingRes = await nlpService.generateTextEmbedding(queryText);
       if (embeddingRes.status !== 200) {
           throw new Error(embeddingRes.message || "Error embedding data.");
       }
       const queryEmbedding = embeddingRes.data;
-      console.log(`Query embedding: ${JSON.stringify(queryEmbedding)}`);
 
       if (!matchThreshold || matchThreshold < -1 || matchThreshold > 1) {
         matchThreshold = 0.2; // Set default value if not specified or not within valid range
@@ -220,8 +206,6 @@ export class StorageService {
         filter_member_id: memberId || null, // If included, gets only rows for that organisation or null. If null, gets rows where null
         required_object_type_id: relatedObjectTypeId || null // If included, gets only rows for that object type or null. If null, gets all rows
       });
-
-      console.log(`Search results: ${JSON.stringify(data)}`);
 
       if (error) {
         throw new Error(`Database query failed: ${error.message}`);
@@ -257,11 +241,6 @@ export class StorageService {
     mayAlreadyExist?: boolean;
   }) {
     try {
-      console.log(
-        `Processing row in table: ${table} with keys: ${JSON.stringify(keys)}, ` +
-        `data: ${JSON.stringify(rowData)}, mayAlreadyExist: ${mayAlreadyExist}`
-      );
-  
       // Validate input
       if (!table || Object.keys(keys).length === 0) {
         throw new Error("Table name and at least one key are required.");
@@ -288,7 +267,6 @@ export class StorageService {
       : { ...keys, ...rowData };
 
       // Generate embeddings value (guide: https://supabase.com/docs/guides/ai/vector-columns)
-      console.log("Adding embeddings to data...");
       const embeddingRes = await nlpService.addEmbeddingToObject(mergedRowData);
       if (embeddingRes.status != 200) {
         throw new Error(embeddingRes.message || "Error embedding data.");
@@ -303,7 +281,6 @@ export class StorageService {
         throw error;
       }
 
-      console.log(`Row processed successfully in table: ${table}`);
       const result: FunctionResult = {
         status: 200,
         message: "Row processed successfully"

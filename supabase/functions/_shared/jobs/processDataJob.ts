@@ -16,72 +16,89 @@ interface OrganisationData {
 export class ProcessDataJob<T> {
   private readonly storageService: StorageService;
   private readonly nlpService: NlpService;
-  // private tasksService: any;
 
   constructor(
-    // tasksService: any,
     storageService: StorageService = new StorageService(),
     nlpService: NlpService = new NlpService(),
   ) {
     this.storageService = storageService;
     this.nlpService = nlpService;
-    // this.tasksService = tasksService;
   }
 
-  async start({ connection, dryRun, dataIn }: {
+  async start({ connection, dryRun, dataIn, organisationId, organisationData, memberId, objectTypes, objectMetadataTypes, objectTypeDescriptions, fieldTypes, dictionaryTerms }: {
     connection: any;
     dryRun: boolean;
     dataIn: any;
+    organisationId?: string;
+    organisationData?: OrganisationData;
+    memberId?: string;
+    objectTypes?: any[];
+    objectMetadataTypes?: any[];
+    objectTypeDescriptions?: any;
+    fieldTypes?: any[];
+    dictionaryTerms?: any[];
 }): Promise<any> {
     console.log(`Processing data from connection: ${connection} and dryRun: ${dryRun} and dataIn: ${JSON.stringify(dataIn)}`);
 
     const upsertSignalJob: UpsertSignalJob = new UpsertSignalJob();
 
-    let organisationId, organisationData, memberId, dataContents, objectTypes, objectTypeId;
+    let dataContents, objectTypeId;
     try {
       await this.nlpService.initialiseClientCore();
       await this.nlpService.initialiseClientEmbedding();
 
       // -----------Step 1: Get organisation's ID and data----------- 
-      const inferOrganisationResult = await config.inferOrganisation({ connection, dataIn, storageService: this.storageService });
+      if (!organisationId || !organisationData) {
+        const inferOrganisationResult = await config.inferOrganisation({ connection, dataIn, storageService: this.storageService });
 
-      if (inferOrganisationResult.status != 200) {
-        throw Error(inferOrganisationResult.message);
+        if (inferOrganisationResult.status != 200) {
+          throw Error(inferOrganisationResult.message);
+        }
+  
+        [organisationId, organisationData] = inferOrganisationResult.data;
       }
-
-      [organisationId, organisationData] = inferOrganisationResult.data;
       console.log(`✅ Completed "Step 1: Get organisation's ID and data", with organisationId: ${organisationId} and organisationData: ${JSON.stringify(organisationData)}`);
 
       // -----------Step 2: Get object types accessible to the organisation----------- 
-      const getObjectTypesResult = await config.getObjectTypes({storageService: this.storageService, organisationId: organisationId});
-      if (getObjectTypesResult.status != 200) {
-        throw Error(getObjectTypesResult.message);
+      if (!objectTypes) {
+        const getObjectTypesResult = await config.getObjectTypes({storageService: this.storageService, organisationId: organisationId});
+        if (getObjectTypesResult.status != 200) {
+          throw Error(getObjectTypesResult.message);
+        }
+        objectTypes = getObjectTypesResult.data; // List of maps of object types as in the database  
       }
-      objectTypes = getObjectTypesResult.data; // List of maps of object types as in the database
       const objectTypesIds = objectTypes
         .filter(item => item.category === "organisation_data_standard") // Filter by category NOTE: this line is untested
         .map(item => item.id); // List of strings of the ID of each object type of the organisation_data_standard category
       objectTypesIds.push("unknown"); // Also add unknown in cases it cannot detect which to return // TODO: handle cases when data falls into this category, eg. setting it as some generic/general object type
 
-      const getObjectMetadataTypesResult = await config.getObjectMetadataTypes({storageService: this.storageService, organisationId: organisationId});
-      if (getObjectMetadataTypesResult.status != 200) {
-        throw Error(getObjectMetadataTypesResult.message);
+      if (!objectMetadataTypes) {
+        const getObjectMetadataTypesResult = await config.getObjectMetadataTypes({storageService: this.storageService, organisationId: organisationId});
+        if (getObjectMetadataTypesResult.status != 200) {
+          throw Error(getObjectMetadataTypesResult.message);
+        }
+        objectMetadataTypes = getObjectMetadataTypesResult.data;
       }
-      const objectMetadataTypes = getObjectMetadataTypesResult.data;
 
-      const getFieldTypesResult = await this.getFieldTypes();
-      if (getFieldTypesResult.status != 200) {
-        throw Error(getFieldTypesResult.message);
+      if (!fieldTypes) {
+        const getFieldTypesResult = await this.getFieldTypes();
+        if (getFieldTypesResult.status != 200) {
+          throw Error(getFieldTypesResult.message);
+        }
+        fieldTypes = getFieldTypesResult.data;
       }
-      const fieldTypes = getFieldTypesResult.data;
 
-      const getDictionaryTermsResult = await this.getDictionaryTerms();
-      if (getDictionaryTermsResult.status != 200) {
-        throw Error(getDictionaryTermsResult.message);
+      if (!dictionaryTerms) {
+        const getDictionaryTermsResult = await this.getDictionaryTerms();
+        if (getDictionaryTermsResult.status != 200) {
+          throw Error(getDictionaryTermsResult.message);
+        }
+        dictionaryTerms = getDictionaryTermsResult.data;
       }
-      const dictionaryTerms = getDictionaryTermsResult.data;
 
-      const objectTypeDescriptions = config.createObjectTypeDescriptions(objectTypes, objectMetadataTypes); // Example output: {"product":{"name":"Product","description":"An item that is sold to users by teams (e.g. Apple Music is sold to users by Apple).","metadata":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}},"ids":{"description":"In the form:\n   \"android/ios/...\"\n      -> \"id\"","type":"object"}}},"feedback":{"name":"Feedback","description":"Feedback from users about topics such as a product, service, experience or even the organisation in general.","metadata":{"author_name":{"description":"Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}}
+      if (!objectTypeDescriptions) {
+        objectTypeDescriptions = config.createObjectTypeDescriptions(objectTypes, objectMetadataTypes); // Example output: {"product":{"name":"Product","description":"An item that is sold to users by teams (e.g. Apple Music is sold to users by Apple).","metadata":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}},"ids":{"description":"In the form:\n   \"android/ios/...\"\n      -> \"id\"","type":"object"}}},"feedback":{"name":"Feedback","description":"Feedback from users about topics such as a product, service, experience or even the organisation in general.","metadata":{"author_name":{"description":"Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}}
+      }
 
       const [objectMetadataFunctionProperties, objectMetadataFunctionPropertiesRequiredIds] = this.createObjectMetadataFunctionProperties(objectTypes, objectMetadataTypes, fieldTypes, dictionaryTerms); // Example output: {"product":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}}},"feedback":{"author_name":{"description":"Author name: Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Deal size: Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}
 
@@ -145,10 +162,21 @@ export class ProcessDataJob<T> {
     for (const dataContentsItem of dataContents) {
       try {
         // -----------Step 5a: Process the given data item----------- 
-        let processDataPrompt = `You MUST call the 'processDataUsingGivenObjectsMetadataStructure' function to process the following data:\n${config.stringify(dataContentsItem)}`;
+        let processDataPrompt = `You MUST call the 'processDataUsingGivenObjectsMetadataStructure' function to process the following data:\n${config.stringify(dataContentsItem)}
+        \n\nTo help, the object type you will be creating is called , and its description is: ${objectTypeDescriptions[objectTypeId].description}.`;
         if (dataIn.companyMetadata && dataIn.companyMetadata.dataDescription) {
           processDataPrompt += `\n\nTo help, here's some context about the data:\n${dataIn.companyMetadata.dataDescription}`;
         }
+        let processDataFunctionDescription;
+        if (dataIn.companyMetadata && dataIn.companyMetadata.processDataFunctionDescription) {
+          processDataFunctionDescription = dataIn.companyMetadata.processDataFunctionDescription;
+        } else {
+          processDataFunctionDescription = `Given some data, process it to create an object of type: ${objectTypeDescriptions[objectTypeId].name}, with description: ${objectTypeDescriptions[objectTypeId].description}. Typically used on data being passed to Athenic to be then stored in the database.`;
+        }
+        this.nlpService.setMemberVariables({
+          processDataFunctionDescription,
+        });
+        
         const processDataUsingGivenObjectsMetadataStructureResult = await this.nlpService.execute({
           promptParts: [{"type": "text", "text": processDataPrompt}],
           systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
@@ -363,11 +391,16 @@ export class ProcessDataJob<T> {
           await upsertSignalJob.start({
             sourceObjectId: objectThatWasStored.id,
             sourceObjectTypeId: objectThatWasStored.related_object_type_id,
-            triggerMessage: "New data has been processed and stored in the database",
+            triggerMessage: "New data has been processed and stored in the database.",
             relevantData: objectThatWasStored,
             organisationId,
             organisationData,
-            memberId
+            memberId,
+            objectTypes,
+            objectMetadataTypes,
+            objectTypeDescriptions,
+            fieldTypes,
+            dictionaryTerms,
           });
         }
         console.log(`✅ Completed "Step 5c: Save object as appropriate", with: dryRun: ${dryRun}`);
