@@ -17,7 +17,6 @@ export async function initialiseFunctions(baseInstance: any) {
   
   // predictObjectTypeBeingReferenced
   if (baseInstance.parent.supportedObjectTypeIds != null) {
-    console.log("baseInstance.parent.supportedObjectTypeIds", baseInstance.parent.supportedObjectTypeIds);
     functionsToReturn.predictObjectTypeBeingReferenced = {
       declaration: {
         type: "function",
@@ -41,9 +40,7 @@ export async function initialiseFunctions(baseInstance: any) {
       },
       implementation: async ({ predictedObjectTypeId }: { predictedObjectTypeId: string }) => {
         try {
-          console.log(`predictObjectTypeBeingReferenced called with: ${predictedObjectTypeId}`);
           const predictedObjectTypeIdProcessed = predictedObjectTypeId === "unknown" ? null : predictedObjectTypeId;
-          console.log("predictedObjectTypeIdProcessed", predictedObjectTypeIdProcessed);
           const result: FunctionResult = {
             status: 200,
             message: "Predicted object's type",
@@ -63,7 +60,6 @@ export async function initialiseFunctions(baseInstance: any) {
 
   // predictObjectParent
   if (baseInstance.parent.selectedObjectsIds != null) {
-    console.log(`baseInstance.parent.selectedObjectsIds: ${baseInstance.parent.selectedObjectsIds}`);
     functionsToReturn.predictObjectParent = {
       declaration: {
         type: "function",
@@ -149,9 +145,6 @@ export async function initialiseFunctions(baseInstance: any) {
   }
 
   // searchForObjects
-  console.log("Define searchForObjects");
-  console.log(`baseInstance.parent.supportedObjectTypeDescriptions: ${JSON.stringify(baseInstance.parent.supportedObjectTypeDescriptions)}`);
-  console.log(`baseInstance.parent.supportedObjectTypeIds: ${JSON.stringify(baseInstance.parent.supportedObjectTypeIds)}`);
   functionsToReturn.searchForObjects = {
     declaration: {
       type: "function",
@@ -166,6 +159,14 @@ export async function initialiseFunctions(baseInstance: any) {
               type: "string",
               description: "Query text to search for objects.",
             },
+            matchThreshold: {
+              type: "number",
+              description: "If appropriate, specify how similar the embeddings have to be to count as a match. A value of 1 is most similar, and a value of -1 is most dissimilar. 0.2 is good for finding fairly similar objects.",
+            },
+            matchCount: {
+              type: "integer",
+              description: "If appropriate, specify the maximum number of objects to return.",
+            },
             relatedObjectTypeId: {
               type: "string",
               description: `If appropriate to only search for a specific type of object, the object types that can be chosen from are:\n${JSON.stringify(baseInstance.parent.supportedObjectTypeDescriptions)}`,
@@ -177,13 +178,15 @@ export async function initialiseFunctions(baseInstance: any) {
         },
       }
     },
-    implementation: async ({ queryText, relatedObjectTypeId }: { queryText: string, relatedObjectTypeId: string }) => {
+    implementation: async ({ queryText, matchThreshold, matchCount, relatedObjectTypeId }: { queryText: string, matchThreshold?: number, matchCount?: number, relatedObjectTypeId?: string }) => {
       try {
-        console.log(`searchForObjects called with: queryText: ${queryText} and relatedObjectTypeId: ${relatedObjectTypeId}`);
+        console.log(`searchForObjects called with: queryText: ${queryText}, relatedObjectTypeId: ${relatedObjectTypeId}, matchThreshold: ${matchThreshold}, matchCount: ${matchCount}`);
 
         const searchRowsResult = await baseInstance.parent.storageService.searchRows({
           table: "objects",
           queryText,
+          matchThreshold,
+          matchCount,
           nlpService: baseInstance.parent,
           relatedObjectTypeId,
           organisationId: baseInstance.parent.organisationId,

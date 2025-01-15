@@ -216,6 +216,9 @@ export const NLP_MODELS_FULL = ["gpt-4o-mini"];
 export const NLP_EMBEDDING_MODEL = "text-embedding-3-small";
 export const NLP_EMBEDDING_MAX_CHARS = 10000; // OpenAI's text-embedding-3-small has a token limit of 8191, so we're setting this to 10000 to be safe
 
+export const MAX_SEARCH_RESULTS = 200; // Max number of search results that can be returned when querying db
+
+export const OBJECT_TYPE_ID_SIGNAL = "signal";
 export const OBJECT_TYPE_ID_CONNECTION = "connection";
 export const OBJECT_TYPE_ID_MESSAGE_THREAD = "message_thread";
 export const OBJECT_TYPE_ID_MESSAGE = "message";

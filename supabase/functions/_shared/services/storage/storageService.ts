@@ -176,6 +176,8 @@ export class StorageService {
   async searchRows({ 
     table, 
     queryText, 
+    matchThreshold,
+    matchCount,
     nlpService,
     organisationId, 
     memberId,
@@ -183,13 +185,15 @@ export class StorageService {
   }: { 
     table: string;
     queryText: string;
+    matchThreshold?: number;
+    matchCount?: integer;
     nlpService: NlpService;
     organisationId?: string;
     memberId?: string;
     relatedObjectTypeId?: string;
   }): Promise<FunctionResult> {
     try {
-      console.log(`Searching table for organisation: ${organisationId} for query: ${queryText}`);
+      console.log(`Searching table for organisation: ${organisationId} for query: ${queryText} with matchThreshold: ${matchThreshold} and matchCount: ${matchCount}`);
 
       // Generate the embedding for the query text
       const embeddingRes = await nlpService.generateTextEmbedding(queryText);
@@ -198,11 +202,19 @@ export class StorageService {
       }
       const queryEmbedding = embeddingRes.data;
       console.log(`Query embedding: ${JSON.stringify(queryEmbedding)}`);
+
+      if (!matchThreshold || matchThreshold < -1 || matchThreshold > 1) {
+        matchThreshold = 0.2; // Set default value if not specified or not within valid range
+      }
+      if (!matchCount || matchCount < 0 || matchCount > config.MAX_SEARCH_RESULTS) {
+        matchCount = config.MAX_SEARCH_RESULTS; // Set default value if not specified or not within valid range
+      }
+
       // Query the database using the stored procedure
       const { data, error } = await this.supabase.rpc('match_table_rows', {
         query_embedding: queryEmbedding,
-        match_threshold: 0.1, // was 0.7
-        match_count: 10,
+        match_threshold: matchThreshold,
+        match_count: matchCount,
         search_table_name: table,
         filter_org_id: organisationId || null, // If included, gets only rows for that organisation or null. If null, gets rows where null
         filter_member_id: memberId || null, // If included, gets only rows for that organisation or null. If null, gets rows where null

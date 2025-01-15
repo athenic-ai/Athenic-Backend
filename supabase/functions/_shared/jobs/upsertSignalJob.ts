@@ -1,6 +1,7 @@
 import * as config from "../configs/index.ts";
 import { StorageService } from "../services/storage/storageService.ts";
 import { NlpService } from "../services/nlp/nlpService.ts";
+import { ProcessDataJob } from "./processDataJob.ts";
 
 export class UpsertSignalJob<T> {
   private readonly storageService: StorageService;
@@ -14,30 +15,65 @@ export class UpsertSignalJob<T> {
     this.nlpService = nlpService;
   }
 
-  async start({ triggerMessage, relevantData, organisationId, organisationData }: {
+  async start({ sourceObjectId, sourceObjectTypeId, triggerMessage, relevantData, organisationId, organisationData, memberId }: {
+    sourceObjectId: string;
+    sourceObjectTypeId: string;
     triggerMessage: string;
-    relevantData: any;
+    relevantData?: any;
     organisationId: string;
     organisationData: any;
+    memberId?: string;
 }): Promise<any> {
-    console.log(`Upserting signal with triggerMessage: ${triggerMessage} and relevantData: ${relevantData}`);
-
     try {
-      
-      // -----------Step 1: Search signals to see if there are any related signals-----------
+      console.log(`Upserting signal with triggerMessage: ${triggerMessage}\nrelevantData: ${relevantData}\norganisationId: ${organisationId}\nmemberId: ${memberId}\nsourceObjectId: ${sourceObjectId}\nsourceObjectTypeId: ${sourceObjectTypeId}`);
+      const processDataJob: ProcessDataJob = new ProcessDataJob();
 
-      // -----------Step 2: Create/modify existing signal-----------
-      // This will create a new signal if it doesn't exist, or modify an existing signal if it does
-      // As part of it, it will also decide whether any jobs need to be created/updated. If so, it will call the relevant job creation/updating function and also store a reference to the job in this signal (and visa versa) via the related_ids column
-      // It will then update the signal in the database with the new/modified data
+      if (sourceObjectTypeId == config.OBJECT_TYPE_ID_SIGNAL || sourceObjectTypeId == config.OBJECT_TYPE_ID_MESSAGE) {
+        // If type is signal, don't want to execute to avoid an infifite loop of signal creations.
+        // If type is message, don't want signals created for messages 
+        const result: FunctionResult = {
+          status: 200,
+          message: `🟧 Not executing signal as signal type is: ${sourceObjectTypeId}`,
+        };
+        return result;
+      }
+
+      const signalDataIn = {
+        "companyMetadata": {
+          "organisationId": organisationId,
+          "memberId": memberId ?? null,
+          "objectTypeId": config.OBJECT_TYPE_ID_SIGNAL,
+          // "dataDescription": ,
+          "requiredMatchThreshold": 0.8,
+          "newRelatedIds": {
+            [sourceObjectTypeId]: [sourceObjectId],
+          }
+        },
+        "companyDataContents": `The creation of this signal was triggered with the following message: ${config.stringify(triggerMessage)}.`
+      };
+
+      if (relevantData) {
+        signalDataIn.companyDataContents += `\n\nSome relevant data is: ${config.stringify(relevantData)}.`;
+      }
+
+      // TODO: pass in data to processDataJob that we may have already retrieved, like eg. objectMetadataFunctionProperties, ...
+      console.log(`processDataJob.start() from upsertSignalJob with signalDataIn: ${config.stringify(signalDataIn)}`);
+      const processSignalDataJobResult = await processDataJob.start({connection: "company", dryRun: false, dataIn: signalDataIn}); 
+
+      // TODO: Decide whether any jobs need to be created/updated. If so, it will call the relevant job creation/updating function and also store a reference to the job in this signal (and visa versa) via the related_ids column
 
       const result: FunctionResult = {
         status: 200,
         message: "Successfully upserted signal.",
       };
       return result;
-    }
-    catch (error) {
+    } catch (error) {
+      console.log(`❌ Failed to upsert signal with error: ${error.message}.`);
+      const result: FunctionResult = {
+        status: 500,
+        message: `❌ Failed to upsert signal with error: ${error.message}.`,
+      };
+      return result;
     }
   }
 }

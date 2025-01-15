@@ -173,10 +173,8 @@ export class NlpService {
         // },
       });
       const createResMessage = initialCreateResult.choices[0].message;
-      console.log("createResMessage: ", createResMessage);
 
       if (createResMessage.tool_calls) {
-        console.log("tool_calls requested");
         const functionResultsData = [];
         for (const toolCall of createResMessage.tool_calls) {
           if (toolCall.type === "function") {
@@ -214,8 +212,6 @@ export class NlpService {
               content: "Please note when interpreting these function calls, that multiple function calls have been run, however only the first function's data is being returned for viewing.",
             });
           }
-
-          console.log(`messages after function calls, prior to interpretedCreateResult: ${JSON.stringify(messages)}`);
 
           const interpretedCreateResult = await this.clientCore!.chat.completions.create({
             models,
@@ -352,9 +348,7 @@ truncateObjectValues(obj: Record<string, any>): Record<string, any> {
 async generateTextEmbedding(
     input: string | Record<string, any>,
 ): Promise<FunctionResult> {
-    try {
-        console.log("generateTextEmbedding called with input:", input);
-        
+    try {        
         if (!input) {
           throw new Error('No input provided for NLP analysis');
         }
@@ -368,15 +362,11 @@ async generateTextEmbedding(
         if (typeof input === 'string') {
           textToEmbed = this.truncateText(input, config.NLP_EMBEDDING_MAX_CHARS);
         } else if (typeof input === 'object') {
-          console.log(`Before truncating len: ${JSON.stringify(input).length}`);
           const truncatedObj = this.truncateObjectValues(input);
           textToEmbed = JSON.stringify(truncatedObj);
-          console.log(`After truncating len: ${textToEmbed.length}`);
         } else {
           throw new Error('Input must be either a string or a plain object');
         }
-
-        console.log(`Generating embedding for text of length ${textToEmbed.length}`);
         
         const createEmbeddingsResult = await this.clientEmbedding.embeddings.create({
           model: config.NLP_EMBEDDING_MODEL,
@@ -405,7 +395,6 @@ async addEmbeddingToObject(
     objectIn: Record<string, any>,
 ): Promise<FunctionResult> {
     try {
-        console.log("addEmbeddingToObject called");
         const objectToGenEmbeddingsFor = structuredClone(objectIn); // Create a deep copy
 
         // Remove the following keys we don't want to be a part of the embedding
@@ -422,15 +411,12 @@ async addEmbeddingToObject(
         const embeddingRes = await this.generateTextEmbedding(
           objectToGenEmbeddingsFor,
         );
-        
-        console.log(`embeddingRes: ${JSON.stringify(embeddingRes)}`);
-        
+                
         if (embeddingRes.status !== 200) {
             throw new Error(embeddingRes.message || "Error embedding data.");
         }
         
         const objectUpdated = { ...objectIn, embedding: embeddingRes.data };
-        console.log(`objectUpdated: ${JSON.stringify(objectUpdated)}`);
         
         return {
             status: 200,

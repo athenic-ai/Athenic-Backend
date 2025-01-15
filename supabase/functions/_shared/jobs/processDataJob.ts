@@ -7,6 +7,7 @@
 import * as config from "../../_shared/configs/index.ts";
 import { StorageService } from "../services/storage/storageService.ts";
 import { NlpService } from "../services/nlp/nlpService.ts";
+import { UpsertSignalJob } from "./upsertSignalJob.ts";
 
 interface OrganisationData {
   [key: string]: any;
@@ -32,16 +33,17 @@ export class ProcessDataJob<T> {
     dryRun: boolean;
     dataIn: any;
 }): Promise<any> {
-    console.log(`Processing data from connection: ${connection} and dryRun: ${dryRun}`);
-    console.log(`dataIn: ${dataIn}`);
+    console.log(`Processing data from connection: ${connection} and dryRun: ${dryRun} and dataIn: ${JSON.stringify(dataIn)}`);
 
-    let organisationId, dataContents, objectTypes, objectTypeId;
+    const upsertSignalJob: UpsertSignalJob = new UpsertSignalJob();
+
+    let organisationId, organisationData, memberId, dataContents, objectTypes, objectTypeId;
     try {
       await this.nlpService.initialiseClientCore();
       await this.nlpService.initialiseClientEmbedding();
+
       // -----------Step 1: Get organisation's ID and data----------- 
       const inferOrganisationResult = await config.inferOrganisation({ connection, dataIn, storageService: this.storageService });
-      let organisationData;
 
       if (inferOrganisationResult.status != 200) {
         throw Error(inferOrganisationResult.message);
@@ -79,14 +81,9 @@ export class ProcessDataJob<T> {
       }
       const dictionaryTerms = getDictionaryTermsResult.data;
 
-      console.log("AA");
-
       const objectTypeDescriptions = config.createObjectTypeDescriptions(objectTypes, objectMetadataTypes); // Example output: {"product":{"name":"Product","description":"An item that is sold to users by teams (e.g. Apple Music is sold to users by Apple).","metadata":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}},"ids":{"description":"In the form:\n   \"android/ios/...\"\n      -> \"id\"","type":"object"}}},"feedback":{"name":"Feedback","description":"Feedback from users about topics such as a product, service, experience or even the organisation in general.","metadata":{"author_name":{"description":"Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}}
-      console.log(`objectTypeDescriptions: ${JSON.stringify(objectTypeDescriptions)}`)
 
       const [objectMetadataFunctionProperties, objectMetadataFunctionPropertiesRequiredIds] = this.createObjectMetadataFunctionProperties(objectTypes, objectMetadataTypes, fieldTypes, dictionaryTerms); // Example output: {"product":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}}},"feedback":{"author_name":{"description":"Author name: Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Deal size: Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}
-      console.log(`objectMetadataFunctionProperties: ${JSON.stringify(objectMetadataFunctionProperties)}`)
-      console.log(`objectMetadataFunctionPropertiesRequiredIds: ${JSON.stringify(objectMetadataFunctionPropertiesRequiredIds)}`);
 
       this.nlpService.setMemberVariables({
         organisationId,
@@ -97,9 +94,6 @@ export class ProcessDataJob<T> {
       });
 
       console.log(`✅ Completed "Step 2: Get object types accessible to the organisation", with objectTypesIds: ${JSON.stringify(objectTypesIds)}, objectTypeDescriptions: ${JSON.stringify(objectTypeDescriptions)} and objectMetadataFunctionProperties: ${JSON.stringify(objectMetadataFunctionProperties)}`);
-      console.log("Test");
-
-      console.log(`dataIn: ${config.stringify(dataIn)}`);
 
       // -----------Step 3: Prepare the actual data contents-----------
       if (dataIn.companyDataContents) {
@@ -123,8 +117,6 @@ export class ProcessDataJob<T> {
           limitedFunctionSupportList: ["predictObjectTypeBeingReferenced"],
           useLiteModels: true,
         });
-        console.log("predictObjectTypeBeingReferenced complete");
-        console.log("predictObjectTypeBeingReferenced:", predictObjectTypeBeingReferencedResult);
         if (predictObjectTypeBeingReferencedResult.status != 200) {
           throw Error(predictObjectTypeBeingReferencedResult.message);
         }
@@ -155,7 +147,7 @@ export class ProcessDataJob<T> {
         // -----------Step 5a: Process the given data item----------- 
         let processDataPrompt = `You MUST call the 'processDataUsingGivenObjectsMetadataStructure' function to process the following data:\n${config.stringify(dataContentsItem)}`;
         if (dataIn.companyMetadata && dataIn.companyMetadata.dataDescription) {
-          processDataPrompt += `\n\nTo help, the member has provided the following context about the data:\n${dataIn.companyMetadata.dataDescription}`;
+          processDataPrompt += `\n\nTo help, here's some context about the data:\n${dataIn.companyMetadata.dataDescription}`;
         }
         const processDataUsingGivenObjectsMetadataStructureResult = await this.nlpService.execute({
           promptParts: [{"type": "text", "text": processDataPrompt}],
@@ -164,32 +156,26 @@ export class ProcessDataJob<T> {
           limitedFunctionSupportList: ["processDataUsingGivenObjectsMetadataStructure"],
           useLiteModels: true,
         });
-        console.log("processDataUsingGivenObjectsMetadataStructure complete");
         if (processDataUsingGivenObjectsMetadataStructureResult.status != 200) {
           throw Error(processDataUsingGivenObjectsMetadataStructureResult.message);
         }
-        const objectData = processDataUsingGivenObjectsMetadataStructureResult.data;
-        if (!objectData) {
+        const newObjectData = processDataUsingGivenObjectsMetadataStructureResult.data;
+        if (!newObjectData) {
           throw Error("Failed to process data using the given object's metadata structure");
         }
-        console.log("objectData:", objectData);
-        console.log(`✅ Completed "Step 5a: Process the given data item", with objectData: ${JSON.stringify(objectData)}`);
+        console.log(`✅ Completed "Step 5a: Process the given data item", with newObjectData: ${JSON.stringify(newObjectData)}`);
   
         // -----------Step 5b: If object type demands a parent object, determine which object should be the parent-----------
         if (dataIn.companyMetadata && dataIn.companyMetadata.parentObjectId) {
           // Add immediately if explictly provided
-          objectData.parent_id = dataIn.companyMetadata.parentObjectId;
-          console.log(`✅ Completed "Step 5b: Auto assigned object's parent", with: parent id: ${objectData.parent_id}`);
+          newObjectData.parent_id = dataIn.companyMetadata.parentObjectId;
+          console.log(`✅ Completed "Step 5b: Auto assigned object's parent", with: parent id: ${newObjectData.parent_id}`);
         } else {
-          console.log("aa");
           const predictedObjectType = objectTypes.find(obj => obj.id === objectTypeId);
-          console.log(`predictedObjectType: ${predictedObjectType}`);
           if (predictedObjectType && predictedObjectType.parent_object_type_id) {
             console.log("Starting Step 5bi");
             // Step 5bi: Retrieve all objects of this type
             const parentObjectTypeId = predictedObjectType.parent_object_type_id;
-            console.log(`parentObjectTypeId: ${parentObjectTypeId}`);
-            console.log(`organisationId: ${organisationId}`);
             const getPotentialParentObjectsResult = await this.storageService.getRows('objects', {
               whereOrConditions: [
                 { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
@@ -200,38 +186,33 @@ export class ProcessDataJob<T> {
               ],
             });
             const potentialParentObjects = getPotentialParentObjectsResult.data;
-            console.log(`potentialParentObjects: ${JSON.stringify(potentialParentObjects)}`);
             console.log(`✅ Completed "Step 5bi: Retrieve all objects of this type", with: ${JSON.stringify(potentialParentObjects)}`);
             if (potentialParentObjects && potentialParentObjects.length) {
               // If there are actually some parent objects found
               const potentialParentObjectsIds = potentialParentObjects.map(item => item.id); // List of strings of the ID of each object type
-              console.log("potentialParentObjectsIds", potentialParentObjectsIds);
               this.nlpService.setMemberVariables({
                 selectedObjectsIds: potentialParentObjectsIds,
               });
               // Step 5bii: Predict the appropriate object's parent
-              console.log("1");
     
-              const objectDataCopyLimitedData = structuredClone(objectData); // Create a deep copy
-              delete objectDataCopyLimitedData.id; // Remove the `id` key to help avoid the NLP getting confused and choosing this id as the chosen parent id
-              delete objectDataCopyLimitedData.owner_organisation_id; // Remove the `owner_organisation_id` key to help avoid the NLP getting confused and taking into account the org name unecessarily
+              const newObjectDataCopyLimitedData = structuredClone(newObjectData); // Create a deep copy
+              delete newObjectDataCopyLimitedData.id; // Remove the `id` key to help avoid the NLP getting confused and choosing this id as the chosen parent id
+              delete newObjectDataCopyLimitedData.owner_organisation_id; // Remove the `owner_organisation_id` key to help avoid the NLP getting confused and taking into account the org name unecessarily
     
               const predictObjectParentResult = await this.nlpService.execute({
                 promptParts: [{"type": "text", "text": `You MUST call the 'predictObjectParent' function to decide which object of type ${parentObjectTypeId} is the most appropriate parent for the given object.
-                \n\nObject that needs a parent:\n${JSON.stringify(objectDataCopyLimitedData)}
+                \n\nObject that needs a parent:\n${JSON.stringify(newObjectDataCopyLimitedData)}
                 \n\nObjects that can be chosen from:\n${JSON.stringify(potentialParentObjects)}`}],
                 systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
                 functionUsage: "required",
                 limitedFunctionSupportList: ["predictObjectParent"],
                 useLiteModels: true,
               });
-              console.log("2");
-              console.log("predictObjectParentResult:", predictObjectParentResult);
               console.log(`✅ Completed "Step 5bii: Predict the appropriate object's parent", with: ${JSON.stringify(predictObjectParentResult)}`)
               if (predictObjectParentResult.status == 200 && predictObjectParentResult.data) {
                 // Step 5biii: Assign a parent object assuming one could be found
-                objectData.parent_id = predictObjectParentResult.data;
-                console.log(`✅ Completed "Step 5biii: Assign a parent object assuming one could be found", with: ${JSON.stringify(objectData)}`);
+                newObjectData.parent_id = predictObjectParentResult.data;
+                console.log(`✅ Completed "Step 5biii: Assign a parent object assuming one could be found", with: ${JSON.stringify(newObjectData)}`);
               }
             } else {
               console.log("Not adding parent to object as no objects of suitable type found");
@@ -244,40 +225,150 @@ export class ProcessDataJob<T> {
         // -----------Step 5c: Save object as appropriate-----------
         if (dryRun) {
           // Not actually saving data if dry run, just returning what would be saved
-          console.log(`Dry run, so just adding objectData: ${JSON.stringify(objectData)}`);
-          dataContentsOutcomes.push(objectData);
+          dataContentsOutcomes.push(newObjectData);
         } else {
-          // Update the object
-          console.log(`Updating object data in DB with objectData: ${JSON.stringify(objectData)}`);
-          const objectUpdateResult = await this.storageService.updateRow({
-            table: "objects",
-            keys: {id: objectData.id},
-            rowData: objectData,
-            nlpService: this.nlpService,
-            mayAlreadyExist: false, // Change this to true if in future it is decided that if dupe data is uploaded, we should implement logic to merge rather than just add new
-          });
-          if (objectUpdateResult.status != 200) {
-            throw Error(objectUpdateResult.message);
-          }
+          let objectToUpdate;
 
-          // Update the object's parent, if it exists, with new child_id value
-          if (objectData.parent_id) {
-            console.log("Update the object's parent with new child_id value");
-            const objectParentUpdateResult = await this.storageService.updateRow({
+          if (dataIn.companyMetadata && dataIn.companyMetadata.requiredMatchThreshold) {
+            // If requiredMatchThreshold specified, means source is open for the new data to be merged with an existing object
+            const searchRowsResult = await this.storageService.searchRows({
               table: "objects",
-              keys: {id: objectData.parent_id},
+              queryText: JSON.stringify(newObjectData),
+              matchThreshold: dataIn.companyMetadata.requiredMatchThreshold,
+              matchCount: 1, // TODO: potentially add support for merging multiple objects if multiple are returned from search. Currently just uses the first if multiple.
+              nlpService: this.nlpService,
+              relatedObjectTypeId: newObjectData.related_object_type_id,
+              organisationId,
+              memberId,
+            });
+            if (searchRowsResult.status != 200) {
+              throw Error(searchRowsResult.message);
+            }
+            if (searchRowsResult.data && searchRowsResult.data[0] && searchRowsResult.data[0].related_object_type_id === newObjectData.related_object_type_id) {
+              objectToUpdate = searchRowsResult.data[0]; // Assign the object to update if one has been found and it's of the same type
+            }
+          }
+          let objectThatWasStored;
+          if (objectToUpdate) {
+            console.log(`Saving object by updating existing object: ${JSON.stringify(objectToUpdate)}`);
+            // Update existing object
+            let processDataPrompt = `You MUST call the 'processDataUsingGivenObjectsMetadataStructure' function to update a given object considering new data:
+            \n\nExisting object's data:${config.stringify(objectToUpdate)}
+            \n\nNew data:${config.stringify(newObjectData)}`;
+            const mergedObjectResult = await this.nlpService.execute({
+              promptParts: [{"type": "text", "text": processDataPrompt}],
+              systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
+              functionUsage: "required",
+              limitedFunctionSupportList: ["processDataUsingGivenObjectsMetadataStructure"],
+              useLiteModels: true,
+            });
+            if (mergedObjectResult.status != 200) {
+              throw Error(mergedObjectResult.message);
+            }
+            const mergedObjectData = mergedObjectResult.data;
+            if (!mergedObjectData) {
+              throw Error("Failed to merge data using the given object's metadata structure");
+            }
+
+            // Add new metadata to object already stored in DB (as want to retain data like created_at and parent_id)
+            const objectUpdateResult = await this.storageService.updateRow({
+              table: "objects",
+              keys: {id: objectToUpdate.id},
               rowData: {
-                child_ids: {[objectData.related_object_type_id]: [objectData.id]},
+                metadata: mergedObjectData.metadata,
+                related_ids: dataIn.companyMetadata?.newRelatedIds ?? null,
+                updated_at: new Date(),
               },
               nlpService: this.nlpService,
               mayAlreadyExist: true,
             });
-            if (objectParentUpdateResult.status != 200) {
-              throw Error(objectParentUpdateResult.message);
+            if (objectUpdateResult.status != 200) {
+              throw Error(objectUpdateResult.message);
             }
+            objectThatWasStored = objectToUpdate;
           } else {
-            console.log("No parent so not updating any other object");
+            console.log(`Saving object by creating new object with ID: ${newObjectData.id}`);
+
+            // Just in case newObjectData already has some related_ids, merge them with the new ones
+            newObjectData.related_ids = newObjectData.related_ids || (dataIn.companyMetadata && dataIn.companyMetadata.newRelatedIds)
+              ? {
+                  ...(newObjectData.related_ids || {}), // Use an empty object if related_ids is undefined
+                  ...Object.keys(dataIn.companyMetadata.newRelatedIds || {}).reduce((acc, key) => {
+                    acc[key] = [
+                      ...((newObjectData.related_ids && newObjectData.related_ids[key]) || []), // Existing values or an empty array
+                      ...(dataIn.companyMetadata.newRelatedIds?.[key] || []), // New values or an empty array
+                    ];
+                    return acc;
+                  }, {} as Record<string, string[]>),
+                }
+              : null;
+
+            // Create new object
+            const objectCreateResult = await this.storageService.updateRow({
+              table: "objects",
+              keys: {id: newObjectData.id},
+              rowData: newObjectData,
+              nlpService: this.nlpService,
+              mayAlreadyExist: false,
+            });
+            if (objectCreateResult.status != 200) {
+              throw Error(objectCreateResult.message);
+            }
+
+            // Update the object's parent, if it exists, with new child_id value
+            if (newObjectData.parent_id) {
+              const objectParentUpdateResult = await this.storageService.updateRow({
+                table: "objects",
+                keys: {id: newObjectData.parent_id},
+                rowData: {
+                  child_ids: {[newObjectData.related_object_type_id]: [newObjectData.id]},
+                },
+                nlpService: this.nlpService,
+                mayAlreadyExist: true,
+              });
+              if (objectParentUpdateResult.status != 200) {
+                throw Error(objectParentUpdateResult.message);
+              }
+            } else {
+              console.log("No parent so not updating any other object");
+            }
+
+            objectThatWasStored = newObjectData;
           }
+          if (dataIn.companyMetadata && dataIn.companyMetadata.newRelatedIds) {
+            // Iterate through each type and its related IDs in the map
+            for (const [relatedObjectType, relatedIds] of Object.entries(dataIn.companyMetadata.newRelatedIds)) {
+              // For each ID in the list for this type
+              for (const relatedId of relatedIds) {
+                  // Update the related object with the new related_id value
+                  console.log(`Update the related object with the new related_id value: ${relatedId} (type: ${relatedObjectType})`);
+                  const relatedObjectUpdateResult = await this.storageService.updateRow({
+                      table: "objects",
+                      keys: {id: relatedId},
+                      rowData: {
+                          related_ids: {
+                              [objectThatWasStored.related_object_type_id]: [objectThatWasStored.id],
+                          },
+                      },
+                      nlpService: this.nlpService,
+                      mayAlreadyExist: true,
+                  });
+                  if (relatedObjectUpdateResult.status != 200) {
+                      throw Error(relatedObjectUpdateResult.message);
+                  }
+              }
+            }
+          }
+
+          await upsertSignalJob.start({
+            sourceObjectId: objectThatWasStored.id,
+            sourceObjectTypeId: objectThatWasStored.related_object_type_id,
+            triggerMessage: "New data has been processed and stored in the database",
+            relevantData: objectThatWasStored,
+            organisationId,
+            organisationData,
+            memberId
+          });
         }
         console.log(`✅ Completed "Step 5c: Save object as appropriate", with: dryRun: ${dryRun}`);
       }
@@ -306,14 +397,12 @@ export class ProcessDataJob<T> {
 
   private async getFieldTypes(): Promise<FunctionResult> {
     try {
-      console.log("getFieldTypes() called");
       const getFieldTypesResult = await this.storageService.getRows('field_types', {
       });
       if (getFieldTypesResult.status != 200) {
         return new Error(getFieldTypesResult.message);
       }
       const fieldTypes = getFieldTypesResult.data;
-      console.log(`fieldTypes: ${JSON.stringify(fieldTypes)}`)
       const result: FunctionResult = {
         status: 200,
         message: "Success running getFieldTypes",
@@ -332,14 +421,12 @@ export class ProcessDataJob<T> {
 
   private async getDictionaryTerms(): Promise<FunctionResult> {
     try {
-      console.log("getDictionaryTerms() called");
       const getDictionaryTermsResult = await this.storageService.getRows('dictionary_terms', {
       });
       if (getDictionaryTermsResult.status != 200) {
         return new Error(getDictionaryTermsResult.message);
       }
       const dictionaryTerms = getDictionaryTermsResult.data;
-      console.log(`dictionaryTerms: ${JSON.stringify(dictionaryTerms)}`)
       const result: FunctionResult = {
         status: 200,
         message: "Success running getDictionaryTerms",
@@ -365,13 +452,6 @@ export class ProcessDataJob<T> {
     // Creates two maps:  
     // 1. `objectMetadataFunctionProperties` - A map where the key is the object ID and the value is a structured object describing for the AI how to create this object's metadata, including metadata where `related_object_type_id` is `null` and excluding those with `allow_ai_update` explicitly set to `false`.  
     // 2. `objectMetadataFunctionPropertiesRequiredIds` - A map where the key is the metadata ID and the value is a list of all the metadata type ids where `is_required` property is `true` (if allow_ai_update marked as false, these will already be exlcuded from this even if is_required is set to true)
-    console.log(
-      `createStructuredObjectFunctions called with objectTypes: ${JSON.stringify(
-        objectTypes
-      )} and metadataTypes: ${JSON.stringify(metadataTypes)}
-       and fieldTypes: ${JSON.stringify(fieldTypes)}
-        and dictionaryTerms: ${JSON.stringify(dictionaryTerms)}`
-    );
   
     // Initialize the result maps
     const objectMetadataFunctionProperties: Record<string, Record<string, any>> = {};

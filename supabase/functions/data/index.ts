@@ -49,9 +49,12 @@ app.post('/data/con/:connection/typ/:datatype/dry/:dryrun', async (req, res) => 
     // {
     //  "companyMetadata": {
     //    "organisationId": widget.memberData.ownerOrganisationId,
+    //    "memberId": widget.memberData.id
     //    "objectTypeId": constants.OBJECT_TYPE_ID_PRODUCT,
     //    "parentObjectId": productId,
     //    "dataDescription": inputtedFileUploadDescription.text,
+    //    "requiredMatchThreshold": 0.8
+    //    "newRelatedIds": {}
     //  },
     //  "companyDataContents": inputtedFileUploadData.text
     // }
