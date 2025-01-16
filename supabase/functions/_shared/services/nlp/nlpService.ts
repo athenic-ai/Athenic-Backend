@@ -150,11 +150,7 @@ export class NlpService {
         ? config.NLP_MODELS_LITE
         : config.NLP_MODELS_FULL;
 
-      if (!this.functionDeclarations || limitedFunctionSupportList !== this.currentFunctionSupportList) {
-        await this.nlpFunctionsBase.loadFunctions();
-        this.functionDeclarations = this.nlpFunctionsBase.getAllFunctionDeclarations();
-        this.currentFunctionSupportList = limitedFunctionSupportList;
-      }
+      await this.updateFunctionDeclarations({limitedFunctionSupportList});
 
       const messages = [
         { role: "developer", content: systemInstruction },
@@ -186,7 +182,7 @@ export class NlpService {
             functionResultsData.push({ name: functionName, functionResult: functionResult });
             break; // Currently only allowing it to call the first function with this. Also when not interpreting, as part of this just returning the first function's data below. May want to change in the future to allow it to call all the functions it found
           } else {
-            console.error("tool_calls type not function, so not calling any function");
+            console.log("tool_calls type not function, so not calling any function");
           }
         }
 
@@ -277,6 +273,12 @@ export class NlpService {
     try {
       console.log(`executeThread called with prompt: ${prompt}`);
 
+      const createGeneralAssistantResult = await this.createGeneralAssistant();
+      if (createGeneralAssistantResult.status !== 200) {
+        throw new Error(createGeneralAssistantResult.message);
+      }
+      const assistantId = createGeneralAssistantResult.data;
+
       // TODO: currently haven't added support for chat history - add this!
       const messages = [
         {"role": "user", "content": prompt}, // system not supported when using assistant. 
@@ -292,7 +294,7 @@ export class NlpService {
 
       let threadRun = await this.clientOpenAi.beta.threads.runs.create(
           thread.id,
-          {assistant_id: "asst_qRIC5jvqHUgLL3dt8ESIQ0Iw"},
+          {assistant_id: assistantId},
       );
 
       console.log(`threadRun created: ${config.stringify(threadRun)}`);
@@ -301,7 +303,7 @@ export class NlpService {
       const threadRunHistory: string[] = [];
       while (true) {
         if (threadRun.status === "requires_action") {
-          const toolOutputs: Array<{ tool_call_id: string; output: string }> = [];
+          const toolOutputs: Array<{ tool_call_id: string; output: any }> = [];
           const toolCalls = (
             threadRun &&
             threadRun.required_action &&
@@ -316,19 +318,10 @@ export class NlpService {
               const functionArgs = JSON.parse(toolCall.function.arguments);
               console.log(`[${runLoop}] Function called: ${functionName} with arguments: ${JSON.stringify(functionArgs)}`);
               // Handle the function call here
-              const functionResult = await this.nlpSharedFunctions.nlpFunctions[functionName](functionArgs);
-              let functionResultRes: string;
-              if (functionResult.data) {
-                functionResultRes = functionResult.data;
-              } else if (functionResult.result) {
-                functionResultRes = functionResult.result;
-              } else if (typeof functionResult === "object") {
-                functionResultRes = JSON.stringify(functionResult);
-              } else {
-                functionResultRes = functionResult;
-              }
-              threadRunHistory.push(`[${runLoop}] Ran function: ${functionName}\nArguments: ${JSON.stringify(functionArgs)}\nResult: ${functionResult.result}`);
-              toolOutputs.push({tool_call_id: toolCall.id, output: functionResultRes});
+              const chosenFunctionImplementation = this.nlpFunctionsBase.nlpFunctions[functionName].implementation;
+              const functionResult = await chosenFunctionImplementation(functionArgs);
+              threadRunHistory.push(`[${runLoop}] Ran function: ${functionName}\nArguments: ${JSON.stringify(functionArgs)}\nResult: ${functionResult.message}`);
+              toolOutputs.push({tool_call_id: toolCall.id, output: config.stringify(functionResult)});
             }
           });
           await Promise.all(toolPromises); // Use Promise.all to wait for all promises to resolve before continuing
@@ -387,6 +380,49 @@ export class NlpService {
       const result: FunctionResult = {
         status: 500,
         message: "Oops! I was unable to get a result. Please try again shortly."
+      };
+      return result;
+    }
+  }
+
+  async updateFunctionDeclarations({ limitedFunctionSupportList }: { limitedFunctionSupportList?: any[] }) {
+    // Update functionDeclarations if not set or modified
+    if (!this.functionDeclarations || limitedFunctionSupportList !== this.currentFunctionSupportList) {
+      await this.nlpFunctionsBase.loadFunctions();
+      this.functionDeclarations = this.nlpFunctionsBase.getAllFunctionDeclarations();
+      this.currentFunctionSupportList = limitedFunctionSupportList;
+    }
+  }
+
+  async createGeneralAssistant(): Promise<FunctionResult> {
+    // TODO: Reuse assistant instead of creating one during every call!
+    try {
+      const generalAssisantTools = [...this.functionDeclarations]; // Shallow copy to avoid affecting this.functionDeclarations
+      generalAssisantTools.push({"type": "code_interpreter"}); // Adding support for code interpreter
+      await this.updateFunctionDeclarations({}); // Support all functions by default by not specifying limitedFunctionSupportList
+      const assistant = await this.clientOpenAi.beta.assistants.create({
+        name: "General Athenic AI Assistant",
+        instructions: `You have been tasked with helping the member to create, read, update and delete signals and jobs. When creating signals, deeply analyse a given trigger, doing research like e.g. searching the object database or searching the web to uncover insight(s) that should be signals. If Athenic thinks a job(s) should be carried out as a consequence of this analysis, do that`,
+        tools: generalAssisantTools,
+        temperature: 0.5,
+        model: config.NLP_MODELS_FULL[0],
+      });  
+
+      if (!assistant || !assistant.id) {
+        throw new Error("Unable to create assistant");
+      }
+
+      const result: FunctionResult = {
+        status: 200,
+        message: `Created assistant successfully`,
+        data: assistant.id,
+      };
+      return result;
+    } catch (error) {
+      console.log(`Error creating assistant: ${error.message}`);
+      const result: FunctionResult = {
+        status: 500,
+        message: `Oops! I was unable to get a result (${error.message}). Please try again shortly.`
       };
       return result;
     }
