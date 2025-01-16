@@ -75,13 +75,13 @@ export class NLPSharedFunctions {
     return curFunctionDeclarations; // OpenAI needs this surrounding map
   }
 
-  async getFunctionDeclarations(limitedFunctionSupportList) {
-    // Note: Ensure functions you want to support are added to wherever nlp is initialised. If limitedFunctionSupportList is null, it means we want to support all functions. If it's [], means you dont want to support any.
+  async getFunctionDeclarations(functionsIncluded) {
+    // Note: Ensure functions you want to support are added to wherever nlp is initialised. If functionsIncluded is null, it means we want to support all functions. If it's [], means you dont want to support any.
     // TODO: add support for Structured Outputs (strict=true) across all functions if called by openai
-    console.log(`getFunctionDeclarations called with limitedFunctionSupportList: ${limitedFunctionSupportList}`);
+    console.log(`getFunctionDeclarations called with functionsIncluded: ${functionsIncluded}`);
     let functionDeclarations = [];
 
-    if (!limitedFunctionSupportList || limitedFunctionSupportList.includes("predictProductBeingReferenced")) {
+    if (!functionsIncluded || functionsIncluded.includes("predictProductBeingReferenced")) {
       try {
         await this.ensureOrganisationDataRetrieved(this.parent.organisationId);
 

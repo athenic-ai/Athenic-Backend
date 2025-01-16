@@ -21,7 +21,7 @@ export class NlpService {
   private objectMetadataFunctionProperties: Record<string, unknown> | null = null;
   private objectMetadataFunctionPropertiesRequiredIds: Record<string, string[]> | null = null;
   private processDataFunctionDescription: string | null = null;
-  private currentFunctionSupportList: any[] | null = null;
+  private currentFunctionsIncluded: any[] | null = null;
   private functionDeclarations: any[] | null = null;
   private selectedMessageThreadId: string | null = null;
   // private tasksPlugin: TasksPlugin;
@@ -122,8 +122,8 @@ export class NlpService {
     systemInstruction,
     chatHistory = [],
     temperature = 0,
-    functionUsage = "auto", // Options: none, auto, required
-    limitedFunctionSupportList,
+    functionUsage = "auto", // Options: none, auto, required NOTE: required sometimes causes phantom params to be created, so try to avoid it
+    functionsIncluded,
     interpretFuncCalls = false,
     useLiteModels = true,
   }: {
@@ -132,7 +132,7 @@ export class NlpService {
     chatHistory?: Array<{ role: string; content: string }>;
     temperature?: number;
     functionUsage?: string;
-    limitedFunctionSupportList?: any[];
+    functionsIncluded?: any[];
     interpretFuncCalls?: boolean;
     useLiteModels?: boolean;
   }): Promise<any> {
@@ -150,7 +150,7 @@ export class NlpService {
         ? config.NLP_MODELS_LITE
         : config.NLP_MODELS_FULL;
 
-      await this.updateFunctionDeclarations({limitedFunctionSupportList});
+      await this.updateFunctionDeclarations({functionsIncluded});
 
       const messages = [
         { role: "developer", content: systemInstruction },
@@ -385,12 +385,13 @@ export class NlpService {
     }
   }
 
-  async updateFunctionDeclarations({ limitedFunctionSupportList }: { limitedFunctionSupportList?: any[] }) {
+  async updateFunctionDeclarations({ functionGroupsIncluded, functionsIncluded }: { functionGroupsIncluded?: string[], functionsIncluded?: string[] }) {
     // Update functionDeclarations if not set or modified
-    if (!this.functionDeclarations || limitedFunctionSupportList !== this.currentFunctionSupportList) {
-      await this.nlpFunctionsBase.loadFunctions();
-      this.functionDeclarations = this.nlpFunctionsBase.getAllFunctionDeclarations();
-      this.currentFunctionSupportList = limitedFunctionSupportList;
+    // For each param, if not specified, all is loaded
+    if (!this.functionDeclarations || functionGroupsIncluded !== this.currentFunctionGroupsIncluded || functionsIncluded !== this.currentFunctionsIncluded) {
+      await this.nlpFunctionsBase.loadFunctionGroups(functionGroupsIncluded);
+      this.functionDeclarations = this.nlpFunctionsBase.getFunctionDeclarations(functionsIncluded);
+      this.currentFunctionsIncluded = functionsIncluded;
     }
   }
 
@@ -399,7 +400,9 @@ export class NlpService {
     try {
       const generalAssisantTools = [...this.functionDeclarations]; // Shallow copy to avoid affecting this.functionDeclarations
       generalAssisantTools.push({"type": "code_interpreter"}); // Adding support for code interpreter
-      await this.updateFunctionDeclarations({}); // Support all functions by default by not specifying limitedFunctionSupportList
+      await this.updateFunctionDeclarations({
+        functionGroupsIncluded: ["nlpFunctionsData"],
+      }); // Support all functions by default by not specifying functionsIncluded
       const assistant = await this.clientOpenAi.beta.assistants.create({
         name: "General Athenic AI Assistant",
         instructions: `You have been tasked with helping the member to create, read, update and delete signals and jobs. When creating signals, deeply analyse a given trigger, doing research like e.g. searching the object database or searching the web to uncover insight(s) that should be signals. If Athenic thinks a job(s) should be carried out as a consequence of this analysis, do that`,

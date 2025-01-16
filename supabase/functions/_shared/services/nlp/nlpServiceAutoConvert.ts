@@ -26,7 +26,7 @@ interface ExecuteParams {
   systemInstruction: string;
   chatHistory?: Array<{ role: string; content: string }>;
   temperature?: number;
-  limitedFunctionSupportList?: any[];
+  functionsIncluded?: any[];
   interpretFuncCalls?: boolean;
   useLiteModel?: boolean;
 }
@@ -57,7 +57,7 @@ class NLPPlugin extends PluginInterface {
   private supportedPlatformNames: string[] = ["email"];
   private selectedPlatformName: string | null = null;
   private dataIfFeedbackFromUser: any | null = null;
-  private currentFunctionSupportList: any[] | null = null;
+  private currentFunctionsIncluded: any[] | null = null;
   private functionDeclarations: any[] | null = null;
   private selectedNlp: string = "openai";
   private processingDryRun: any = constants.TriBool.UNKNOWN;
@@ -111,7 +111,7 @@ class NLPPlugin extends PluginInterface {
     systemInstruction,
     chatHistory = [],
     temperature = 0,
-    limitedFunctionSupportList,
+    functionsIncluded,
     interpretFuncCalls = false,
     useLiteModel = true,
   }: ExecuteParams): Promise<any> {
@@ -125,9 +125,9 @@ class NLPPlugin extends PluginInterface {
         ? constants.NLP_OPENAI_MODEL_LITE
         : constants.NLP_OPENAI_MODEL_FULL;
 
-      if (!this.functionDeclarations || limitedFunctionSupportList !== this.currentFunctionSupportList) {
-        this.functionDeclarations = await this.nlpSharedFunctions.getFunctionDeclarations(limitedFunctionSupportList);
-        this.currentFunctionSupportList = limitedFunctionSupportList;
+      if (!this.functionDeclarations || functionsIncluded !== this.currentFunctionsIncluded) {
+        this.functionDeclarations = await this.nlpSharedFunctions.getFunctionDeclarations(functionsIncluded);
+        this.currentFunctionsIncluded = functionsIncluded;
       }
 
       const messages = [

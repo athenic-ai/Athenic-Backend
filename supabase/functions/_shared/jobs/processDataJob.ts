@@ -131,7 +131,7 @@ export class ProcessDataJob<T> {
             \n\nData to review:\n${config.stringify(dataContents)}`}],
           systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
           functionUsage: "required",
-          limitedFunctionSupportList: ["predictObjectTypeBeingReferenced"],
+          functionsIncluded: ["predictObjectTypeBeingReferenced"],
           useLiteModels: true,
         });
         if (predictObjectTypeBeingReferencedResult.status != 200) {
@@ -181,7 +181,7 @@ export class ProcessDataJob<T> {
           promptParts: [{"type": "text", "text": processDataPrompt}],
           systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
           functionUsage: "required",
-          limitedFunctionSupportList: ["processDataUsingGivenObjectsMetadataStructure"],
+          functionsIncluded: ["processDataUsingGivenObjectsMetadataStructure"],
           useLiteModels: true,
         });
         if (processDataUsingGivenObjectsMetadataStructureResult.status != 200) {
@@ -233,7 +233,7 @@ export class ProcessDataJob<T> {
                 \n\nObjects that can be chosen from:\n${JSON.stringify(potentialParentObjects)}`}],
                 systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
                 functionUsage: "required",
-                limitedFunctionSupportList: ["predictObjectParent"],
+                functionsIncluded: ["predictObjectParent"],
                 useLiteModels: true,
               });
               console.log(`✅ Completed "Step 5bii: Predict the appropriate object's parent", with: ${JSON.stringify(predictObjectParentResult)}`)
@@ -287,7 +287,7 @@ export class ProcessDataJob<T> {
               promptParts: [{"type": "text", "text": processDataPrompt}],
               systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
               functionUsage: "required",
-              limitedFunctionSupportList: ["processDataUsingGivenObjectsMetadataStructure"],
+              functionsIncluded: ["processDataUsingGivenObjectsMetadataStructure"],
               useLiteModels: true,
             });
             if (mergedObjectResult.status != 200) {
