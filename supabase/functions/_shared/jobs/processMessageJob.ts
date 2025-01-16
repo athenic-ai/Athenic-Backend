@@ -34,7 +34,7 @@ export class ProcessMessageJob<T> {
     let organisationId, memberId;
     try {
       await this.nlpService.initialiseClientCore();
-      await this.nlpService.initialiseClientEmbedding();
+      await this.nlpService.initialiseClientOpenAi();
 
       // -----------Step 1: Get organisation's ID, organisation's data and member ID----------- 
       const inferOrganisationResult = await config.inferOrganisation({ connectionId, dataIn, storageService: this.storageService });

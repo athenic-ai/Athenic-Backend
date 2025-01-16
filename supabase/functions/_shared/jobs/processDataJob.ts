@@ -45,7 +45,7 @@ export class ProcessDataJob<T> {
     let dataContents, objectTypeId;
     try {
       await this.nlpService.initialiseClientCore();
-      await this.nlpService.initialiseClientEmbedding();
+      await this.nlpService.initialiseClientOpenAi();
 
       // -----------Step 1: Get organisation's ID and data----------- 
       if (!organisationId || !organisationData) {
@@ -388,20 +388,30 @@ export class ProcessDataJob<T> {
             }
           }
 
-          await upsertSignalJob.start({
-            sourceObjectId: objectThatWasStored.id,
-            sourceObjectTypeId: objectThatWasStored.related_object_type_id,
-            triggerMessage: "New data has been processed and stored in the database.",
-            relevantData: objectThatWasStored,
-            organisationId,
-            organisationData,
-            memberId,
-            objectTypes,
-            objectMetadataTypes,
-            objectTypeDescriptions,
-            fieldTypes,
-            dictionaryTerms,
+          const assistantPrompt = `${config.ASSISTANT_SYSTEM_INSTRUCTION}
+          \nBear in mind:
+          \n\nThe creation of this signal was triggered by new data being sent to Athenic to be processed and stored in the database.
+          \n\nCritically analyse this data as the Athenic AI, and then create a ${objectTypeDescriptions[config.OBJECT_TYPE_ID_SIGNAL].name} object type based on your analysis. For context: ${objectTypeDescriptions[config.OBJECT_TYPE_ID_SIGNAL].description}.
+          \n\nRelevant data: ${config.stringify(objectThatWasStored)}.`
+
+          return await this.nlpService.executeThread({
+            prompt: assistantPrompt,
           });
+
+          // await upsertSignalJob.start({
+          //   sourceObjectId: objectThatWasStored.id,
+          //   sourceObjectTypeId: objectThatWasStored.related_object_type_id,
+          //   triggerMessage: "New data has been processed and stored in the database.",
+          //   relevantData: objectThatWasStored,
+          //   organisationId,
+          //   organisationData,
+          //   memberId,
+          //   objectTypes,
+          //   objectMetadataTypes,
+          //   objectTypeDescriptions,
+          //   fieldTypes,
+          //   dictionaryTerms,
+          // });
         }
         console.log(`✅ Completed "Step 5c: Save object as appropriate", with: dryRun: ${dryRun}`);
       }

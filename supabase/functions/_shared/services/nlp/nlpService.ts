@@ -8,7 +8,7 @@ export class NlpService {
   private nlpFunctionsBase: NlpFunctionsBase;
   private storageService: StorageService;
   private clientCore: OpenAI | null = null;
-  private clientEmbedding: OpenAI | null = null;
+  private clientOpenAi: OpenAI | null = null;
   private adminSettings: any | null = null;
   private organisationId: string | null = null;
   private organisationData: Record<string, unknown> | null = null;
@@ -106,17 +106,16 @@ export class NlpService {
     }
   }
 
-  async initialiseClientEmbedding(apiKey: string): Promise<void> {
-    console.log("initialiseClientEmbedding called");
+  async initialiseClientOpenAi(apiKey: string): Promise<void> {
+    console.log("initialiseClientOpenAi called");
     try {
-      this.clientEmbedding = new OpenAI({apiKey: Deno.env.get('OPENAI_API_KEY')}); // Use this if calling OpenAI's API directly (needed as OpenRouter doesn't support embeddings right now)
-      console.log("OpenAI client embedding initialised successfully");
+      this.clientOpenAi = new OpenAI({apiKey: Deno.env.get('OPENAI_API_KEY')}); // Use this if calling OpenAI's API directly (needed as OpenRouter doesn't support embeddings or assistants right now)
+      console.log("OpenAI client initialised successfully");
     } catch (error) {
-      console.error("Error initializing OpenAI client embedding:", error);
+      console.error("Error initializing OpenAI client:", error);
       throw error;
     }
   }
-
 
   async execute({
     promptParts,
@@ -265,6 +264,134 @@ export class NlpService {
     }
   }
 
+  async executeThread({
+    prompt,
+    // Model controlled within /executables
+}: {
+    prompt: string;
+}) {
+    if (!prompt) {
+      throw new Error("No text provided for executeThread");
+    }
+
+    try {
+      console.log(`executeThread called with prompt: ${prompt}`);
+
+      // TODO: currently haven't added support for chat history - add this!
+      const messages = [
+        {"role": "user", "content": prompt}, // system not supported when using assistant. 
+      ];
+
+      console.log(`messages: ${JSON.stringify(messages)}`);
+
+      const thread = await this.clientOpenAi.beta.threads.create({
+        messages: messages,
+      });
+
+      console.log(`thread created with id: ${thread.id}`);
+
+      let threadRun = await this.clientOpenAi.beta.threads.runs.create(
+          thread.id,
+          {assistant_id: "asst_qRIC5jvqHUgLL3dt8ESIQ0Iw"},
+      );
+
+      console.log(`threadRun created: ${config.stringify(threadRun)}`);
+
+      let runLoop = 1;
+      const threadRunHistory: string[] = [];
+      while (true) {
+        if (threadRun.status === "requires_action") {
+          const toolOutputs: Array<{ tool_call_id: string; output: string }> = [];
+          const toolCalls = (
+            threadRun &&
+            threadRun.required_action &&
+            threadRun.required_action.submit_tool_outputs &&
+            Array.isArray(threadRun.required_action.submit_tool_outputs.tool_calls)
+          ) ? threadRun.required_action.submit_tool_outputs.tool_calls : []; // assign functions to toolCalls if there are any
+          console.log(`[${runLoop}] threadRun requires action(s)\n${JSON.stringify(toolCalls)}`);
+
+          const toolPromises = toolCalls.map(async (toolCall) => {
+            if (toolCall.type === "function") {
+              const functionName = toolCall.function.name;
+              const functionArgs = JSON.parse(toolCall.function.arguments);
+              console.log(`[${runLoop}] Function called: ${functionName} with arguments: ${JSON.stringify(functionArgs)}`);
+              // Handle the function call here
+              const functionResult = await this.nlpSharedFunctions.nlpFunctions[functionName](functionArgs);
+              let functionResultRes: string;
+              if (functionResult.data) {
+                functionResultRes = functionResult.data;
+              } else if (functionResult.result) {
+                functionResultRes = functionResult.result;
+              } else if (typeof functionResult === "object") {
+                functionResultRes = JSON.stringify(functionResult);
+              } else {
+                functionResultRes = functionResult;
+              }
+              threadRunHistory.push(`[${runLoop}] Ran function: ${functionName}\nArguments: ${JSON.stringify(functionArgs)}\nResult: ${functionResult.result}`);
+              toolOutputs.push({tool_call_id: toolCall.id, output: functionResultRes});
+            }
+          });
+          await Promise.all(toolPromises); // Use Promise.all to wait for all promises to resolve before continuing
+
+          console.log(`toolOutputs: ${JSON.stringify(toolOutputs)}`);
+
+          // const outputs = await config.sandbox.openai.actions.run(threadRun); // Orig code, seemingly calling OpenAI within the sandbox (not within the Firebase Function)
+          if (toolOutputs.length > 0) {
+            // Run found function (ie. "tool")
+            await this.clientOpenAi.beta.threads.runs.submitToolOutputs(
+                thread.id,
+                threadRun.id,
+                {tool_outputs: toolOutputs},
+            );
+          }
+        } else if (threadRun.status === "completed") {
+          console.log("\n✅ Run completed");
+          const messages = (await this.clientOpenAi.beta.threads.messages.list(thread.id)).data[0].content;
+          const textMessages = messages.filter(
+              (message) => message.type === "text",
+          );
+          threadRunHistory.push(`[${runLoop}] Thread run completed with first text message:\n${textMessages[0].text.value}`);
+          console.log(`threadRun completed with run history:\n${threadRunHistory.join("\n-----\n")}`);
+          const result: FunctionResult = {
+            status: 200,
+            message: "Successfully completed thread.",
+          };
+          return result;
+        } else if (threadRun.status === "queued" || threadRun.status === "in_progress") {
+          // Do nothing, wait for completion
+        } else if (
+          threadRun.status === "cancelled" ||
+            threadRun.status === "cancelling" ||
+            threadRun.status === "expired" ||
+            threadRun.status === "failed"
+        ) {
+          threadRunHistory.push(`[${runLoop}] Thread run failed with status: ${threadRun.status}`);
+          console.log(`threadRun failed with run history:\n${threadRunHistory.join("\n-----\n")}`);
+          const result: FunctionResult = {
+            status: 500,
+            message: `Oops! I was unable to get a result (${threadRun.status}). Please try again shortly.`
+          };
+          return result;
+        }
+
+        threadRun = await this.clientOpenAi.beta.threads.runs.retrieve(
+            thread.id,
+            threadRun.id,
+        );
+
+        this.sleep(500);
+        runLoop += 1;
+      }
+    } catch (error) {
+      console.error("Error during NLP execution:", error);
+      const result: FunctionResult = {
+        status: 500,
+        message: "Oops! I was unable to get a result. Please try again shortly."
+      };
+      return result;
+    }
+  }
+
 /**
  * Calculates the maximum length for each value in an object based on the number of keys
  * Includes a buffer for JSON syntax and key names
@@ -354,8 +481,8 @@ async generateTextEmbedding(
           throw new Error('No input provided for NLP analysis');
         }
         
-        if (!this.clientEmbedding) {
-          throw new Error("clientEmbedding not initialised");
+        if (!this.clientOpenAi) {
+          throw new Error("clientOpenAi not initialised");
         }
 
         // Process input based on type
@@ -369,7 +496,7 @@ async generateTextEmbedding(
           throw new Error('Input must be either a string or a plain object');
         }
         
-        const createEmbeddingsResult = await this.clientEmbedding.embeddings.create({
+        const createEmbeddingsResult = await this.clientOpenAi.embeddings.create({
           model: config.NLP_EMBEDDING_MODEL,
           input: textToEmbed,
           encoding_format: "float",
