@@ -19,7 +19,8 @@ export class NlpService {
   private objectTypeDescriptions: string[] = [];
   private selectedObject: any | null = null;
   private selectedObjectTypeId: string | null = null;
-  private selectedObjectsIds: string[] = [];
+  private selectedObjectPotentialParentIds: string[] = [];
+  private relatedObjectIds: Record<string, unknown> = {}; // Type ID -> Object ID map of all objects that have been called/created during this run and so related to each other
   private objectMetadataFunctionProperties: Record<string, unknown> | null = null;
   private objectMetadataFunctionPropertiesRequiredIds: Record<string, string[]> | null = null;
   private fieldTypes: string[] = [];
@@ -57,7 +58,8 @@ export class NlpService {
     objectTypeDescriptions,
     selectedObject,
     selectedObjectTypeId,
-    selectedObjectsIds,
+    selectedObjectPotentialParentIds,
+    relatedObjectIds,
     objectMetadataFunctionProperties,
     objectMetadataFunctionPropertiesRequiredIds,
     fieldTypes,
@@ -73,7 +75,8 @@ export class NlpService {
     objectTypeDescriptions?: string[];
     selectedObject?: any;
     selectedObjectTypeId?: string;
-    selectedObjectsIds?: string[];
+    selectedObjectPotentialParentIds?: string[];
+    relatedObjectIds? : Record<string, unknown>;
     objectMetadataFunctionProperties?: Record<string, unknown>;
     objectMetadataFunctionPropertiesRequiredIds?: Record<string, string[]>;
     fieldTypes?: string[];
@@ -91,7 +94,8 @@ export class NlpService {
     this.objectTypeDescriptions = objectTypeDescriptions ?? this.objectTypeDescriptions;
     this.selectedObject = selectedObject ?? this.selectedObject;
     this.selectedObjectTypeId = selectedObjectTypeId ?? this.selectedObjectTypeId;
-    this.selectedObjectsIds = selectedObjectsIds ?? this.selectedObjectsIds;
+    this.selectedObjectPotentialParentIds = selectedObjectPotentialParentIds ?? this.selectedObjectPotentialParentIds;
+    this.relatedObjectIds = relatedObjectIds ?? this.relatedObjectIds;
     this.objectMetadataFunctionProperties = objectMetadataFunctionProperties ?? this.objectMetadataFunctionProperties;
     this.objectMetadataFunctionPropertiesRequiredIds =
       objectMetadataFunctionPropertiesRequiredIds ?? this.objectMetadataFunctionPropertiesRequiredIds;

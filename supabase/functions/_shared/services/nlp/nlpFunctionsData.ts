@@ -45,7 +45,7 @@ export async function initialiseFunctions(baseInstance: any) {
       implementation: async ({ objectTypeId, dataContents, dataDescription }: { objectTypeId: string, dataContents: string, dataDescription: string }) => {
         try {
           console.log(`Upserting data with objectTypeId: ${objectTypeId}\ndataContents: ${dataContents}\ndataDescription: ${dataDescription}`);
-          const upsertDataJob: UpsertDataJob = new UpsertDataJob();
+          const upsertDataJob = new UpsertDataJob(baseInstance.parent);
     
           const dataIn = {
             "companyMetadata": {
@@ -54,15 +54,13 @@ export async function initialiseFunctions(baseInstance: any) {
               "objectTypeId": objectTypeId,
               "dataDescription": dataDescription,
               "requiredMatchThreshold": 0.8, // TODO: potentially add support for the AI to set this based on what it thinks (BUT note if it's not added, data will never be merged with existing data)
-              "newRelatedIds": {
-                [baseInstance.parent.selectedObject.related_object_type_id]: [baseInstance.parent.selectedObject.id],
-              },
             },
             "companyDataContents": config.stringify(dataContents)
           };
     
           console.log(`upsertDataJob.start() with dataIn: ${config.stringify(dataIn)}`);
           const upsertDataJobResult = await upsertDataJob.start({
+            initialCall: false,
             connection: "company", 
             dryRun: false, 
             dataIn,

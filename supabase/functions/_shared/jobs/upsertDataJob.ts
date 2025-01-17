@@ -17,14 +17,15 @@ export class UpsertDataJob<T> {
   private readonly nlpService: NlpService;
 
   constructor(
+    nlpService: NlpService, // Want nlpService to be re-used to retain variables across calls
     storageService: StorageService = new StorageService(),
-    nlpService: NlpService = new NlpService(),
   ) {
-    this.storageService = storageService;
     this.nlpService = nlpService;
+    this.storageService = storageService;
   }
 
-  async start({ connection, dryRun, dataIn, organisationId, organisationData, memberId, objectTypes, objectMetadataTypes, objectTypeDescriptions, fieldTypes, dictionaryTerms }: {
+  async start({ initialCall, connection, dryRun, dataIn, organisationId, organisationData, memberId, objectTypes, objectMetadataTypes, objectTypeDescriptions, fieldTypes, dictionaryTerms }: {
+    initialCall: boolean;
     connection: any;
     dryRun: boolean;
     dataIn: any;
@@ -209,7 +210,7 @@ export class UpsertDataJob<T> {
               // If there are actually some parent objects found
               const potentialParentObjectsIds = potentialParentObjects.map(item => item.id); // List of strings of the ID of each object type
               this.nlpService.setMemberVariables({
-                selectedObjectsIds: potentialParentObjectsIds,
+                selectedObjectPotentialParentIds: potentialParentObjectsIds,
               });
               // Step 5bii: Predict the appropriate object's parent
     
@@ -294,7 +295,7 @@ export class UpsertDataJob<T> {
               keys: {id: objectToUpdate.id},
               rowData: {
                 metadata: mergedObjectData.metadata,
-                related_ids: dataIn.companyMetadata?.newRelatedIds ?? null,
+                related_ids: this.nlpService.relatedObjectIds ?? null,
                 updated_at: new Date(),
               },
               nlpService: this.nlpService,
@@ -308,18 +309,7 @@ export class UpsertDataJob<T> {
             console.log(`Saving object by creating new object with ID: ${newObjectData.id}`);
 
             // Just in case newObjectData already has some related_ids, merge them with the new ones
-            newObjectData.related_ids = newObjectData.related_ids || (dataIn.companyMetadata && dataIn.companyMetadata.newRelatedIds)
-              ? {
-                  ...(newObjectData.related_ids || {}), // Use an empty object if related_ids is undefined
-                  ...Object.keys(dataIn.companyMetadata.newRelatedIds || {}).reduce((acc, key) => {
-                    acc[key] = [
-                      ...((newObjectData.related_ids && newObjectData.related_ids[key]) || []), // Existing values or an empty array
-                      ...(dataIn.companyMetadata.newRelatedIds?.[key] || []), // New values or an empty array
-                    ];
-                    return acc;
-                  }, {} as Record<string, string[]>),
-                }
-              : null;
+            newObjectData.related_ids = config.mergeRelatedIds(this.nlpService.relatedObjectIds, newObjectData.related_ids);
 
             // Create new object
             const objectCreateResult = await this.storageService.updateRow({
@@ -353,11 +343,16 @@ export class UpsertDataJob<T> {
 
             objectThatWasStored = newObjectData;
           }
-          if (dataIn.companyMetadata && dataIn.companyMetadata.newRelatedIds) {
+          console.log(`✅ Completed "Step 5c: Save object as appropriate", with: dryRun: ${dryRun}`);
+
+          // -----------Step 5d: Do some related work post-object storage-----------
+          if (this.nlpService.relatedObjectIds) {
+            console.log(`this.nlpService.relatedObjectIds: ${JSON.stringify(this.nlpService.relatedObjectIds)}`);
             // Iterate through each type and its related IDs in the map
-            for (const [relatedObjectType, relatedIds] of Object.entries(dataIn.companyMetadata.newRelatedIds)) {
+            for (const [relatedObjectType, relatedIds] of Object.entries(this.nlpService.relatedObjectIds)) {
               // For each ID in the list for this type
               for (const relatedId of relatedIds) {
+                if (relatedId != objectThatWasStored.id) {
                   // Update the related object with the new related_id value
                   console.log(`Update the related object with the new related_id value: ${relatedId} (type: ${relatedObjectType})`);
                   const relatedObjectUpdateResult = await this.storageService.updateRow({
@@ -374,27 +369,38 @@ export class UpsertDataJob<T> {
                   if (relatedObjectUpdateResult.status != 200) {
                       throw Error(relatedObjectUpdateResult.message);
                   }
+                }
               }
             }
           }
 
+          const combinedRelatedIds = config.mergeRelatedIds(objectThatWasStored.related_ids, {[objectThatWasStored.related_object_type_id]: [objectThatWasStored.id]});
+
+          console.log(`combinedRelatedIds after adding via mergeRelatedIds: ${JSON.stringify(combinedRelatedIds)}`);
+
           this.nlpService.setMemberVariables({
+            relatedObjectIds: config.mergeRelatedIds(this.nlpService.relatedObjectIds, combinedRelatedIds),
             selectedObject: objectThatWasStored,
           });
 
-          const assistantPrompt = `${config.ASSISTANT_SYSTEM_INSTRUCTION}
-          \nBear in mind:
-          \n\n - New data has just been stored in Athenic. Critically analyse this data as the Athenic AI, making tool calls when necessary, and then store one signal object type based on your analysis, and also store any jobs you also think need to be done based on this analysis.
-          \n\n - For context, signals are described as:\n${objectTypeDescriptions[config.OBJECT_TYPE_ID_SIGNAL].description}.
-          \n\n - For context, jobs are described as:\n${objectTypeDescriptions[config.OBJECT_TYPE_ID_JOB].description}.
-          \n\n - Don't ask for clarification or approval before taking action, as the your reply won't be seen by the member. Just make your best guess.
-          \n\n - Data that has just been stored:\n${config.stringify(objectThatWasStored)}.`
+          console.log(`relatedObjectIds now after adding again via mergeRelatedIds: ${JSON.stringify(this.nlpService.relatedObjectIds)}`);
 
-          return await this.nlpService.executeThread({
-            prompt: assistantPrompt,
-          });
+          // Only want to add a signal to the original data call, otherwise will keep calling upsertDataJob infinitely
+          if (initialCall) {
+            const assistantPrompt = `${config.ASSISTANT_SYSTEM_INSTRUCTION}
+            \nBear in mind:
+            \n\n - New data has just been stored in Athenic. Critically analyse this data as the Athenic AI, making tool calls when necessary, and then store one signal object type based on your analysis, and also store any jobs you also think need to be done based on this analysis.
+            \n\n - For context, signals are described as:\n${objectTypeDescriptions[config.OBJECT_TYPE_ID_SIGNAL].description}.
+            \n\n - For context, jobs are described as:\n${objectTypeDescriptions[config.OBJECT_TYPE_ID_JOB].description}.
+            \n\n - Don't ask for clarification or approval before taking action, as the your reply won't be seen by the member. Just make your best guess.
+            \n\n - Data that has just been stored:\n${config.stringify(objectThatWasStored)}.`
+  
+            await this.nlpService.executeThread({
+              prompt: assistantPrompt,
+            });
+          }
         }
-        console.log(`✅ Completed "Step 5c: Save object as appropriate", with: dryRun: ${dryRun}`);
+        console.log(`✅ Completed "Step 5d: Do some related work post-object storage"`);
       }
       catch (error) {
         dataContentsFailures.push(`Failed to process data with error: ${error.message}.\n Data: ${config.stringify(dataContentsItem)}.`);

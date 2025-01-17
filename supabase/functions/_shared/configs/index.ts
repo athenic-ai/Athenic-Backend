@@ -177,6 +177,37 @@ export function createObjectTypeDescriptions(objectTypes: any[], metadataTypes: 
   }, {} as Record<string, any>);
 }
 
+export function mergeRelatedIds(
+  existingIds?: Record<string, string[]>,
+  newIds?: Record<string, string[]>
+): Record<string, string[]> {
+  console.log(`mergeRelatedIds called with: existingIds: ${JSON.stringify(existingIds)} and newIds: ${JSON.stringify(newIds)}`)
+  // If no IDs exist at all, return empty object
+  if (!existingIds && !newIds) {
+    return {};
+  }
+
+  // Create merged object using existing IDs as base
+  const mergedIds: Record<string, string[]> = { ...existingIds };
+
+  // If there are new IDs to merge, process each key
+  if (newIds) {
+    console.log("mergeRelatedIds has new ones");
+    Object.entries(newIds).forEach(([key, ids]) => {
+      // Merge existing IDs (or empty array) with new IDs (or empty array)
+      console.log(`mergeRelatedIds... merging key: ${key} with ids: ${JSON.stringify(ids)}`);
+      mergedIds[key] = [
+          ...(existingIds?.[key] || []),
+          ...(ids || [])
+      ];
+    });
+  }
+
+  console.log(`mergeRelatedIds now: ${JSON.stringify(mergedIds)}`);
+
+  return mergedIds;
+}
+
 // Enums
 // export enum TriBool {
 //   True,

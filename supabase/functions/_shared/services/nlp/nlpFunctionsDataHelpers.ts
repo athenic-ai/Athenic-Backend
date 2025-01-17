@@ -63,7 +63,7 @@ export async function initialiseFunctions(baseInstance: any) {
   }
 
   // predictObjectParent
-  if (baseInstance.parent.selectedObjectsIds) {
+  if (baseInstance.parent.selectedObjectPotentialParentIds) {
     functionsToReturn.predictObjectParent = {
       declaration: {
         type: "function",
@@ -77,7 +77,7 @@ export async function initialiseFunctions(baseInstance: any) {
               predictedObjectId: {
                 type: "string",
                 description: "ID of predicted object type",
-                enum: baseInstance.parent.selectedObjectsIds
+                enum: baseInstance.parent.selectedObjectPotentialParentIds
               },
             },
             required: ["predictedObjectId"],
