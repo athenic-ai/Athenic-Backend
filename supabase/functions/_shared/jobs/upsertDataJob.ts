@@ -7,7 +7,6 @@
 import * as config from "../../_shared/configs/index.ts";
 import { StorageService } from "../services/storage/storageService.ts";
 import { NlpService } from "../services/nlp/nlpService.ts";
-import { UpsertSignalJob } from "./upsertSignalJob.ts";
 
 interface OrganisationData {
   [key: string]: any;
@@ -39,8 +38,6 @@ export class UpsertDataJob<T> {
     dictionaryTerms?: any[];
 }): Promise<any> {
     console.log(`Processing data from connection: ${connection} and dryRun: ${dryRun} and dataIn: ${JSON.stringify(dataIn)}`);
-
-    const upsertSignalJob: UpsertSignalJob = new UpsertSignalJob();
 
     let dataContents, objectTypeId;
     try {
@@ -106,6 +103,7 @@ export class UpsertDataJob<T> {
         organisationData,
         objectTypes,
         objectMetadataTypes,
+        objectTypeDescriptions,
         objectMetadataFunctionProperties,
         objectMetadataFunctionPropertiesRequiredIds,
         fieldTypes,
@@ -168,15 +166,6 @@ export class UpsertDataJob<T> {
         if (dataIn.companyMetadata && dataIn.companyMetadata.dataDescription) {
           processDataPrompt += `\n\nTo help, here's some context about the data:\n${dataIn.companyMetadata.dataDescription}`;
         }
-        let processDataFunctionDescription;
-        if (dataIn.companyMetadata && dataIn.companyMetadata.processDataFunctionDescription) {
-          processDataFunctionDescription = dataIn.companyMetadata.processDataFunctionDescription;
-        } else {
-          processDataFunctionDescription = `Given some data, process it to create an object of type: ${objectTypeDescriptions[objectTypeId].name}, with description: ${objectTypeDescriptions[objectTypeId].description}. Typically used on data being passed to Athenic to be then stored in the database.`;
-        }
-        this.nlpService.setMemberVariables({
-          processDataFunctionDescription,
-        });
         
         const processDataUsingGivenObjectsMetadataStructureResult = await this.nlpService.execute({
           promptParts: [{"type": "text", "text": processDataPrompt}],
@@ -404,21 +393,6 @@ export class UpsertDataJob<T> {
           return await this.nlpService.executeThread({
             prompt: assistantPrompt,
           });
-
-          // await upsertSignalJob.start({
-          //   sourceObjectId: objectThatWasStored.id,
-          //   sourceObjectTypeId: objectThatWasStored.related_object_type_id,
-          //   triggerMessage: "New data has been processed and stored in the database.",
-          //   relevantData: objectThatWasStored,
-          //   organisationId,
-          //   organisationData,
-          //   memberId,
-          //   objectTypes,
-          //   objectMetadataTypes,
-          //   objectTypeDescriptions,
-          //   fieldTypes,
-          //   dictionaryTerms,
-          // });
         }
         console.log(`✅ Completed "Step 5c: Save object as appropriate", with: dryRun: ${dryRun}`);
       }

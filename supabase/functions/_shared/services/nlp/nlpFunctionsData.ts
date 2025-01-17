@@ -1,4 +1,7 @@
 import * as uuid from "jsr:@std/uuid";
+import * as config from "../../configs/index.ts";
+import { UpsertDataJob } from "../../jobs/upsertDataJob.ts";
+
 
 // Exporting functions and declarations
 // NOTE: must add this file when calling nlpFunctionsBase's loadFunctionGroups()
@@ -54,17 +57,12 @@ export async function initialiseFunctions(baseInstance: any) {
               "newRelatedIds": {
                 [baseInstance.parent.selectedObject.related_object_type_id]: [baseInstance.parent.selectedObject.id],
               },
-              processDataFunctionDescription: `Given some data, critically analyse it as the Athenic AI, and then create a ${objectTypeDescriptions[config.OBJECT_TYPE_ID_SIGNAL].name} object type based on your analysis. For context: ${objectTypeDescriptions[config.OBJECT_TYPE_ID_SIGNAL].description}`,
             },
             "companyDataContents": config.stringify(dataContents)
           };
     
-          if (relevantData) {
-            dataIn.companyDataContents += `\n\nRelevant data: ${config.stringify(relevantData)}.`;
-          }
-    
-          console.log(`upsertDataJob.start() from upsertSignalJob with dataIn: ${config.stringify(dataIn)}`);
-          const processSignalDataJobResult = await upsertDataJob.start({
+          console.log(`upsertDataJob.start() with dataIn: ${config.stringify(dataIn)}`);
+          const upsertDataJobResult = await upsertDataJob.start({
             connection: "company", 
             dryRun: false, 
             dataIn,
@@ -77,19 +75,17 @@ export async function initialiseFunctions(baseInstance: any) {
             fieldTypes: baseInstance.parent.fieldTypes,
             dictionaryTerms: baseInstance.parent.dictionaryTerms
           }); 
-    
-          // TODO: Decide whether any jobs need to be created/updated. If so, it will call the relevant job creation/updating function and also store a reference to the job in this signal (and visa versa) via the related_ids column
-    
+        
           const result: FunctionResult = {
             status: 200,
-            message: "Successfully upserted signal.",
+            message: "Successfully upserted data.",
           };
           return result;
         } catch (error) {
-          console.log(`❌ Failed to upsert signal with error: ${error.message}.`);
+          console.log(`❌ Failed to upsert data with error: ${error.message}.`);
           const result: FunctionResult = {
             status: 500,
-            message: `❌ Failed to upsert signal with error: ${error.message}.`,
+            message: `❌ Failed to upsert data with error: ${error.message}.`,
           };
           return result;
         }

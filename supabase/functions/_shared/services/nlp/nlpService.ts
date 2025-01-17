@@ -24,7 +24,6 @@ export class NlpService {
   private objectMetadataFunctionPropertiesRequiredIds: Record<string, string[]> | null = null;
   private fieldTypes: string[] = [];
   private dictionaryTerms: string[] = [];
-  private processDataFunctionDescription: string | null = null;
   private currentFunctionsIncluded: any[] | null = null;
   private functionDeclarations: any[] | null = null;
   private selectedMessageThreadId: string | null = null;
@@ -63,7 +62,6 @@ export class NlpService {
     objectMetadataFunctionPropertiesRequiredIds,
     fieldTypes,
     dictionaryTerms,
-    processDataFunctionDescription,
     selectedMessageThreadId
   }: {
     organisationId?: string;
@@ -80,7 +78,6 @@ export class NlpService {
     objectMetadataFunctionPropertiesRequiredIds?: Record<string, string[]>;
     fieldTypes?: string[];
     dictionaryTerms?: string[];
-    processDataFunctionDescription?: string;
     selectedMessageThreadId?: string;
   } = {}) {
     console.log("setMemberVariables called");
@@ -100,7 +97,6 @@ export class NlpService {
       objectMetadataFunctionPropertiesRequiredIds ?? this.objectMetadataFunctionPropertiesRequiredIds;
     this.fieldTypes = fieldTypes ?? this.fieldTypes;
     this.dictionaryTerms = dictionaryTerms ?? this.dictionaryTerms;
-    this.processDataFunctionDescription = processDataFunctionDescription ?? this.processDataFunctionDescription;
     this.selectedMessageThreadId = selectedMessageThreadId ?? this.selectedMessageThreadId;
   }
 
