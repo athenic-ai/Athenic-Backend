@@ -14,12 +14,16 @@ export class NlpService {
   private organisationData: Record<string, unknown> | null = null;
   private memberId: any | null = null;
   private memberData: any | null = null;
-  private supportedObjectTypeIds: string[] = [];
-  private supportedObjectTypeDescriptions: string[] = [];
+  private objectTypes: any[] = [];
+  private objectMetadataTypes: any[] = [];
+  private objectTypeDescriptions: string[] = [];
+  private selectedObject: any | null = null;
   private selectedObjectTypeId: string | null = null;
   private selectedObjectsIds: string[] = [];
   private objectMetadataFunctionProperties: Record<string, unknown> | null = null;
   private objectMetadataFunctionPropertiesRequiredIds: Record<string, string[]> | null = null;
+  private fieldTypes: string[] = [];
+  private dictionaryTerms: string[] = [];
   private processDataFunctionDescription: string | null = null;
   private currentFunctionsIncluded: any[] | null = null;
   private functionDeclarations: any[] | null = null;
@@ -49,12 +53,16 @@ export class NlpService {
     organisationData,
     memberId,
     memberData,
-    supportedObjectTypeIds,
-    supportedObjectTypeDescriptions,
+    objectTypes,
+    objectMetadataTypes,
+    objectTypeDescriptions,
+    selectedObject,
     selectedObjectTypeId,
     selectedObjectsIds,
     objectMetadataFunctionProperties,
     objectMetadataFunctionPropertiesRequiredIds,
+    fieldTypes,
+    dictionaryTerms,
     processDataFunctionDescription,
     selectedMessageThreadId
   }: {
@@ -62,12 +70,16 @@ export class NlpService {
     organisationData?: Record<string, unknown>;
     memberId?: any;
     memberData?: any;
-    supportedObjectTypeIds?: string[];
-    supportedObjectTypeDescriptions?: string[];
+    objectTypes?: any[];
+    objectMetadataTypes?: any[];
+    objectTypeDescriptions?: string[];
+    selectedObject?: any;
     selectedObjectTypeId?: string;
     selectedObjectsIds?: string[];
     objectMetadataFunctionProperties?: Record<string, unknown>;
     objectMetadataFunctionPropertiesRequiredIds?: Record<string, string[]>;
+    fieldTypes?: string[];
+    dictionaryTerms?: string[];
     processDataFunctionDescription?: string;
     selectedMessageThreadId?: string;
   } = {}) {
@@ -77,13 +89,17 @@ export class NlpService {
     this.organisationData = organisationData ?? this.organisationData;
     this.memberId = memberId ?? this.memberId;
     this.memberData = memberData ?? this.memberData;
-    this.supportedObjectTypeIds = supportedObjectTypeIds ?? this.supportedObjectTypeIds;
-    this.supportedObjectTypeDescriptions = supportedObjectTypeDescriptions ?? this.supportedObjectTypeDescriptions;
+    this.objectTypes = objectTypes ?? this.objectTypes;
+    this.objectMetadataTypes = objectMetadataTypes ?? this.objectMetadataTypes;
+    this.objectTypeDescriptions = objectTypeDescriptions ?? this.objectTypeDescriptions;
+    this.selectedObject = selectedObject ?? this.selectedObject;
     this.selectedObjectTypeId = selectedObjectTypeId ?? this.selectedObjectTypeId;
     this.selectedObjectsIds = selectedObjectsIds ?? this.selectedObjectsIds;
     this.objectMetadataFunctionProperties = objectMetadataFunctionProperties ?? this.objectMetadataFunctionProperties;
     this.objectMetadataFunctionPropertiesRequiredIds =
       objectMetadataFunctionPropertiesRequiredIds ?? this.objectMetadataFunctionPropertiesRequiredIds;
+    this.fieldTypes = fieldTypes ?? this.fieldTypes;
+    this.dictionaryTerms = dictionaryTerms ?? this.dictionaryTerms;
     this.processDataFunctionDescription = processDataFunctionDescription ?? this.processDataFunctionDescription;
     this.selectedMessageThreadId = selectedMessageThreadId ?? this.selectedMessageThreadId;
   }
@@ -121,7 +137,7 @@ export class NlpService {
     promptParts,
     systemInstruction,
     chatHistory = [],
-    temperature = 0,
+    temperature = 0.5,
     functionUsage = "auto", // Options: none, auto, required NOTE: required sometimes causes phantom params to be created, so try to avoid it
     functionsIncluded,
     interpretFuncCalls = false,
@@ -398,11 +414,15 @@ export class NlpService {
   async createGeneralAssistant(): Promise<FunctionResult> {
     // TODO: Reuse assistant instead of creating one during every call!
     try {
-      const generalAssisantTools = [...this.functionDeclarations]; // Shallow copy to avoid affecting this.functionDeclarations
-      generalAssisantTools.push({"type": "code_interpreter"}); // Adding support for code interpreter
+      console.log("createGeneralAssistant called");
+
       await this.updateFunctionDeclarations({
         functionGroupsIncluded: ["nlpFunctionsData"],
-      }); // Support all functions by default by not specifying functionsIncluded
+      }); // Support all functions by default within the groups included by not specifying functionsIncluded
+
+      const generalAssisantTools = [...this.functionDeclarations]; // Shallow copy to avoid affecting this.functionDeclarations
+      generalAssisantTools.push({"type": "code_interpreter"}); // Adding support for code interpreter
+
       const assistant = await this.clientOpenAi.beta.assistants.create({
         name: "General Athenic AI Assistant",
         instructions: `You have been tasked with helping the member to create, read, update and delete signals and jobs. When creating signals, deeply analyse a given trigger, doing research like e.g. searching the object database or searching the web to uncover insight(s) that should be signals. If Athenic thinks a job(s) should be carried out as a consequence of this analysis, do that`,

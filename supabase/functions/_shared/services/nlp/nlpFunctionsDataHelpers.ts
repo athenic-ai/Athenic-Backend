@@ -21,7 +21,9 @@ export async function initialiseFunctions(baseInstance: any) {
   
   
   // predictObjectTypeBeingReferenced
-  if (baseInstance.parent.supportedObjectTypeIds != null) {
+  if (baseInstance.parent.objectTypes && baseInstance.parent.objectTypeDescriptions) {
+    const objectTypesIds = baseInstance.parent.objectTypes.map(item => item.id); // List of strings of the ID of each object type
+
     functionsToReturn.predictObjectTypeBeingReferenced = {
       declaration: {
         type: "function",
@@ -34,8 +36,8 @@ export async function initialiseFunctions(baseInstance: any) {
             properties: {
               predictedObjectTypeId: {
                 type: "string",
-                description: "ID of predicted object type, or 'unknown' if none apply.",
-                enum: baseInstance.parent.supportedObjectTypeIds
+                description: `ID of predicted object type.\n\nDescriptions of object types that can be chosen from:\n${JSON.stringify(baseInstance.parent.objectTypeDescriptions)}`,
+                enum: objectTypesIds
               },
             },
             required: ["predictedObjectTypeId"],
@@ -61,10 +63,12 @@ export async function initialiseFunctions(baseInstance: any) {
         }
       },
     };
-  };
+  } else {
+    console.log("Failed to add predictObjectTypeBeingReferenced function as missing variable(s)");
+  }
 
   // predictObjectParent
-  if (baseInstance.parent.selectedObjectsIds != null) {
+  if (baseInstance.parent.selectedObjectsIds) {
     functionsToReturn.predictObjectParent = {
       declaration: {
         type: "function",
@@ -104,10 +108,12 @@ export async function initialiseFunctions(baseInstance: any) {
         }
       },
     };
-  };
+  } else {
+    console.log("Failed to add predictObjectParent function as missing variable(s)");
+  }
 
   // processDataUsingGivenObjectsMetadataStructure
-  if (selectedObjectMetadataFunctionProperties != null) {
+  if (selectedObjectMetadataFunctionProperties) {
     console.log(`selectedObjectMetadataFunctionProperties are: ${JSON.stringify(selectedObjectMetadataFunctionProperties)}`);
     console.log(`processDataFunctionDescription is: ${processDataFunctionDescription}`);
     functionsToReturn.processDataUsingGivenObjectsMetadataStructure = {
@@ -149,6 +155,8 @@ export async function initialiseFunctions(baseInstance: any) {
         }
       },
     };
+  } else {
+    console.log("Failed to add selectedObjectMetadataFunctionProperties function as missing variable(s)");
   }
 
   return functionsToReturn;

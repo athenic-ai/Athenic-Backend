@@ -130,8 +130,7 @@ export class ProcessMessageJob<T> {
         throw Error(getObjectTypesResult.message);
       }
       const objectTypes = getObjectTypesResult.data; // List of maps of object types as in the database
-      const objectTypesIds = objectTypes
-        .map(item => item.id); // List of strings of the ID of each object type
+      const objectTypesIds = objectTypes.map(item => item.id); // List of strings of the ID of each object type
 
       const getObjectMetadataTypesResult = await config.getObjectMetadataTypes({storageService: this.storageService, organisationId, memberId});
       if (getObjectMetadataTypesResult.status != 200) {
@@ -143,8 +142,8 @@ export class ProcessMessageJob<T> {
       console.log(`objectTypeDescriptions: ${JSON.stringify(objectTypeDescriptions)}`)
 
       this.nlpService.setMemberVariables({
-        supportedObjectTypeIds: objectTypesIds,
-        supportedObjectTypeDescriptions: objectTypeDescriptions
+        objectTypes,
+        objectTypeDescriptions
       });
 
       console.log(`✅ Completed "Step 3: Get additional data that may be used within function calls"`);

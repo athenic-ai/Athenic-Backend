@@ -1,7 +1,7 @@
 import * as config from "../configs/index.ts";
 import { StorageService } from "../services/storage/storageService.ts";
 import { NlpService } from "../services/nlp/nlpService.ts";
-import { ProcessDataJob } from "./processDataJob.ts";
+import { UpsertDataJob } from "./upsertDataJob.ts";
 
 export class UpsertSignalJob<T> {
   private readonly storageService: StorageService;
@@ -31,7 +31,7 @@ export class UpsertSignalJob<T> {
 }): Promise<any> {
     try {
       console.log(`Upserting signal with triggerMessage: ${triggerMessage}\nrelevantData: ${relevantData}\norganisationId: ${organisationId}\nmemberId: ${memberId}\nsourceObjectId: ${sourceObjectId}\nsourceObjectTypeId: ${sourceObjectTypeId}`);
-      const processDataJob: ProcessDataJob = new ProcessDataJob();
+      const upsertDataJob: UpsertDataJob = new UpsertDataJob();
 
       if (sourceObjectTypeId == config.OBJECT_TYPE_ID_SIGNAL || sourceObjectTypeId == config.OBJECT_TYPE_ID_MESSAGE) {
         // If type is signal, don't want to execute to avoid an infifite loop of signal creations.
@@ -62,9 +62,8 @@ export class UpsertSignalJob<T> {
         signalDataIn.companyDataContents += `\n\nRelevant data: ${config.stringify(relevantData)}.`;
       }
 
-      // TODO: pass in data to processDataJob that we may have already retrieved, like eg. objectMetadataFunctionProperties, ...
-      console.log(`processDataJob.start() from upsertSignalJob with signalDataIn: ${config.stringify(signalDataIn)}`);
-      const processSignalDataJobResult = await processDataJob.start({
+      console.log(`upsertDataJob.start() from upsertSignalJob with signalDataIn: ${config.stringify(signalDataIn)}`);
+      const processSignalDataJobResult = await upsertDataJob.start({
         connection: "company", 
         dryRun: false, 
         dataIn: signalDataIn,

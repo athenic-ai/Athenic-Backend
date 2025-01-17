@@ -1,7 +1,7 @@
 import * as config from "../configs/index.ts";
 import { StorageService } from "../services/storage/storageService.ts";
 import { NlpService } from "../services/nlp/nlpService.ts";
-import { ProcessDataJob } from "./processDataJob.ts";
+import { UpsertDataJob } from "./upsertDataJob.ts";
 
 export class ExecuteJob<T> {
   private readonly storageService: StorageService;

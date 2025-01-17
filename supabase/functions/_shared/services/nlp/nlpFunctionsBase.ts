@@ -20,6 +20,7 @@ export class NlpFunctionsBase {
   // Updated loadFunctionGroups method to load all modules by default if none specified
   // moduleNames parameter is optional - if not provided, loads all available modules
   async loadFunctionGroups(moduleNames?: string[]) {
+    this.nlpFunctions = {}; // Ensure nlpFunctions is empty at the start of this function to not retain functions we no longer want
     // If no modules specified, use all available module names from moduleMap
     const modulesToLoad = moduleNames || Object.keys(this.moduleMap);
     

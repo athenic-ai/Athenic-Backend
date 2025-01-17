@@ -13,7 +13,7 @@ interface OrganisationData {
   [key: string]: any;
 }
 
-export class ProcessDataJob<T> {
+export class UpsertDataJob<T> {
   private readonly storageService: StorageService;
   private readonly nlpService: NlpService;
 
@@ -70,7 +70,6 @@ export class ProcessDataJob<T> {
       const objectTypesIds = objectTypes
         .filter(item => item.category === "organisation_data_standard") // Filter by category NOTE: this line is untested
         .map(item => item.id); // List of strings of the ID of each object type of the organisation_data_standard category
-      objectTypesIds.push("unknown"); // Also add unknown in cases it cannot detect which to return // TODO: handle cases when data falls into this category, eg. setting it as some generic/general object type
 
       if (!objectMetadataTypes) {
         const getObjectMetadataTypesResult = await config.getObjectMetadataTypes({storageService: this.storageService, organisationId: organisationId});
@@ -105,9 +104,12 @@ export class ProcessDataJob<T> {
       this.nlpService.setMemberVariables({
         organisationId,
         organisationData,
-        supportedObjectTypeIds: objectTypesIds,
-        objectMetadataFunctionProperties: objectMetadataFunctionProperties,
-        objectMetadataFunctionPropertiesRequiredIds: objectMetadataFunctionPropertiesRequiredIds,
+        objectTypes,
+        objectMetadataTypes,
+        objectMetadataFunctionProperties,
+        objectMetadataFunctionPropertiesRequiredIds,
+        fieldTypes,
+        dictionaryTerms,
       });
 
       console.log(`✅ Completed "Step 2: Get object types accessible to the organisation", with objectTypesIds: ${JSON.stringify(objectTypesIds)}, objectTypeDescriptions: ${JSON.stringify(objectTypeDescriptions)} and objectMetadataFunctionProperties: ${JSON.stringify(objectMetadataFunctionProperties)}`);
@@ -127,7 +129,6 @@ export class ProcessDataJob<T> {
       } else {
         const predictObjectTypeBeingReferencedResult = await this.nlpService.execute({
           promptParts: [{"type": "text", "text": `You MUST call the 'predictObjectTypeBeingReferenced' function to decide which object type the following data most likely relates to.
-            \n\nObject types that can be chosen from:\n${JSON.stringify(objectTypeDescriptions)}
             \n\nData to review:\n${config.stringify(dataContents)}`}],
           systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
           functionUsage: "required",
@@ -388,11 +389,17 @@ export class ProcessDataJob<T> {
             }
           }
 
+          this.nlpService.setMemberVariables({
+            selectedObject: objectThatWasStored,
+          });
+
           const assistantPrompt = `${config.ASSISTANT_SYSTEM_INSTRUCTION}
           \nBear in mind:
-          \n\nThe creation of this signal was triggered by new data being sent to Athenic to be processed and stored in the database.
-          \n\nCritically analyse this data as the Athenic AI, and then create a ${objectTypeDescriptions[config.OBJECT_TYPE_ID_SIGNAL].name} object type based on your analysis. For context: ${objectTypeDescriptions[config.OBJECT_TYPE_ID_SIGNAL].description}.
-          \n\nRelevant data: ${config.stringify(objectThatWasStored)}.`
+          \n\n - New data has just been stored in Athenic. Critically analyse this data as the Athenic AI, making tool calls when necessary, and then store one signal object type based on your analysis, and also store any jobs you also think need to be done based on this analysis.
+          \n\n - For context, signals are described as:\n${objectTypeDescriptions[config.OBJECT_TYPE_ID_SIGNAL].description}.
+          \n\n - For context, jobs are described as:\n${objectTypeDescriptions[config.OBJECT_TYPE_ID_JOB].description}.
+          \n\n - Don't ask for clarification or approval before taking action, as the your reply won't be seen by the member. Just make your best guess.
+          \n\n - Data that has just been stored:\n${config.stringify(objectThatWasStored)}.`
 
           return await this.nlpService.executeThread({
             prompt: assistantPrompt,

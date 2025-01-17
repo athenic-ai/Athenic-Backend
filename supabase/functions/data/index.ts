@@ -4,7 +4,7 @@
 import express from 'npm:express@5.0.1';
 import cors from 'npm:cors';
 import bodyParser from 'npm:body-parser';
-import { ProcessDataJob } from '../_shared/jobs/processDataJob.ts';
+import { UpsertDataJob } from '../_shared/jobs/upsertDataJob.ts';
 import * as config from "../_shared/configs/index.ts";
 
 const app = express();
@@ -60,8 +60,8 @@ app.post('/data/con/:connection/typ/:datatype/dry/:dryrun', async (req, res) => 
     // }
     console.log(`/data/:connection with:\nconnection: ${connection}\ntype: ${dataType}\ndryRun: ${dryRun}\ndataIn:${config.stringify(dataIn)}`);
     
-    const processDataJob: ProcessDataJob = new ProcessDataJob();
-    const result = await processDataJob.start({connection: connection, dryRun: dryRun, dataIn: dataIn}); // NOTE: datatype not currently used. Could be used to help inform the AI of the likely datatype
+    const upsertDataJob: UpsertDataJob = new UpsertDataJob();
+    const result = await upsertDataJob.start({connection: connection, dryRun: dryRun, dataIn: dataIn}); // NOTE: datatype not currently used. Could be used to help inform the AI of the likely datatype
     res.status(result.status).send(result);
   } catch (error) {
     console.error(`Error in /data/:connection/:type: ${error.message}`);

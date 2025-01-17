@@ -190,7 +190,7 @@ export const CORS_OPTIONS = {
   optionsSuccessStatus: 200 // some legacy browsers (IE11, various SmartTVs) choke on 204
 }
 export const VANILLA_SYSTEM_INSTRUCTION = `
-You are a business data API assistant called Athenic, designed to process incoming business data, answer questions from the employees and do tasks on behalf of the business.
+You are a business data API assistant called Athenic, designed to process incoming business data, answer questions from the employees and do work on behalf of the business.
 Be professional, avoid arguments, and focus on being helpful.
 Bear in mind how we are defining the following terms:
 "organisation" = a business that uses Athenic to help them (e.g. Yahoo, Microsoft, Braun, Nike, Pepsi,...)
@@ -215,6 +215,7 @@ export const NLP_EMBEDDING_MAX_CHARS = 10000; // OpenAI's text-embedding-3-small
 export const MAX_SEARCH_RESULTS = 200; // Max number of search results that can be returned when querying db
 
 export const OBJECT_TYPE_ID_SIGNAL = "signal";
+export const OBJECT_TYPE_ID_JOB = "job";
 export const OBJECT_TYPE_ID_CONNECTION = "connection";
 export const OBJECT_TYPE_ID_MESSAGE_THREAD = "message_thread";
 export const OBJECT_TYPE_ID_MESSAGE = "message";
