@@ -143,7 +143,7 @@ export class StorageService {
       const { data, error } = await query;
       
       if (error) {
-        throw Error(`Error fetching rows: ${error}`);
+        throw Error(`Error fetching rows: ${error.message}`);
       }
     
       const result: FunctionResult = {

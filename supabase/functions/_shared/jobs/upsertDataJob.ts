@@ -59,11 +59,11 @@ export class UpsertDataJob<T> {
 
       // -----------Step 2: Get object types accessible to the organisation----------- 
       if (!objectTypes) {
-        const getObjectTypesResult = await config.getObjectTypes({storageService: this.storageService, organisationId: organisationId});
-        if (getObjectTypesResult.status != 200) {
-          throw Error(getObjectTypesResult.message);
+        const getOrganisationObjectTypesResult = await config.getOrganisationObjectTypes({storageService: this.storageService, organisationId: organisationId});
+        if (getOrganisationObjectTypesResult.status != 200) {
+          throw Error(getOrganisationObjectTypesResult.message);
         }
-        objectTypes = getObjectTypesResult.data; // List of maps of object types as in the database  
+        objectTypes = getOrganisationObjectTypesResult.data; // List of maps of object types as in the database  
       }
       const objectTypesIds = objectTypes
         .filter(item => item.category === "organisation_data_standard") // Filter by category NOTE: this line is untested

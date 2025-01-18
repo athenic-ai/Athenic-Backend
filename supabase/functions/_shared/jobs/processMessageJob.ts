@@ -125,11 +125,11 @@ export class ProcessMessageJob<T> {
       // -----------Step 3: Get additional data that may be used within function calls----------- 
       // TODO: Could be optimised so that this code is only called if function calling is used
 
-      const getObjectTypesResult = await config.getObjectTypes({storageService: this.storageService, organisationId, memberId});
-      if (getObjectTypesResult.status != 200) {
-        throw Error(getObjectTypesResult.message);
+      const getOrganisationObjectTypesResult = await config.getOrganisationObjectTypes({storageService: this.storageService, organisationId, memberId});
+      if (getOrganisationObjectTypesResult.status != 200) {
+        throw Error(getOrganisationObjectTypesResult.message);
       }
-      const objectTypes = getObjectTypesResult.data; // List of maps of object types as in the database
+      const objectTypes = getOrganisationObjectTypesResult.data; // List of maps of object types as in the database
       const objectTypesIds = objectTypes.map(item => item.id); // List of strings of the ID of each object type
 
       const getObjectMetadataTypesResult = await config.getObjectMetadataTypes({storageService: this.storageService, organisationId, memberId});

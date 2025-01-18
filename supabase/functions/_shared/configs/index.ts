@@ -69,8 +69,11 @@ export async function inferOrganisation({ connection, dataIn, storageService }: 
   }
 }
 
-export async function getObjectTypes({ storageService, organisationId, memberId }: { storageService: StorageService; organisationId: string; memberId: string }): Promise<FunctionResult> {
+export async function getOrganisationObjectTypes({ storageService, organisationId, memberId }: { storageService: StorageService; organisationId: string; memberId: string }): Promise<FunctionResult> {
   try {
+    const whereAndConditions = [
+      { column: 'category', operator: 'neq', value: "company_data" }, // Only include entries where category is an organisation category
+    ];
     const whereOrConditions = [
       { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
       { column: 'owner_member_id', operator: 'is', value: null }, // Include default entries where owner member not set
@@ -81,16 +84,18 @@ export async function getObjectTypes({ storageService, organisationId, memberId 
     if (memberId) {
       whereOrConditions.push({ column: 'owner_member_id', operator: 'eq', value: memberId }); // Include entries created by the member
     }
-    const getObjectTypesResult = await storageService.getRows('object_types', {
-      whereOrConditions: whereOrConditions,
+    const getOrganisationObjectTypesResult = await storageService.getRows('object_types', {
+      whereAndConditions,
+      whereOrConditions,
     });
-    if (getObjectTypesResult.status != 200) {
-      return new Error(getObjectTypesResult.message);
+    if (getOrganisationObjectTypesResult.status != 200) {
+      return new Error(getOrganisationObjectTypesResult.message);
     }
-    const objectTypes = getObjectTypesResult.data;
+    const objectTypes = getOrganisationObjectTypesResult.data;
+    console.log(`objectTypes: ${this.stringify(objectTypes)}`);
     const result: FunctionResult = {
       status: 200,
-      message: "Success running getObjectTypes",
+      message: "Success running getOrganisationObjectTypes",
       data: objectTypes,
     };
     return result;
