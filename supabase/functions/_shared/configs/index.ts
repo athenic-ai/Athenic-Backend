@@ -186,30 +186,31 @@ export function mergeRelatedIds(
   existingIds?: Record<string, string[]>,
   newIds?: Record<string, string[]>
 ): Record<string, string[]> {
-  console.log(`mergeRelatedIds called with: existingIds: ${JSON.stringify(existingIds)} and newIds: ${JSON.stringify(newIds)}`)
-  // If no IDs exist at all, return empty object
+  console.log(`mergeRelatedIds called with: existingIds: ${JSON.stringify(existingIds)} and newIds: ${JSON.stringify(newIds)}`);
+  
+  // If no IDs exist at all, return null
   if (!existingIds && !newIds) {
-    return {};
+    return null;
   }
 
-  // Create merged object using existing IDs as base
+  // Create merged object using existing IDs as base or an empty object
   const mergedIds: Record<string, string[]> = { ...existingIds };
 
   // If there are new IDs to merge, process each key
   if (newIds) {
     console.log("mergeRelatedIds has new ones");
     Object.entries(newIds).forEach(([key, ids]) => {
-      // Merge existing IDs (or empty array) with new IDs (or empty array)
       console.log(`mergeRelatedIds... merging key: ${key} with ids: ${JSON.stringify(ids)}`);
       mergedIds[key] = [
-          ...(existingIds?.[key] || []),
-          ...(ids || [])
+        ...new Set([
+          ...(existingIds?.[key] || []), // Include existing IDs or an empty array
+          ...(ids || [])                // Include new IDs or an empty array
+        ])
       ];
     });
   }
 
   console.log(`mergeRelatedIds now: ${JSON.stringify(mergedIds)}`);
-
   return mergedIds;
 }
 

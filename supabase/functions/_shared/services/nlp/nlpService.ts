@@ -20,7 +20,7 @@ export class NlpService {
   private selectedObject: any | null = null;
   private selectedObjectTypeId: string | null = null;
   private selectedObjectPotentialParentIds: string[] = [];
-  private relatedObjectIds: Record<string, unknown> = {}; // Type ID -> Object ID map of all objects that have been called/created during this run and so related to each other
+  private relatedObjectIds: Record<string, unknown> | null = null; // Type ID -> Object ID map of all objects that have been called/created during this run and so related to each other
   private objectMetadataFunctionProperties: Record<string, unknown> | null = null;
   private objectMetadataFunctionPropertiesRequiredIds: Record<string, string[]> | null = null;
   private fieldTypes: string[] = [];
