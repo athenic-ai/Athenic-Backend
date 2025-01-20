@@ -266,6 +266,13 @@ export class StorageService {
         }) 
       : { ...keys, ...rowData };
 
+      const currentDate = new Date().toISOString(); // Current date and time in ISO format
+      if (!existingRow) {
+        mergedRowData.metadata.created_at = currentDate; // Add created_at if not already set
+      } else {
+        mergedRowData.metadata.updated_at = currentDate; // Add or update updated_at based on created_at existence
+      }
+
       // Generate embeddings value (guide: https://supabase.com/docs/guides/ai/vector-columns)
       const embeddingRes = await nlpService.addEmbeddingToObject(mergedRowData);
       if (embeddingRes.status != 200) {

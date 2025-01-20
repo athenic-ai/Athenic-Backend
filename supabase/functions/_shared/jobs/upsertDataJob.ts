@@ -289,7 +289,6 @@ export class UpsertDataJob<T> {
               throw Error("Failed to merge data using the given object's metadata structure");
             }
             mergedObjectData.metadata.related_ids = this.nlpService.relatedObjectIds ?? null;
-            mergedObjectData.metadata.updated_at = new Date();
 
             // Add new metadata to object already stored in DB (as want to retain data like created_at and parent_id)
             const objectUpdateResult = await this.storageService.updateRow({
@@ -329,7 +328,11 @@ export class UpsertDataJob<T> {
                 table: "objects",
                 keys: {id: newObjectData.metadata.parent_id},
                 rowData: {
-                  metadata.child_ids: {[newObjectData.related_object_type_id]: [newObjectData.id]},
+                  metadata: {
+                    child_ids: {
+                      [newObjectData.related_object_type_id]: [newObjectData.id],
+                    },
+                  },
                 },
                 nlpService: this.nlpService,
                 mayAlreadyExist: true,
@@ -359,8 +362,10 @@ export class UpsertDataJob<T> {
                       table: "objects",
                       keys: {id: relatedId},
                       rowData: {
-                        metadata.related_ids: {
-                          [objectThatWasStored.related_object_type_id]: [objectThatWasStored.id],
+                        metadata: {
+                          related_ids: {
+                            [objectThatWasStored.related_object_type_id]: [objectThatWasStored.id],
+                          },
                         },
                       },
                       nlpService: this.nlpService,

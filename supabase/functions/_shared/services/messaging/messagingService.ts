@@ -121,7 +121,11 @@ export class MessagingService {
 
       // Step 2: Update the message thread object with the message object as a child
       const messageThreadObjectData = {
-        metadata.child_ids: {[config.OBJECT_TYPE_ID_MESSAGE]: [messageObjectData.id]},
+        metadata: {
+          child_ids: {
+            [config.OBJECT_TYPE_ID_MESSAGE]: [messageObjectData.id],
+          },
+        },
       };
       console.log(`Updating message thead object data in DB with messageThreadObjectData: ${JSON.stringify(messageThreadObjectData)}`);
       const messageThreadUpdateResult = await storageService.updateRow({

@@ -584,15 +584,9 @@ async addEmbeddingToObject(
     try {
         const objectToGenEmbeddingsFor = structuredClone(objectIn); // Create a deep copy
 
-        // Remove the following keys we don't want to be a part of the embedding
+        // Remove the following key we don't want to be a part of the embedding
         if ('embedding' in objectToGenEmbeddingsFor) {
           delete objectToGenEmbeddingsFor.embedding;
-        }
-        if ('child_ids' in objectToGenEmbeddingsFor.metadata) {
-          delete objectToGenEmbeddingsFor.metadata.child_ids;
-        }
-        if ('related_ids' in objectToGenEmbeddingsFor.metadata) {
-          delete objectToGenEmbeddingsFor.metadata.related_ids;
         }
         
         const embeddingRes = await this.generateTextEmbedding(
