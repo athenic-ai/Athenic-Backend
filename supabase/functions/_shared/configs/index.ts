@@ -258,6 +258,7 @@ export const OBJECT_TYPE_ID_MESSAGE_THREAD = "message_thread";
 export const OBJECT_TYPE_ID_MESSAGE = "message";
 
 export const OBJECT_METADATA_DEFAULT_TITLE = "title";
+export const OBJECT_METADATA_DEFAULT_PARENT_ID = "parent_id";
 export const OBJECT_METADATA_DEFAULT_CREATED_AT = "created_at";
 
 export const OBJECT_METADATA_TYPE_ID_MESSAGE_AUTHOR_ID = "author_id";

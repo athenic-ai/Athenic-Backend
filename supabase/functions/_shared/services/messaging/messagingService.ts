@@ -40,11 +40,11 @@ export class MessagingService {
           { column: 'owner_organisation_id', operator: 'eq', value: organisationId },
           { column: 'owner_member_id', operator: 'eq', value: memberId },
           { column: 'related_object_type_id', operator: 'eq', value: config.OBJECT_TYPE_ID_MESSAGE },
-          { column: 'parent_id', operator: 'eq', value: messageThreadId },
-          { column: 'created_at', operator: 'gte', value: twelveHoursAgo },
+          { column: 'metadata', jsonPath:['metadata', 'parent_id'], operator: 'eq', value: messageThreadId },
+          { column: 'metadata', jsonPath:['metadata', 'created_at'], operator: 'gte', value: twelveHoursAgo },
         ],
         orderByConditions: [
-          { column: 'created_at', ascending: false }, // desc so we get the most recent messages
+          { column: 'metadata', jsonPath:['metadata', 'created_at'], ascending: false }, // desc so we get the most recent messages
         ],
         limitCount: 6 // TODO: consider increasing this to maybe 20
       });
@@ -103,9 +103,9 @@ export class MessagingService {
         metadata: {
           [config.OBJECT_METADATA_DEFAULT_TITLE]: message,
           [config.OBJECT_METADATA_TYPE_ID_MESSAGE_AUTHOR_ID]: messageIsFromBot ? config.OBJECT_MESSAGE_AUTHOR_ID_VALUE_IF_COMPANY : authorId,
+          [config.OBJECT_METADATA_DEFAULT_CREATED_AT]: new Date(),
+          [config.OBJECT_METADATA_DEFAULT_PARENT_ID]: messageThreadId,
         },
-        created_at: new Date(),
-        parent_id: messageThreadId,
       };
       console.log(`Updating object data in DB with messageObjectData: ${JSON.stringify(messageObjectData)}`);
       const messageUpdateResult = await storageService.updateRow({
@@ -121,7 +121,7 @@ export class MessagingService {
 
       // Step 2: Update the message thread object with the message object as a child
       const messageThreadObjectData = {
-        child_ids: {[config.OBJECT_TYPE_ID_MESSAGE]: [messageObjectData.id]},
+        metadata.child_ids: {[config.OBJECT_TYPE_ID_MESSAGE]: [messageObjectData.id]},
       };
       console.log(`Updating message thead object data in DB with messageThreadObjectData: ${JSON.stringify(messageThreadObjectData)}`);
       const messageThreadUpdateResult = await storageService.updateRow({

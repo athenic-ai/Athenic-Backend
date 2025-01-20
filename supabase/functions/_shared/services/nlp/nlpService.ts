@@ -588,11 +588,11 @@ async addEmbeddingToObject(
         if ('embedding' in objectToGenEmbeddingsFor) {
           delete objectToGenEmbeddingsFor.embedding;
         }
-        if ('child_ids' in objectToGenEmbeddingsFor) {
-          delete objectToGenEmbeddingsFor.child_ids;
+        if ('child_ids' in objectToGenEmbeddingsFor.metadata) {
+          delete objectToGenEmbeddingsFor.metadata.child_ids;
         }
-        if ('related_ids' in objectToGenEmbeddingsFor) {
-          delete objectToGenEmbeddingsFor.related_ids;
+        if ('related_ids' in objectToGenEmbeddingsFor.metadata) {
+          delete objectToGenEmbeddingsFor.metadata.related_ids;
         }
         
         const embeddingRes = await this.generateTextEmbedding(

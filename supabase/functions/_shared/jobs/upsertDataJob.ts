@@ -187,8 +187,8 @@ export class UpsertDataJob<T> {
         // -----------Step 5b: If object type demands a parent object, determine which object should be the parent-----------
         if (dataIn.companyMetadata && dataIn.companyMetadata.parentObjectId) {
           // Add immediately if explictly provided
-          newObjectData.parent_id = dataIn.companyMetadata.parentObjectId;
-          console.log(`✅ Completed "Step 5b: Auto assigned object's parent", with: parent id: ${newObjectData.parent_id}`);
+          newObjectData.metadata.parent_id = dataIn.companyMetadata.parentObjectId;
+          console.log(`✅ Completed "Step 5b: Auto assigned object's parent", with: parent id: ${newObjectData.metadata.parent_id}`);
         } else {
           const predictedObjectType = objectTypes.find(obj => obj.id === objectTypeId);
           if (predictedObjectType && predictedObjectType.parent_object_type_id) {
@@ -230,7 +230,7 @@ export class UpsertDataJob<T> {
               console.log(`✅ Completed "Step 5bii: Predict the appropriate object's parent", with: ${JSON.stringify(predictObjectParentResult)}`)
               if (predictObjectParentResult.status == 200 && predictObjectParentResult.data) {
                 // Step 5biii: Assign a parent object assuming one could be found
-                newObjectData.parent_id = predictObjectParentResult.data;
+                newObjectData.metadata.parent_id = predictObjectParentResult.data;
                 console.log(`✅ Completed "Step 5biii: Assign a parent object assuming one could be found", with: ${JSON.stringify(newObjectData)}`);
               }
             } else {
@@ -288,6 +288,8 @@ export class UpsertDataJob<T> {
             if (!mergedObjectData) {
               throw Error("Failed to merge data using the given object's metadata structure");
             }
+            mergedObjectData.metadata.related_ids = this.nlpService.relatedObjectIds ?? null;
+            mergedObjectData.metadata.updated_at = new Date();
 
             // Add new metadata to object already stored in DB (as want to retain data like created_at and parent_id)
             const objectUpdateResult = await this.storageService.updateRow({
@@ -295,8 +297,6 @@ export class UpsertDataJob<T> {
               keys: {id: objectToUpdate.id},
               rowData: {
                 metadata: mergedObjectData.metadata,
-                related_ids: this.nlpService.relatedObjectIds ?? null,
-                updated_at: new Date(),
               },
               nlpService: this.nlpService,
               mayAlreadyExist: true,
@@ -309,7 +309,7 @@ export class UpsertDataJob<T> {
             console.log(`Saving object by creating new object with ID: ${newObjectData.id}`);
 
             // Just in case newObjectData already has some related_ids, merge them with the new ones
-            newObjectData.related_ids = config.mergeRelatedIds(this.nlpService.relatedObjectIds, newObjectData.related_ids);
+            newObjectData.metadata.related_ids = config.mergeRelatedIds(this.nlpService.relatedObjectIds, newObjectData.metadata.related_ids);
 
             // Create new object
             const objectCreateResult = await this.storageService.updateRow({
@@ -324,12 +324,12 @@ export class UpsertDataJob<T> {
             }
 
             // Update the object's parent, if it exists, with new child_id value
-            if (newObjectData.parent_id) {
+            if (newObjectData.metadata.parent_id) {
               const objectParentUpdateResult = await this.storageService.updateRow({
                 table: "objects",
-                keys: {id: newObjectData.parent_id},
+                keys: {id: newObjectData.metadata.parent_id},
                 rowData: {
-                  child_ids: {[newObjectData.related_object_type_id]: [newObjectData.id]},
+                  metadata.child_ids: {[newObjectData.related_object_type_id]: [newObjectData.id]},
                 },
                 nlpService: this.nlpService,
                 mayAlreadyExist: true,
@@ -359,9 +359,9 @@ export class UpsertDataJob<T> {
                       table: "objects",
                       keys: {id: relatedId},
                       rowData: {
-                          related_ids: {
-                              [objectThatWasStored.related_object_type_id]: [objectThatWasStored.id],
-                          },
+                        metadata.related_ids: {
+                          [objectThatWasStored.related_object_type_id]: [objectThatWasStored.id],
+                        },
                       },
                       nlpService: this.nlpService,
                       mayAlreadyExist: true,
@@ -374,7 +374,7 @@ export class UpsertDataJob<T> {
             }
           }
 
-          const combinedRelatedIds = config.mergeRelatedIds(objectThatWasStored.related_ids, {[objectThatWasStored.related_object_type_id]: [objectThatWasStored.id]});
+          const combinedRelatedIds = config.mergeRelatedIds(objectThatWasStored.metadata.related_ids, {[objectThatWasStored.related_object_type_id]: [objectThatWasStored.id]});
 
           console.log(`combinedRelatedIds after adding via mergeRelatedIds: ${JSON.stringify(combinedRelatedIds)}`);
 
