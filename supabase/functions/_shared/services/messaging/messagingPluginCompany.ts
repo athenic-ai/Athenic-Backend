@@ -7,7 +7,7 @@ export class MessagingPluginCompany implements MessagingInterface {
       console.log(`receiveMessage data is: ${config.stringify(dataIn)}`);
       
       if (Array.isArray(dataIn.companyDataContents.parts)) {
-        const messageDataThreadId = dataIn.companyMetadata.parentObjectId;
+        const messageDataThreadId = dataIn.companyMetadata.parentObject.id;
         const messageDataAuthorId = dataIn.companyDataContents.authorId;
         const messageDataParts = dataIn.companyDataContents.parts;
 

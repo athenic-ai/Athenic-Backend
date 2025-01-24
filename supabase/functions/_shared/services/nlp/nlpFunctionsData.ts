@@ -19,9 +19,9 @@ export async function initialiseFunctions(baseInstance: any) {
         function: {
           name: "upsertData",
           description: "Given some data, add it to the database (either by creating a new object, or updating an existing similar one).",
+          strict: true, // As this is here, all properties must be required & additionalProperties set to false
           parameters: {
             type: "object",
-            strict: true,
             properties: {
               objectTypeId: {
                 type: "string",
@@ -33,11 +33,11 @@ export async function initialiseFunctions(baseInstance: any) {
                 description: "Full contents of the data that will be upserted.",
               },
               dataDescription: {
-                type: "string",
+                type: ["string", "null"],
                 description: "Any relevant context about the circumstances surrounding the data that will be upserted.",
               },
             },
-            required: ["objectTypeId", "dataContents"],
+            required: ["objectTypeId", "dataContents", "dataDescription"],
             additionalProperties: false,
           },
         }
@@ -103,29 +103,29 @@ export async function initialiseFunctions(baseInstance: any) {
         function: {
           name: "searchForObjects",
           description: "Search for objects using the given semantic search query.",
+          strict: true, // As this is here, all properties must be required & additionalProperties set to false
           parameters: {
             type: "object",
-            strict: true,
             properties: {
               queryText: {
                 type: "string",
                 description: "Search query",
               },
               matchThreshold: {
-                type: "number",
+                type: ["number", "null"],
                 description: "If appropriate, specify how similar the embeddings have to be to count as a match. A value of 1 is most similar, and a value of -1 is most dissimilar. 0.2 is good for finding fairly similar objects.",
               },
               matchCount: {
-                type: "integer",
+                type: ["integer", "null"],
                 description: "If appropriate, specify the maximum number of objects to return.",
               },
               relatedObjectTypeId: {
-                type: "string",
+                type: ["string", "null"],
                 description: `If appropriate to only search for a specific type of object, the object types that can be chosen from are:\n${JSON.stringify(baseInstance.parent.objectTypeDescriptions)}`,
                 enum: objectTypesIds,
               },
             },
-            required: ["queryText"],
+            required: ["queryText", "matchThreshold", "matchCount", "relatedObjectTypeId"],
             additionalProperties: false,
           },
         }

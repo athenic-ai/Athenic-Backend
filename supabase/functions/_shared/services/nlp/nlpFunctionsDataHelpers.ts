@@ -25,9 +25,9 @@ export async function initialiseFunctions(baseInstance: any) {
         function: {
           name: "predictObjectTypeBeingReferenced",
           description: "Predict which type of object is being referenced based on input.",
+          strict: true, // As this is here, all properties must be required & additionalProperties set to false
           parameters: {
             type: "object",
-            strict: true,
             properties: {
               predictedObjectTypeId: {
                 type: "string",
@@ -70,9 +70,9 @@ export async function initialiseFunctions(baseInstance: any) {
         function: {
           name: "predictObjectParent",
           description: "Predict which object is the most appropriate parent object of the given object based on which is most related.",
+          strict: true, // As this is here, all properties must be required & additionalProperties set to false
           parameters: {
             type: "object",
-            strict: true,
             properties: {
               predictedObjectId: {
                 type: "string",
@@ -119,9 +119,9 @@ export async function initialiseFunctions(baseInstance: any) {
         function: {
           name: "processDataUsingGivenObjectsMetadataStructure",
           description: `Given some data, process it to create an object of type: ${baseInstance.parent.objectTypeDescriptions[baseInstance.parent.selectedObjectTypeId].name}, with description: ${baseInstance.parent.objectTypeDescriptions[baseInstance.parent.selectedObjectTypeId].description}.`,
+          strict: true, // As this is here, all properties must be required & additionalProperties set to false
           parameters: {
             type: "object",
-            strict: true,
             properties: selectedObjectMetadataFunctionProperties,
             required: selectedObjectMetadataFunctionPropertiesRequiredIds,
             additionalProperties: false,

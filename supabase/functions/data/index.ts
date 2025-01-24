@@ -52,7 +52,7 @@ app.post('/data/con/:connection/typ/:datatype/dry/:dryrun', async (req, res) => 
     //    "organisationId": widget.memberData.ownerOrganisationId,
     //    "memberId": widget.memberData.id
     //    "objectTypeId": constants.OBJECT_TYPE_ID_PRODUCT,
-    //    "parentObjectId": productId,
+    //    "parentObject": product,
     //    "dataDescription": inputtedFileUploadDescription.text,
     //    "requiredMatchThreshold": 0.8
     //  },

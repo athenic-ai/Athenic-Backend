@@ -196,11 +196,17 @@ export class UpsertDataJob<T> {
   
         // -----------Step 5b: If object type demands a parent object, determine which object should be the parent-----------
         console.log(`⏭️ Starting "Step 5b: If object type demands a parent object, determine which object should be the parent"`);
-        if (dataIn.companyMetadata && dataIn.companyMetadata.parentObjectId) {
-          // Add immediately if explictly provided
-          newObjectData.metadata.parent_id = dataIn.companyMetadata.parentObjectId;
-          console.log(`✅ Completed "Step 5b: Auto assigned object's parent", with: parent id: ${newObjectData.metadata.parent_id}`);
+        if (dataIn.companyMetadata && dataIn.companyMetadata.parentObject) {
+          // Add immediately if explictly provided, as long as it's a standard data type
+          const providedObjectType = objectTypes.find(obj => obj.id === dataIn.companyMetadata.parentObject.related_object_type_id);
+          if (providedObjectType && providedObjectType.category === "organisation_data_standard") {
+            newObjectData.metadata.parent_id = dataIn.companyMetadata.parentObject.id;
+            console.log(`✅ Completed "Step 5b: Auto assigned object's parent", with: parent id: ${newObjectData.metadata.parent_id} and dataContents: ${config.stringify(dataContents)}`);  
+          } else {
+            console.log(`✅ Completed "Step 5b: Auto assigned object's parent" (didn't assign as parent missing or not standard) with: providedObjectType: ${config.stringify(providedObjectType)}, dataContents: ${config.stringify(dataContents)}`);  
+          }
         } else {
+          console.log(`Investigating potential parent object, with objectTypes: ${config.stringify(objectTypes)} and objectTypeId: ${objectTypeId}`);
           const predictedObjectType = objectTypes.find(obj => obj.id === objectTypeId);
           if (predictedObjectType && predictedObjectType.parent_object_type_id) {
             // Step 5bi: Retrieve all objects of this type
@@ -418,6 +424,8 @@ export class UpsertDataJob<T> {
             await this.nlpService.executeThread({
               prompt: assistantPrompt,
             });
+
+            this.nlpService.relatedObjectIds = null; // Reset this prior to next iteration
           }
         }
         console.log(`✅ Completed "Step 5d: Do some related work post-object storage"`);
@@ -549,7 +557,14 @@ export class UpsertDataJob<T> {
           property.description = description;
     
           const fieldTypeMap = fieldTypes.find((entry) => entry.id === meta.field_type_id);
-          property.type = fieldTypeMap.data_type; // Assign data type by retrieving the data type based on the matching field_type_id
+
+          // Assign data type by retrieving the data type based on the matching field_type_id
+          if (meta.is_required) {
+            property.type = fieldTypeMap.data_type; 
+          } else {
+            property.type = [fieldTypeMap.data_type, "null"]; // How we handle non-required fields in strict mode
+          }
+
           if (fieldTypeMap.is_array) {
             // If true, surround property within an array structure
             const propertyArrContainer: any = {
@@ -562,10 +577,8 @@ export class UpsertDataJob<T> {
             properties[meta.id] = property;
           }
 
-          // Add to requiredIds if is_required is true
-          if (meta.is_required) {
-            requiredIds.push(meta.id);
-          }
+          // Add all IDs to is_required (as we have to for strict mode - required is now determined via type property)
+          requiredIds.push(meta.id);
         } else {
           // Skipping metadata as allow_ai_update is false for objectType.id
         }
@@ -575,9 +588,7 @@ export class UpsertDataJob<T> {
       if (properties) {
         objectMetadataFunctionProperties[objectType.id] = properties;
       }
-      if (requiredIds) {
-        objectMetadataFunctionPropertiesRequiredIds[objectType.id] = requiredIds;
-      }
+      objectMetadataFunctionPropertiesRequiredIds[objectType.id] = requiredIds;
     });
   
     // Return both maps
