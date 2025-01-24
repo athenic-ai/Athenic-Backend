@@ -30,8 +30,8 @@ export async function initialiseFunctions(baseInstance: any) {
             type: "object",
             properties: {
               predictedObjectTypeId: {
-                type: "string",
-                description: `ID of predicted object type.\n\nDescriptions of object types that can be chosen from:\n${JSON.stringify(baseInstance.parent.objectTypeDescriptions)}`,
+                type: ["string", "null"],
+                description: `ID of predicted object type. Return null if no suitable object type.\n\nDescriptions of object types that can be chosen from:\n${JSON.stringify(baseInstance.parent.objectTypeDescriptions)}`,
                 enum: objectTypesIds
               },
             },
@@ -42,11 +42,10 @@ export async function initialiseFunctions(baseInstance: any) {
       },
       implementation: async ({ predictedObjectTypeId }: { predictedObjectTypeId: string }) => {
         try {
-          const predictedObjectTypeIdProcessed = predictedObjectTypeId === "unknown" ? null : predictedObjectTypeId;
           const result: FunctionResult = {
             status: 200,
             message: "Predicted object's type",
-            data: predictedObjectTypeIdProcessed,
+            data: predictedObjectTypeId,
           };
           return result;
         } catch (error) {
