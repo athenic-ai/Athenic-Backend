@@ -328,19 +328,28 @@ export class NlpService {
           ) ? threadRun.required_action.submit_tool_outputs.tool_calls : []; // assign functions to toolCalls if there are any
           console.log(`[${runLoop}] threadRun requires action(s)\n${JSON.stringify(toolCalls)}`);
 
-          const toolPromises = toolCalls.map(async (toolCall) => {
+          // Run tool calls sequentially (if in parallel, can cause some conflicts)
+          for (const toolCall of toolCalls) {
             if (toolCall.type === "function") {
               const functionName = toolCall.function.name;
               const functionArgs = JSON.parse(toolCall.function.arguments);
+              
               console.log(`[${runLoop}] Function called: ${functionName} with arguments: ${JSON.stringify(functionArgs)}`);
-              // Handle the function call here
+              
+              // Select and execute the specific function implementation
               const chosenFunctionImplementation = this.nlpFunctionsBase.nlpFunctions[functionName].implementation;
               const functionResult = await chosenFunctionImplementation(functionArgs);
+              
+              // Log the function execution details
               threadRunHistory.push(`[${runLoop}] Ran function: ${functionName}\nArguments: ${JSON.stringify(functionArgs)}\nResult: ${functionResult.message}`);
-              toolOutputs.push({tool_call_id: toolCall.id, output: config.stringify(functionResult)});
+              
+              // Add function output to tool outputs
+              toolOutputs.push({
+                tool_call_id: toolCall.id, 
+                output: config.stringify(functionResult)
+              });
             }
-          });
-          await Promise.all(toolPromises); // Use Promise.all to wait for all promises to resolve before continuing
+          }
 
           console.log(`toolOutputs: ${JSON.stringify(toolOutputs)}`);
 
@@ -425,7 +434,7 @@ export class NlpService {
 
       const assistant = await this.clientOpenAi.beta.assistants.create({
         name: "General Athenic AI Assistant",
-        instructions: `You have been tasked with helping the member to create, read, update and delete signals and jobs. When creating signals, deeply analyse a given trigger, doing research like e.g. searching the object database or searching the web to uncover insight(s) that should be signals. If Athenic thinks a job(s) should be carried out as a consequence of this analysis, do that`,
+        instructions: `You have been tasked with helping the member to create, read, update and delete signals and jobs. When creating signals, deeply analyse a given trigger, doing research like e.g. searching the object database or searching the web to uncover insight(s) that should be signals. If Athenic thinks a job(s) should also be carried out as a consequence of this analysis, do that`,
         tools: generalAssisantTools,
         temperature: 0.5,
         model: config.NLP_MODELS_FULL[0],

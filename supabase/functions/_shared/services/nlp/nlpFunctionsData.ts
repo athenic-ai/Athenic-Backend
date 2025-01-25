@@ -73,6 +73,7 @@ export async function initialiseFunctions(baseInstance: any) {
             fieldTypes: baseInstance.parent.fieldTypes,
             dictionaryTerms: baseInstance.parent.dictionaryTerms
           }); 
+          console.log(`upsertDataJob.start() complete with upsertDataJobResult: ${config.stringify(upsertDataJobResult)}`);
         
           const result: FunctionResult = {
             status: 200,
