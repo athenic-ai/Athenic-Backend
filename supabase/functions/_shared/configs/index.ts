@@ -246,7 +246,7 @@ export const SLACK_REDIRECT_URI = "https://gvblzovvpfeepnhifwqh.supabase.co/func
 // export const NLP_MODELS_LITE = ["meta-llama/llama-3.2-11b-vision-instruct:free", "microsoft/phi-3-medium-128k-instruct:free", "microsoft/phi-3-mini-128k-instruct:free"];
 // export const NLP_MODELS_FULL = ["meta-llama/llama-3.2-11b-vision-instruct:free", "microsoft/phi-3-medium-128k-instruct:free", "microsoft/phi-3-mini-128k-instruct:free"];
 export const NLP_MODELS_LITE = ["gpt-4o-mini"];
-export const NLP_MODELS_FULL = ["gpt-4o-mini"];
+export const NLP_MODELS_FULL = ["gpt-4o-mini"]; // TODO: change this in prod
 export const NLP_EMBEDDING_MODEL = "text-embedding-3-small";
 export const NLP_EMBEDDING_MAX_CHARS = 10000; // OpenAI's text-embedding-3-small has a token limit of 8191, so we're setting this to 10000 to be safe
 
