@@ -143,9 +143,6 @@ export class UpsertDataJob<T> {
         }
         objectTypeId = predictObjectTypeBeingReferencedResult.data;
       }
-      this.nlpService.setMemberVariables({
-        selectedObjectTypeId: objectTypeId,
-      });
       console.log(`✅ Completed "Step 4: Determine which object type the data relates to", with objectTypeId: ${objectTypeId}`);
     } catch (error) {
       // If haven't even managed to get past this stage, assume it's a critical error and return at this stage
@@ -170,7 +167,12 @@ export class UpsertDataJob<T> {
     let dataContentsFailures: any[] = []; // Lists all failed dataContentsItems
     for (const dataContentsItem of dataContents) {
       try {
-        console.log(`⏭️ Starting "Step 5a: Process the given data item", with item: ${config.stringify(dataContentsItem)}`);
+        // Need to assign this here, as after the assistant has run and possibly created other object types, need to reassign this back when the loop continues with the next data object.
+        this.nlpService.setMemberVariables({
+          selectedObjectTypeId: objectTypeId,
+        });
+
+        console.log(`⏭️ Starting "Step 5a: Process the given data item", with item: ${config.stringify(dataContentsItem)} and objectTypeId: ${objectTypeId}`);
         // -----------Step 5a: Process the given data item----------- 
         let processDataPrompt = `You MUST call the 'processDataUsingGivenObjectsMetadataStructure' function to process the following data:\n${config.stringify(dataContentsItem)}
         \n\nTo help, the object type you will be creating is called , and its description is: ${objectTypeDescriptions[objectTypeId].description}.`;
@@ -201,7 +203,7 @@ export class UpsertDataJob<T> {
           const providedObjectType = objectTypes.find(obj => obj.id === dataIn.companyMetadata.parentObject.related_object_type_id);
           if (providedObjectType && providedObjectType.category === "organisation_data_standard") {
             newObjectData.metadata.parent_id = dataIn.companyMetadata.parentObject.id;
-            console.log(`✅ Completed "Step 5b: Auto assigned object's parent", with: parent id: ${newObjectData.metadata.parent_id} and dataContents: ${config.stringify(dataContents)}`);  
+            console.log(`✅ Completed "Step 5b: Auto assigned object's parent", with: parent id: ${newObjectData.metadata.parent_id}, newObjectData: ${config.stringify(newObjectData)} and dataContents: ${config.stringify(dataContents)}`);  
           } else {
             console.log(`✅ Completed "Step 5b: Auto assigned object's parent" (didn't assign as parent missing or not standard) with: providedObjectType: ${config.stringify(providedObjectType)}, dataContents: ${config.stringify(dataContents)}`);  
           }
@@ -248,7 +250,7 @@ export class UpsertDataJob<T> {
               console.log(`✅ Completed "Step 5bii: Predict the appropriate object's parent", with: ${JSON.stringify(predictObjectParentResult)}`)
               if (predictObjectParentResult.status == 200 && predictObjectParentResult.data) {
                 // Step 5biii: Assign a parent object assuming one could be found
-                console.log(`⏭️ Starting "Step 5biii: Assign a parent object assuming one could be found"`);
+                console.log(`⏭️ Starting "Step 5biii: Assign a parent object assuming one could be found, with newObjectData: ${config.stringify(newObjectData)} and predictedObjectType: ${config.stringify(predictedObjectType)}"`);
                 newObjectData.metadata.parent_id = predictObjectParentResult.data;
                 console.log(`✅ Completed "Step 5biii: Assign a parent object assuming one could be found", with: ${JSON.stringify(newObjectData)}`);
               }
@@ -415,7 +417,7 @@ export class UpsertDataJob<T> {
           if (initialCall) {
             const assistantPrompt = `${config.ASSISTANT_SYSTEM_INSTRUCTION}
             \nBear in mind:
-            \n\n - New data has just been stored in Athenic. Critically analyse this data as the Athenic AI, making tool calls when necessary, and then store one signal object type based on your analysis, and also store any jobs you also think need to be done based on this analysis.
+            \n\n - New data has just been stored in Athenic. Critically analyse this data as the Athenic AI, making tool calls when necessary, and then based on your analysis, you MUST store one signal object type, and if any job(s) need doing, create object type(s) too.
             \n\n - For context, signals are described as:\n${objectTypeDescriptions[config.OBJECT_TYPE_ID_SIGNAL].description}.
             \n\n - For context, jobs are described as:\n${objectTypeDescriptions[config.OBJECT_TYPE_ID_JOB].description}.
             \n\n - Don't ask for clarification or approval before taking action, as the your reply won't be seen by the member. Just make your best guess.
