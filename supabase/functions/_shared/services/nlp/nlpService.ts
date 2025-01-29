@@ -467,6 +467,7 @@ export class NlpService {
  * @returns Maximum allowed length for each value
  */
 calculateMaxValueLength(obj: Record<string, any>): number {
+    // NOTE: any changes made to this function should also be made in client's equivalent function to ensure embeddings made in same way
     const numberOfKeys = Object.keys(obj).length;
     const syntaxBuffer = 2 + // Object braces {}
                         (numberOfKeys - 1) * 1 + // Commas between key-value pairs
@@ -491,6 +492,7 @@ calculateMaxValueLength(obj: Record<string, any>): number {
  * @returns Truncated text with ellipsis if necessary
  */
 truncateText(text: string, maxLength: number): string {
+    // NOTE: any changes made to this function should also be made in client's equivalent function to ensure embeddings made in same way
     if (text.length <= maxLength) return text;
     return text.slice(0, maxLength - 1) + '…';
 }
@@ -501,6 +503,7 @@ truncateText(text: string, maxLength: number): string {
  * @returns Object with truncated values
  */
 truncateObjectValues(obj: Record<string, any>): Record<string, any> {
+    // NOTE: any changes made to this function should also be made in client's equivalent function to ensure embeddings made in same way
     const stringified = JSON.stringify(obj);
     if (stringified.length <= config.NLP_EMBEDDING_MAX_CHARS) return obj;
 
@@ -544,6 +547,7 @@ truncateObjectValues(obj: Record<string, any>): Record<string, any> {
 async generateTextEmbedding(
     input: string | Record<string, any>,
 ): Promise<FunctionResult> {
+  // NOTE: any changes made to this function should also be made in client's equivalent function to ensure embeddings made in same way
     try {        
         if (!input) {
           throw new Error('No input provided for NLP analysis');
@@ -590,6 +594,7 @@ async generateTextEmbedding(
 async addEmbeddingToObject(
     objectIn: Record<string, any>,
 ): Promise<FunctionResult> {
+    // NOTE: any changes made to this function should also be made in client's equivalent functiont to ensure embeddings made in same way
     try {
         const objectToGenEmbeddingsFor = structuredClone(objectIn); // Create a deep copy
 
