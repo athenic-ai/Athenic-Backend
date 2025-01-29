@@ -176,14 +176,21 @@ export class UpsertDataJob<T> {
         console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5a: Process the given data item", with item: ${config.stringify(dataContentsItem)} and objectTypeId: ${objectTypeId}`);
         // -----------Step 5a: Process the given data item----------- 
         let processDataPrompt = `You MUST call the 'processDataUsingGivenObjectsMetadataStructure' function to process the following data:\n${config.stringify(dataContentsItem)}
-        \n\nTo help, the object type you will be creating is called , and its description is: ${objectTypeDescriptions[objectTypeId].description}.`;
+        \n\nTo help, the object type you will be creating is called ${objectTypeDescriptions[objectTypeId].name}, and its description is: ${objectTypeDescriptions[objectTypeId].description}.`;
         if (dataIn.companyMetadata && dataIn.companyMetadata.dataDescription) {
           processDataPrompt += `\n\nTo help, here's some context about the data:\n${dataIn.companyMetadata.dataDescription}`;
         }
+
+        let processDataSystemInstruction = config.VANILLA_SYSTEM_INSTRUCTION;
+        if (organisationData.user_data_anonymous) {
+          processDataSystemInstruction += "\n\nYou ABSOLUTELY MUST omit/anonymise any personally identifiable information about users when processing this data. If it's clearly referencing an organisation member that's ok, but if in doubt assume it's a user.";
+        }
+
+        console.log(`processDataSystemInstruction: ${processDataSystemInstruction}`);
         
         const processDataUsingGivenObjectsMetadataStructureResult = await this.nlpService.execute({
           promptParts: [{"type": "text", "text": processDataPrompt}],
-          systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
+          systemInstruction: processDataSystemInstruction,
           functionUsage: "required",
           functionsIncluded: ["processDataUsingGivenObjectsMetadataStructure"],
           useLiteModels: true,
