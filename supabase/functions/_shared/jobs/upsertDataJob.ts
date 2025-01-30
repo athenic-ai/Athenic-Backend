@@ -193,7 +193,7 @@ export class UpsertDataJob<T> {
           systemInstruction: processDataSystemInstruction,
           functionUsage: "required",
           functionsIncluded: ["processDataUsingGivenObjectsMetadataStructure"],
-          useLiteModels: true,
+          useLiteModels: false,
         });
         if (processDataUsingGivenObjectsMetadataStructureResult.status != 200) {
           throw Error(processDataUsingGivenObjectsMetadataStructureResult.message);
@@ -309,7 +309,7 @@ export class UpsertDataJob<T> {
               systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
               functionUsage: "required",
               functionsIncluded: ["processDataUsingGivenObjectsMetadataStructure"],
-              useLiteModels: true,
+              useLiteModels: false,
             });
             if (mergedObjectResult.status != 200) {
               throw Error(mergedObjectResult.message);
