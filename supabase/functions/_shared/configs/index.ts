@@ -223,7 +223,7 @@ export function mergeRelatedIds(
 
 // Consts
 export const CORS_OPTIONS = {
-  origin: ["https://app.getathenic.com/","http://localhost:8000"],
+  origin: ["https://app.getathenic.com","http://localhost:8000"],
   optionsSuccessStatus: 200 // some legacy browsers (IE11, various SmartTVs) choke on 204
 }
 export const VANILLA_SYSTEM_INSTRUCTION = `
