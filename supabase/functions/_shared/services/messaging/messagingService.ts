@@ -35,7 +35,7 @@ export class MessagingService {
       console.log(`twelveHoursAgo: ${twelveHoursAgo}`);
 
       // Fetch the last 6 messages sent in the last 12 hours, ordered by lastModified ascending
-      const getChatHistoryResult = await storageService.getRows('objects', {
+      const getChatHistoryResult = await storageService.getRows(config.OBJECT_TABLE_NAME, {
         whereAndConditions: [
           { column: 'owner_organisation_id', operator: 'eq', value: organisationId },
           { column: 'owner_member_id', operator: 'eq', value: memberId },
@@ -109,7 +109,7 @@ export class MessagingService {
       };
       console.log(`Updating object data in DB with messageObjectData: ${JSON.stringify(messageObjectData)}`);
       const messageUpdateResult = await storageService.updateRow({
-        table: "objects",
+        table: config.OBJECT_TABLE_NAME,
         keys: {id: messageObjectData.id},
         rowData: messageObjectData,
         nlpService,
@@ -129,7 +129,7 @@ export class MessagingService {
       };
       console.log(`Updating message thead object data in DB with messageThreadObjectData: ${JSON.stringify(messageThreadObjectData)}`);
       const messageThreadUpdateResult = await storageService.updateRow({
-        table: "objects",
+        table: config.OBJECT_TABLE_NAME,
         keys: {id: messageThreadId},
         rowData: messageThreadObjectData,
         nlpService,

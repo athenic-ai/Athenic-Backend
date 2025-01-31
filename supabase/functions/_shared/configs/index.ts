@@ -252,6 +252,8 @@ export const NLP_EMBEDDING_MAX_CHARS = 10000; // Note: if you change this model,
 
 export const MAX_SEARCH_RESULTS = 200; // Max number of search results that can be returned when querying db
 
+export const OBJECT_TABLE_NAME = "objects";
+
 export const OBJECT_TYPE_ID_SIGNAL = "signal";
 export const OBJECT_TYPE_ID_JOB = "job";
 export const OBJECT_TYPE_ID_CONNECTION = "connection";

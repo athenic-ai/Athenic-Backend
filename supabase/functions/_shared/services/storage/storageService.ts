@@ -232,7 +232,7 @@ export class StorageService {
     keys,
     rowData,
     nlpService,
-    mayAlreadyExist = false, // Defaults to false
+    mayAlreadyExist = false,
   }: {
     table: string;
     keys: Record<string, any>; // Object where keys are column names and values are their corresponding values
@@ -245,7 +245,9 @@ export class StorageService {
       if (!table || Object.keys(keys).length === 0) {
         throw new Error("Table name and at least one key are required.");
       }
-  
+
+      const isObject = (table == config.OBJECT_TABLE_NAME);
+
       let existingRow = null;
   
       if (mayAlreadyExist) {
@@ -262,23 +264,25 @@ export class StorageService {
       ? this.mergeData({
           existing: existingRow,
           incoming: rowData,
-          overwriteFields: ['embedding']
+          overwriteFields: isObject ? ['embedding']: []
         }) 
       : { ...keys, ...rowData };
 
-      const currentDate = new Date().toISOString(); // Current date and time in ISO format
-      if (!existingRow) {
-        mergedRowData.metadata.created_at = currentDate; // Add created_at if not already set
-      } else {
-        mergedRowData.metadata.updated_at = currentDate; // Add or update updated_at based on created_at existence
+      if (isObject) {
+        const currentDate = new Date().toISOString(); // Current date and time in ISO format
+        if (!existingRow) {
+          mergedRowData.metadata.created_at = currentDate; // Add created_at if not already set
+        } else {
+          mergedRowData.metadata.updated_at = currentDate; // Add or update updated_at based on created_at existence
+        }
+  
+        // Generate embeddings value (guide: https://supabase.com/docs/guides/ai/vector-columns)
+        const embeddingRes = await nlpService.addEmbeddingToObject(mergedRowData);
+        if (embeddingRes.status != 200) {
+          throw new Error(embeddingRes.message || "Error embedding data.");
+        }
+        mergedRowData = embeddingRes.data;
       }
-
-      // Generate embeddings value (guide: https://supabase.com/docs/guides/ai/vector-columns)
-      const embeddingRes = await nlpService.addEmbeddingToObject(mergedRowData);
-      if (embeddingRes.status != 200) {
-        throw new Error(embeddingRes.message || "Error embedding data.");
-      }
-      mergedRowData = embeddingRes.data;
   
       // Perform upsert with the merged data
       const queryBuilder = this.supabase.from(table);

@@ -136,7 +136,7 @@ export async function initialiseFunctions(baseInstance: any) {
           console.log(`searchForObjects called with: queryText: ${queryText}, relatedObjectTypeId: ${relatedObjectTypeId}, matchThreshold: ${matchThreshold}, matchCount: ${matchCount}`);
 
           const searchRowsResult = await baseInstance.parent.storageService.searchRows({
-            table: "objects",
+            table: config.OBJECT_TABLE_NAME,
             queryText,
             matchThreshold,
             matchCount,

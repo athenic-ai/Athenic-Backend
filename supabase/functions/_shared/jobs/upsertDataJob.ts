@@ -222,7 +222,7 @@ export class UpsertDataJob<T> {
             // Step 5bi: Retrieve all objects of this type
             console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5bi: Retrieve all objects of this type"`);
             const parentObjectTypeId = predictedObjectType.parent_object_type_id;
-            const getPotentialParentObjectsResult = await this.storageService.getRows('objects', {
+            const getPotentialParentObjectsResult = await this.storageService.getRows(config.OBJECT_TABLE_NAME, {
               whereOrConditions: [
                 { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
                 { column: 'owner_organisation_id', operator: 'eq', value: organisationId }, // Include entries created by the org
@@ -281,7 +281,7 @@ export class UpsertDataJob<T> {
           if (dataIn.companyMetadata && dataIn.companyMetadata.requiredMatchThreshold) {
             // If requiredMatchThreshold specified, means source is open for the new data to be merged with an existing object
             const searchRowsResult = await this.storageService.searchRows({
-              table: "objects",
+              table: config.OBJECT_TABLE_NAME,
               queryText: JSON.stringify(newObjectData),
               matchThreshold: dataIn.companyMetadata.requiredMatchThreshold,
               matchCount: 1, // TODO: potentially add support for merging multiple objects if multiple are returned from search. Currently just uses the first if multiple.
@@ -322,7 +322,7 @@ export class UpsertDataJob<T> {
 
             // Add new metadata to object already stored in DB (as want to retain data like created_at and parent_id)
             const objectUpdateResult = await this.storageService.updateRow({
-              table: "objects",
+              table: config.OBJECT_TABLE_NAME,
               keys: {id: objectToUpdate.id},
               rowData: {
                 metadata: mergedObjectData.metadata,
@@ -342,7 +342,7 @@ export class UpsertDataJob<T> {
 
             // Create new object
             const objectCreateResult = await this.storageService.updateRow({
-              table: "objects",
+              table: config.OBJECT_TABLE_NAME,
               keys: {id: newObjectData.id},
               rowData: newObjectData,
               nlpService: this.nlpService,
@@ -355,7 +355,7 @@ export class UpsertDataJob<T> {
             // Update the object's parent, if it exists, with new child_id value
             if (newObjectData.metadata.parent_id) {
               const objectParentUpdateResult = await this.storageService.updateRow({
-                table: "objects",
+                table: config.OBJECT_TABLE_NAME,
                 keys: {id: newObjectData.metadata.parent_id},
                 rowData: {
                   metadata: {
@@ -390,7 +390,7 @@ export class UpsertDataJob<T> {
                   // Update the related object with the new related_id value
                   console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] Update the related object with the new related_id value: ${relatedId} (type: ${relatedObjectType})`);
                   const relatedObjectUpdateResult = await this.storageService.updateRow({
-                      table: "objects",
+                      table: config.OBJECT_TABLE_NAME,
                       keys: {id: relatedId},
                       rowData: {
                         metadata: {

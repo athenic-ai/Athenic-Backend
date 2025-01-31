@@ -3,6 +3,7 @@
 // @deno-types="npm:@types/express@5.0.1"
 import express from 'npm:express@5.0.1';
 import cors from 'npm:cors@2.8.5'; // Add the cors package
+import { EcommerceService } from '../_shared/services/ecommerce/ecommerceService.ts';
 import { MessagingService } from '../_shared/services/messaging/messagingService.ts';
 import * as config from "../_shared/configs/index.ts";
 
@@ -29,11 +30,15 @@ app.get('/auth/:connection', async (req, res) => {
     console.log(`/auth/:connection with connection: ${connection} and connectionMetadata: ${JSON.stringify(connectionMetadata)}`);
 
     switch (connection) {
+      case 'shopify':
+        const ecommerceService: EcommerceService = new EcommerceService();
+        const shopifyResult = await ecommerceService.auth(connection, connectionMetadata);
+        res.status(shopifyResult.status).send(shopifyResult.message);
+        break;
       case 'slack':
         const messagingService: MessagingService = new MessagingService();
-        const result = await messagingService.auth(connection, connectionMetadata);
-        res.status(result.status).send(result.message);
-        // res.json({ success: true, data: result });
+        const slackResult = await messagingService.auth(connection, connectionMetadata);
+        res.status(slackResult.status).send(slackResult.message);
         break;
       default:
         throw new Error('Unsupported service');
