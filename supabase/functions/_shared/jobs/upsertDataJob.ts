@@ -29,7 +29,7 @@ export class UpsertDataJob<T> {
     connection: any;
     dryRun: boolean;
     dataIn: any;
-    req: any;
+    req: express.Request;
     organisationId?: string;
     organisationData?: OrganisationData;
     memberId?: string;

@@ -27,7 +27,7 @@ export class ProcessMessageJob<T> {
     connectionId: any;
     dryRun: boolean;
     dataIn: any;
-    req: any;
+    req: express.Request;
   }): Promise<any> {
     console.log(`Processing data from connectionId: ${connectionId} and dryRun: ${dryRun}`);
     console.log(`dataIn: ${dataIn}`);

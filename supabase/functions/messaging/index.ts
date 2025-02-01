@@ -11,27 +11,43 @@ const port = 3000;
 
 app.use(cors(config.CORS_OPTIONS));
 
-// Middleware to handle multiple content types (as e.g. email isn't delivered as a JSON)
+// Custom middleware to handle multiple content types and preserve raw body when needed
 app.use((req, res, next) => {
   const contentType = req.headers['content-type'] || '';
 
-  // JSON parser
-  if (contentType.includes('application/json')) {
-    express.json()(req, res, next);
+  // For Shopify webhooks or JSON content, preserve raw body
+  if (req.headers['x-shopify-hmac-sha256'] || contentType.includes('application/json')) {
+    let rawBody = '';
+    req.on('data', chunk => {
+      rawBody += chunk;
+    });
+    
+    req.on('end', () => {
+      (req as any).rawBody = rawBody;
+      
+      // Parse JSON after saving raw body
+      if (rawBody) {
+        try {
+          req.body = JSON.parse(rawBody);
+        } catch (e) {
+          // If JSON parsing fails, keep the raw body
+          req.body = rawBody;
+        }
+      }
+      
+      next();
+    });
   }
-  // URL-encoded form parser
+  // Handle other content types
   else if (contentType.includes('application/x-www-form-urlencoded')) {
-    express.urlencoded({ extended: true })(req, res, next);
+    bodyParser.urlencoded({ extended: true })(req, res, next);
   }
-  // Plain text parser
   else if (contentType.includes('text/plain')) {
     bodyParser.text()(req, res, next);
   }
-  // Binary or raw data (as buffer)
   else if (contentType.includes('application/octet-stream')) {
     bodyParser.raw()(req, res, next);
   }
-  // Default to raw text
   else {
     bodyParser.text()(req, res, next);
   }

@@ -13,27 +13,43 @@ const port = 3000;
 
 app.use(cors(config.CORS_OPTIONS));
 
-// Middleware to handle multiple content types (as e.g. email isn't delivered as a JSON)
+// Custom middleware to handle multiple content types and preserve raw body when needed
 app.use((req, res, next) => {
   const contentType = req.headers['content-type'] || '';
 
-  // JSON parser
-  if (contentType.includes('application/json')) {
-    express.json()(req, res, next);
+  // For Shopify webhooks or JSON content, preserve raw body
+  if (req.headers['x-shopify-hmac-sha256'] || contentType.includes('application/json')) {
+    let rawBody = '';
+    req.on('data', chunk => {
+      rawBody += chunk;
+    });
+    
+    req.on('end', () => {
+      (req as any).rawBody = rawBody;
+      
+      // Parse JSON after saving raw body
+      if (rawBody) {
+        try {
+          req.body = JSON.parse(rawBody);
+        } catch (e) {
+          // If JSON parsing fails, keep the raw body
+          req.body = rawBody;
+        }
+      }
+      
+      next();
+    });
   }
-  // URL-encoded form parser
+  // Handle other content types
   else if (contentType.includes('application/x-www-form-urlencoded')) {
-    express.urlencoded({ extended: true })(req, res, next);
+    bodyParser.urlencoded({ extended: true })(req, res, next);
   }
-  // Plain text parser
   else if (contentType.includes('text/plain')) {
     bodyParser.text()(req, res, next);
   }
-  // Binary or raw data (as buffer)
   else if (contentType.includes('application/octet-stream')) {
     bodyParser.raw()(req, res, next);
   }
-  // Default to raw text
   else {
     bodyParser.text()(req, res, next);
   }
@@ -45,6 +61,12 @@ app.post('/data/con/:connection/typ/:datatype/dry/:dryrun', async (req, res) => 
     const connection = req.params.connection;
     const dataType = req.params.datatype;
     const dryRun: boolean = req.params.dryrun.toLowerCase() === 'true';
+    
+    // Log raw body for debugging Shopify webhooks
+    if (req.headers['x-shopify-hmac-sha256']) {
+      console.log('Raw body:', (req as any).rawBody);
+      console.log('Shopify HMAC:', req.headers['x-shopify-hmac-sha256']);
+    }
 
     const dataIn = req.body // Will handle in any format, however if coming from Athenic, will be in a structured form to speed up processing, eg.:
     // {
@@ -58,6 +80,7 @@ app.post('/data/con/:connection/typ/:datatype/dry/:dryrun', async (req, res) => 
     //  },
     //  "companyDataContents": inputtedFileUploadData.text
     // }
+
     console.log(`/data/:connection with:\nconnection: ${connection}\ntype: ${dataType}\ndryRun: ${dryRun}\ndataIn:${config.stringify(dataIn)}`);
     
     if (dataType == config.URL_DATA_TYPE_WEBHOOK) {
@@ -76,7 +99,8 @@ app.post('/data/con/:connection/typ/:datatype/dry/:dryrun', async (req, res) => 
     }
   } catch (error) {
     console.error(`Error in /data/:connection/:type: ${error.message}`);
-    res.status(500).send(error.message);  }
+    res.status(500).send(error.message);
+  }
 });
 
 app.listen(port, () => {

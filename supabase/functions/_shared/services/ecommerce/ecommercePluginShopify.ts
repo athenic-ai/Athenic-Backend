@@ -5,8 +5,8 @@ import { StorageService } from "../storage/storageService.ts";
 import { NlpService } from "../nlp/nlpService.ts";
 
 export class EcommercePluginShopify implements EcommerceInterface {
-  async auth(connection: string, connectionMetadata: Map<string, any>) {
-    console.log(`Auth Shopify with connection: ${connection} and connectionMetadata: ${JSON.stringify(connectionMetadata)}`);
+  async auth(connectionMetadata: Map<string, any>) {
+    console.log(`Auth Shopify with connectionMetadata: ${JSON.stringify(connectionMetadata)}`);
     const stateMap = JSON.parse(connectionMetadata.state);
     console.log(`stateMap: ${JSON.stringify(stateMap)}`);
     const shop = connectionMetadata["shop"];
@@ -115,42 +115,6 @@ export class EcommercePluginShopify implements EcommerceInterface {
     }
   }
 
-  // Verify Shopify HMAC signature
-  private async createHmac(data: string, secret: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      'raw',
-      encoder.encode(secret),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign']
-    );
-    
-    const signature = await crypto.subtle.sign(
-      'HMAC',
-      key,
-      encoder.encode(data)
-    );
-
-    return Array.from(new Uint8Array(signature))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
-  }
-
-  // For webhook verification
-  async verifyWebhook(rawBody: string, hmacHeader: string): Promise<boolean> {
-    try {
-      const calculatedHmac = await this.createHmac(
-        rawBody,
-        Deno.env.get("SHOPIFY_CLIENT_SECRET") || ''
-      );
-      return hmacHeader === calculatedHmac;
-    } catch (error) {
-      console.error('Webhook verification failed:', error);
-      return false;
-    }
-  }
-
   // For auth verification
   async verifyAuth(params: Record<string, string>): Promise<boolean> {
     try {
@@ -176,7 +140,41 @@ export class EcommercePluginShopify implements EcommerceInterface {
     }
   }
 
-  extractShopifyDomain(req: Request): string | null {
-    return req.headers.get('x-shopify-shop-domain');
+  // For webhook verification
+  async verifyWebhook(rawBody: string, hmacHeader: string): Promise<boolean> {
+    try {
+      console.log(`verifyWebhook called with rawBody: ${rawBody} and hmacHeader: ${hmacHeader}`);
+      const calculatedHmac = await this.createHmac(
+        rawBody,
+        Deno.env.get("SHOPIFY_CLIENT_SECRET") || ''
+      );
+      console.log(`calculatedHmac: ${calculatedHmac} and hmacHeader: ${hmacHeader}`);
+      return hmacHeader === calculatedHmac;
+    } catch (error) {
+      console.error('Webhook verification failed:', error);
+      return false;
+    }
+  }
+
+  // Verify Shopify HMAC signature
+  private async createHmac(data: string, secret: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    
+    const signature = await crypto.subtle.sign(
+      'HMAC',
+      key,
+      encoder.encode(data)
+    );
+
+    return Array.from(new Uint8Array(signature))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
   }
 }

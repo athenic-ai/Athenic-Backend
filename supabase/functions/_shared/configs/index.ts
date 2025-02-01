@@ -1,3 +1,5 @@
+import { EcommerceService } from "../services/ecommerce/ecommerceService.ts";
+
 // Interfaces
 export interface FunctionResult<T = unknown> {
   status: number; // HTTP or custom status code
@@ -31,7 +33,7 @@ export function stringify(obj: any): string {
   return str;
 }
 
-export async function inferOrganisation({ connection, dataIn, req, storageService }: { connection: string; dataIn: T; req: any; storageService: StorageService }): Promise<FunctionResult> {
+export async function inferOrganisation({ connection, dataIn, req, storageService }: { connection: string; dataIn: T; req: express.Request; storageService: StorageService }): Promise<FunctionResult> {
   try {
     let organisationId;
     if (dataIn.companyMetadata && dataIn.companyMetadata.organisationId) {
@@ -46,27 +48,32 @@ export async function inferOrganisation({ connection, dataIn, req, storageServic
     } else if (connection === "shopify") {
       // If this is a Shopify webhook request
       console.log(`req?.headers: ${this.stringify(req?.headers)}`);
-      if (req?.headers.get('x-shopify-hmac-sha256')) {
-        // Get raw body from request
-        const rawBody = await req.text();
-        const hmacHeader = req.headers.get('x-shopify-hmac-sha256') || '';
+      if (req?.headers['x-shopify-hmac-sha256']) {
+        const hmacHeader = req.headers['x-shopify-hmac-sha256'];
+
+        console.log(`req: ${this.stringify(req)}}`);
+        
+        // For Express request, we need to access the raw body differently
+        // Make sure you've configured the raw body parser middleware
+        const rawBody = (req as any).rawBody || JSON.stringify(dataIn);
         
         // Verify webhook
         const ecommerceService: EcommerceService = new EcommerceService();
-        const shopifyCallIsValid = await ecommerceService.verifyWebhook(rawBody, hmacHeader);
+        const shopifyCallIsValid = await ecommerceService.verifyWebhook("shopify", rawBody, hmacHeader);
         if (!shopifyCallIsValid) {
           throw new Error("Invalid Shopify webhook signature");
         }
 
         // Extract shop domain
-        const shopDomain = ecommerceService.extractShopifyDomain(req);
-        if (shopDomain) {
-          dataIn.companyMetadata = {
-            ...dataIn.companyMetadata,
-            shopifyDomain: shopDomain,
-            shopifyId: shopDomain.split('.')[0]
-          };
-        }
+        const shopDomain = req.headers['x-shopify-shop-domain'];
+
+        // if (shopDomain) {
+        //   dataIn.companyMetadata = {
+        //     ...dataIn.companyMetadata,
+        //     shopifyDomain: shopDomain,
+        //     shopifyId: shopDomain.split('.')[0]
+        //   };
+        // }
       }
 
       const mappingResult = await storageService.getRow({table: "connection_organisation_mapping", keys: {connection: connection, connection_id: shopDomain}});
