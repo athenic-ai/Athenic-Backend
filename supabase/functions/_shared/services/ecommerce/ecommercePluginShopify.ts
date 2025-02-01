@@ -128,10 +128,24 @@ export class EcommercePluginShopify implements EcommerceInterface {
         .map(key => `${key}=${paramsWithoutHmac[key]}`)
         .join('&');
 
-      const calculatedHmac = await this.createHmac(
-        sortedParams,
-        Deno.env.get("SHOPIFY_CLIENT_SECRET") || ''
+      const key = await crypto.subtle.importKey(
+        'raw',
+        new TextEncoder().encode(Deno.env.get("SHOPIFY_CLIENT_SECRET") || ''),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
       );
+      
+      const signature = await crypto.subtle.sign(
+        'HMAC',
+        key,
+        new TextEncoder().encode(sortedParams)
+      );
+
+      // Keep hex format for auth verification
+      const calculatedHmac = Array.from(new Uint8Array(signature))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
       
       return hmac === calculatedHmac;
     } catch (error) {
@@ -143,12 +157,11 @@ export class EcommercePluginShopify implements EcommerceInterface {
   // For webhook verification
   async verifyWebhook(rawBody: string, hmacHeader: string): Promise<boolean> {
     try {
-      console.log(`verifyWebhook called with rawBody: ${rawBody} and hmacHeader: ${hmacHeader}`);
       const calculatedHmac = await this.createHmac(
         rawBody,
         Deno.env.get("SHOPIFY_CLIENT_SECRET") || ''
       );
-      console.log(`calculatedHmac: ${calculatedHmac} and hmacHeader: ${hmacHeader}`);
+      
       return hmacHeader === calculatedHmac;
     } catch (error) {
       console.error('Webhook verification failed:', error);
@@ -173,8 +186,7 @@ export class EcommercePluginShopify implements EcommerceInterface {
       encoder.encode(data)
     );
 
-    return Array.from(new Uint8Array(signature))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+    // Convert to Base64 instead of hex
+    return btoa(String.fromCharCode(...new Uint8Array(signature)));
   }
 }

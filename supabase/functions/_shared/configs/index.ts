@@ -67,17 +67,11 @@ export async function inferOrganisation({ connection, dataIn, req, storageServic
         // Extract shop domain
         const shopDomain = req.headers['x-shopify-shop-domain'];
 
-        // if (shopDomain) {
-        //   dataIn.companyMetadata = {
-        //     ...dataIn.companyMetadata,
-        //     shopifyDomain: shopDomain,
-        //     shopifyId: shopDomain.split('.')[0]
-        //   };
-        // }
-      }
+        console.log(`shopDomain found: ${shopDomain}`);
 
-      const mappingResult = await storageService.getRow({table: "connection_organisation_mapping", keys: {connection: connection, connection_id: shopDomain}});
-      organisationId = mappingResult.data.organisation_id;
+        const mappingResult = await storageService.getRow({table: "connection_organisation_mapping", keys: {connection: connection, connection_id: shopDomain}});
+        organisationId = mappingResult.data.organisation_id;
+      }
     }
 
     if (organisationId) {
