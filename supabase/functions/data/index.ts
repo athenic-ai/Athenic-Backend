@@ -60,10 +60,20 @@ app.post('/data/con/:connection/typ/:datatype/dry/:dryrun', async (req, res) => 
     // }
     console.log(`/data/:connection with:\nconnection: ${connection}\ntype: ${dataType}\ndryRun: ${dryRun}\ndataIn:${config.stringify(dataIn)}`);
     
-    const nlpService = new NlpService();
-    const upsertDataJob = new UpsertDataJob(nlpService);
-    const result = await upsertDataJob.start({initialCall: true, connection: connection, dryRun: dryRun, dataIn: dataIn}); // NOTE: datatype not currently used. Could be used to help inform the AI of the likely datatype
-    res.status(result.status).send(result);
+    if (dataType == config.URL_DATA_TYPE_WEBHOOK) {
+      res.status(200).send(); // If webhook, send immediate response as typically webhook senders demand an immediate answer
+
+      const nlpService = new NlpService();
+      const upsertDataJob = new UpsertDataJob(nlpService);
+      const result = await upsertDataJob.start({initialCall: true, connection, dryRun, dataIn, req});
+      console.log(`Edge function complete result: ${config.stringify(result)}`);
+    } else {
+      const nlpService = new NlpService();
+      const upsertDataJob = new UpsertDataJob(nlpService);
+      const result = await upsertDataJob.start({initialCall: true, connection, dryRun, dataIn, req});
+      console.log(`Edge function complete result: ${config.stringify(result)}`);
+      res.status(result.status).send(result);
+    }
   } catch (error) {
     console.error(`Error in /data/:connection/:type: ${error.message}`);
     res.status(500).send(error.message);  }

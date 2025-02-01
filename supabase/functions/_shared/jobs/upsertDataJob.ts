@@ -24,11 +24,12 @@ export class UpsertDataJob<T> {
     this.storageService = storageService;
   }
 
-  async start({ initialCall, connection, dryRun, dataIn, organisationId, organisationData, memberId, objectTypes, objectMetadataTypes, objectTypeDescriptions, fieldTypes, dictionaryTerms }: {
+  async start({ initialCall, connection, dryRun, dataIn, req, organisationId, organisationData, memberId, objectTypes, objectMetadataTypes, objectTypeDescriptions, fieldTypes, dictionaryTerms }: {
     initialCall: boolean;
     connection: any;
     dryRun: boolean;
     dataIn: any;
+    req: any;
     organisationId?: string;
     organisationData?: OrganisationData;
     memberId?: string;
@@ -48,7 +49,7 @@ export class UpsertDataJob<T> {
       // -----------Step 1: Get organisation's ID and data----------- 
       console.log(`[I:${initialCall}] ⏭️ Starting "Step 1: Get organisation's ID and data"`);
       if (!organisationId || !organisationData) {
-        const inferOrganisationResult = await config.inferOrganisation({ connection, dataIn, storageService: this.storageService });
+        const inferOrganisationResult = await config.inferOrganisation({ connection, dataIn, req, storageService: this.storageService });
 
         if (inferOrganisationResult.status != 200) {
           throw Error(inferOrganisationResult.message);

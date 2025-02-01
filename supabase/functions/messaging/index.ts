@@ -53,7 +53,7 @@ app.post('/messaging/con/:connection', async (req, res) => {
     console.log(`/messaging/con/:connection with:\nconnection: ${connectionId}\ndataIn:${config.stringify(dataIn)}`);
     
     const processMessageJob: ProcessMessageJob = new ProcessMessageJob();
-    const processMessageJobResult = await processMessageJob.start({connectionId: connectionId, dataIn: dataIn});
+    const processMessageJobResult = await processMessageJob.start({connectionId, dataIn, req});
     if (processMessageJobResult.status != 200) {
       throw Error(processMessageJobResult.message);
     }

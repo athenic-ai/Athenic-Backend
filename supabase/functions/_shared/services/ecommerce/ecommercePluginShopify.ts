@@ -14,7 +14,7 @@ export class EcommercePluginShopify implements EcommerceInterface {
     try {
       // Verify HMAC if present (Shopify security measure)
       if (connectionMetadata["hmac"]) {
-        const isValid = await this.verifyHmac(connectionMetadata);
+        const isValid = await this.verifyAuth(connectionMetadata);
         if (!isValid) {
           throw new Error("Invalid HMAC signature");
         }
@@ -90,7 +90,7 @@ export class EcommercePluginShopify implements EcommerceInterface {
       // Update connection mapping
       const connectionOrganisationMappingUpdateResult = await storageService.updateRow({
         table: "connection_organisation_mapping",
-        keys: {connection: "shopify", connection_id: shopData.id.toString()},
+        keys: {connection: "shopify", connection_id: shop.toString()},
         rowData: {organisation_id: stateMap.organisationId},
         mayBeNew: true,
         nlpService: nlpService,
@@ -116,21 +116,11 @@ export class EcommercePluginShopify implements EcommerceInterface {
   }
 
   // Verify Shopify HMAC signature
-  private async verifyHmac(params: any): Promise<boolean> {
-    const hmac = params["hmac"];
-    delete params["hmac"];  // Remove hmac from params before verification
-
-    // Sort parameters
-    const sortedParams = Object.keys(params)
-      .sort()
-      .map(key => `${key}=${params[key]}`)
-      .join('&');
-
-    // Create HMAC
+  private async createHmac(data: string, secret: string): Promise<string> {
     const encoder = new TextEncoder();
     const key = await crypto.subtle.importKey(
       'raw',
-      encoder.encode(Deno.env.get("SHOPIFY_CLIENT_SECRET")),
+      encoder.encode(secret),
       { name: 'HMAC', hash: 'SHA-256' },
       false,
       ['sign']
@@ -139,13 +129,54 @@ export class EcommercePluginShopify implements EcommerceInterface {
     const signature = await crypto.subtle.sign(
       'HMAC',
       key,
-      encoder.encode(sortedParams)
+      encoder.encode(data)
     );
 
-    const calculatedHmac = Array.from(new Uint8Array(signature))
+    return Array.from(new Uint8Array(signature))
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
+  }
 
-    return hmac === calculatedHmac;
+  // For webhook verification
+  async verifyWebhook(rawBody: string, hmacHeader: string): Promise<boolean> {
+    try {
+      const calculatedHmac = await this.createHmac(
+        rawBody,
+        Deno.env.get("SHOPIFY_CLIENT_SECRET") || ''
+      );
+      return hmacHeader === calculatedHmac;
+    } catch (error) {
+      console.error('Webhook verification failed:', error);
+      return false;
+    }
+  }
+
+  // For auth verification
+  async verifyAuth(params: Record<string, string>): Promise<boolean> {
+    try {
+      const hmac = params["hmac"];
+      const paramsWithoutHmac = { ...params };
+      delete paramsWithoutHmac["hmac"];
+
+      // Sort parameters
+      const sortedParams = Object.keys(paramsWithoutHmac)
+        .sort()
+        .map(key => `${key}=${paramsWithoutHmac[key]}`)
+        .join('&');
+
+      const calculatedHmac = await this.createHmac(
+        sortedParams,
+        Deno.env.get("SHOPIFY_CLIENT_SECRET") || ''
+      );
+      
+      return hmac === calculatedHmac;
+    } catch (error) {
+      console.error('Auth verification failed:', error);
+      return false;
+    }
+  }
+
+  extractShopifyDomain(req: Request): string | null {
+    return req.headers.get('x-shopify-shop-domain');
   }
 }

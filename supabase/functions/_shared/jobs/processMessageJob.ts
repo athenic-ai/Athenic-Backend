@@ -23,10 +23,11 @@ export class ProcessMessageJob<T> {
     this.messagingService = messagingService;
   }
 
-  async start({ connectionId, dryRun, dataIn }: {
+  async start({ connectionId, dryRun, dataIn, req }: {
     connectionId: any;
     dryRun: boolean;
     dataIn: any;
+    req: any;
   }): Promise<any> {
     console.log(`Processing data from connectionId: ${connectionId} and dryRun: ${dryRun}`);
     console.log(`dataIn: ${dataIn}`);
@@ -37,7 +38,7 @@ export class ProcessMessageJob<T> {
       await this.nlpService.initialiseClientOpenAi();
 
       // -----------Step 1: Get organisation's ID, organisation's data and member ID----------- 
-      const inferOrganisationResult = await config.inferOrganisation({ connectionId, dataIn, storageService: this.storageService });
+      const inferOrganisationResult = await config.inferOrganisation({ connectionId, dataIn, req, storageService: this.storageService });
       let organisationData;
 
       if (inferOrganisationResult.status != 200) {

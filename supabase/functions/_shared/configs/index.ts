@@ -31,7 +31,7 @@ export function stringify(obj: any): string {
   return str;
 }
 
-export async function inferOrganisation({ connection, dataIn, storageService }: { connection: string; dataIn: T; storageService: StorageService }): Promise<FunctionResult> {
+export async function inferOrganisation({ connection, dataIn, req, storageService }: { connection: string; dataIn: T; req: any; storageService: StorageService }): Promise<FunctionResult> {
   try {
     let organisationId;
     if (dataIn.companyMetadata && dataIn.companyMetadata.organisationId) {
@@ -42,6 +42,34 @@ export async function inferOrganisation({ connection, dataIn, storageService }: 
       organisationId = dataIn.recipient.split("@")[0];
     } else if (connection === "productfruits") {
       const mappingResult = await storageService.getRow({table: "connection_organisation_mapping", keys: {connection: connection, connection_id: dataIn.data.projectCode}});
+      organisationId = mappingResult.data.organisation_id;
+    } else if (connection === "shopify") {
+      // If this is a Shopify webhook request
+      console.log(`req?.headers: ${this.stringify(req?.headers)}`);
+      if (req?.headers.get('x-shopify-hmac-sha256')) {
+        // Get raw body from request
+        const rawBody = await req.text();
+        const hmacHeader = req.headers.get('x-shopify-hmac-sha256') || '';
+        
+        // Verify webhook
+        const ecommerceService: EcommerceService = new EcommerceService();
+        const shopifyCallIsValid = await ecommerceService.verifyWebhook(rawBody, hmacHeader);
+        if (!shopifyCallIsValid) {
+          throw new Error("Invalid Shopify webhook signature");
+        }
+
+        // Extract shop domain
+        const shopDomain = ecommerceService.extractShopifyDomain(req);
+        if (shopDomain) {
+          dataIn.companyMetadata = {
+            ...dataIn.companyMetadata,
+            shopifyDomain: shopDomain,
+            shopifyId: shopDomain.split('.')[0]
+          };
+        }
+      }
+
+      const mappingResult = await storageService.getRow({table: "connection_organisation_mapping", keys: {connection: connection, connection_id: shopDomain}});
       organisationId = mappingResult.data.organisation_id;
     }
 
@@ -251,6 +279,8 @@ export const NLP_EMBEDDING_MODEL = "text-embedding-3-small"; // Note: if you cha
 export const NLP_EMBEDDING_MAX_CHARS = 10000; // Note: if you change this model, also change it in the client's code. OpenAI's text-embedding-3-small has a token limit of 8191, so we're setting this to 10000 to be safe
 
 export const MAX_SEARCH_RESULTS = 200; // Max number of search results that can be returned when querying db
+
+export const URL_DATA_TYPE_WEBHOOK = "webhook";
 
 export const OBJECT_TABLE_NAME = "objects";
 
