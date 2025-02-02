@@ -1,7 +1,6 @@
 import * as config from "../../_shared/configs/index.ts";
 import { StorageService } from "../services/storage/storageService.ts";
 import { NlpService } from "../services/nlp/nlpService.ts";
-import * as nlpFunctionsEcommerce from "../services/nlp/nlpFunctionsEcommerce.ts";
 
 interface OrganisationData {
   [key: string]: any;
@@ -146,8 +145,6 @@ export class ExecuteJobs<T> {
       }
       assistantId = createEcommerceAssistantResult.data;
       console.log(`✅ Completed "Step 4: Get the relevant assistant id", with assistantId: ${assistantId}`);
-
-      // nlpFunctionsEcommerce.initialiseFunctions(); // temp for testing
     } catch (error) {
       const result: FunctionResult = {
         status: 500,

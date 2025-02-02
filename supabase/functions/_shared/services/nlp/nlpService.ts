@@ -289,6 +289,13 @@ export class NlpService {
 
     try {
       console.log(`executeThread called with prompt: ${prompt}`);
+              
+      // // TEST
+      // const chosenFunctionImplementation = this.nlpFunctionsBase.nlpFunctions.searchShopifyProducts.implementation;
+      // const functionResult = await chosenFunctionImplementation({"query": "snow"});
+      // console.log(`functionResult.message: ${functionResult.message}`);
+      // return true;
+      
 
       // TODO: currently haven't added support for chat history - add this!
       const messages = [
@@ -466,7 +473,7 @@ export class NlpService {
       console.log("createEcommerceAssistant called");
 
       await this.updateFunctionDeclarations({
-        functionGroupsIncluded: ["nlpFunctionsEcommerce"], // TODO: add "nlpFunctionsData"
+        functionGroupsIncluded: ["nlpFunctionsEcommerce", "nlpFunctionsData"],
       }); // Support all functions by default within the groups included by not specifying functionsIncluded
 
       const ecommerceAssisantTools = [...this.functionDeclarations]; // Shallow copy to avoid affecting this.functionDeclarations
