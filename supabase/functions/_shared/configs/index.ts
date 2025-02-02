@@ -188,6 +188,54 @@ export async function getObjectMetadataTypes({ storageService, organisationId, m
   }
 }
 
+export async function getFieldTypes({ storageService }: { storageService: StorageService }): Promise<FunctionResult> {
+  try {
+    const getFieldTypesResult = await storageService.getRows('field_types', {
+    });
+    if (getFieldTypesResult.status != 200) {
+      return new Error(getFieldTypesResult.message);
+    }
+    const fieldTypes = getFieldTypesResult.data;
+    const result: FunctionResult = {
+      status: 200,
+      message: "Success running getFieldTypes",
+      data: fieldTypes,
+    };
+    return result;
+  } catch(error) {
+    const result: FunctionResult = {
+      status: 500,
+      message: `❌ ${error.message}`,
+    };
+    console.error(result.message);
+    return result;
+  }
+}
+
+export async function getDictionaryTerms({ storageService }: { storageService: StorageService }): Promise<FunctionResult> {
+  try {
+    const getDictionaryTermsResult = await storageService.getRows('dictionary_terms', {
+    });
+    if (getDictionaryTermsResult.status != 200) {
+      return new Error(getDictionaryTermsResult.message);
+    }
+    const dictionaryTerms = getDictionaryTermsResult.data;
+    const result: FunctionResult = {
+      status: 200,
+      message: "Success running getDictionaryTerms",
+      data: dictionaryTerms,
+    };
+    return result;
+  } catch(error) {
+    const result: FunctionResult = {
+      status: 500,
+      message: `❌ ${error.message}`,
+    };
+    console.error(result.message);
+    return result;
+  }
+}
+
 export function createObjectTypeDescriptions(objectTypes: any[], metadataTypes: any[]) {
   // TODO: possibly remove this and reuse createObjectMetadataFunctionProperties instead?
   // Returns a map where the keys are each object type's ID, and the values are:
@@ -224,6 +272,100 @@ export function createObjectTypeDescriptions(objectTypes: any[], metadataTypes: 
 
     return result;
   }, {} as Record<string, any>);
+}
+
+export function createObjectMetadataFunctionProperties(
+  objectTypes: any[],
+  metadataTypes: any[],
+  fieldTypes: any[],
+  dictionaryTerms: any[]
+): [Record<string, Record<string, any>>, Record<string, string[]>] {
+  // Creates two maps:  
+  // 1. `objectMetadataFunctionProperties` - A map where the key is the object ID and the value is a structured object describing for the AI how to create this object's metadata, including metadata where `related_object_type_id` is `null` and excluding those with `allow_ai_update` explicitly set to `false`.  
+  // 2. `objectMetadataFunctionPropertiesRequiredIds` - A map where the key is the metadata ID and the value is a list of all the metadata type ids where `is_required` property is `true` (if allow_ai_update marked as false, these will already be exlcuded from this even if is_required is set to true)
+
+  // Initialize the result maps
+  const objectMetadataFunctionProperties: Record<string, Record<string, any>> = {};
+  const objectMetadataFunctionPropertiesRequiredIds: Record<string, string[]> = {};
+
+  // Loop through each objectType
+  objectTypes.forEach((objectType) => {
+    // Filter metadata types relevant to this objectType
+    const relatedMetadata = metadataTypes.filter(
+      (meta) =>
+        (meta.related_object_type_id === objectType.id || meta.related_object_type_id === null) &&
+        meta.allow_ai_update !== false // Skip if allow_ai_update is false
+    );
+
+    // Initialize properties and required IDs
+    const properties: Record<string, any> = {};
+    const requiredIds: string[] = [];
+
+    // Populate properties and requiredIds
+    relatedMetadata.forEach((meta) => {
+      if (meta.allow_ai_update) {
+        const property: any = {};
+        let description = meta.description
+          ? `${meta.name}: ${meta.description}`
+          : meta.name;
+        if (meta.max_value) {
+          description += `\nThe max value is: ${meta.max_value}`;
+        }
+        if (meta.dictionary_term_type) {
+          // 1. List of IDs matching the given type.
+          const idsMatchingType = dictionaryTerms
+          .filter(term => term.type === meta.dictionary_term_type)
+          .map(term => term.id);
+
+          // 2. List of maps with id and description for matching items.
+          const mapsMatchingType = dictionaryTerms
+          .filter(term => term.type === meta.dictionary_term_type)
+          .map(term => ({ id: term.id, description: term.description }));
+
+          description += `\nDescriptions for the enums are: ${JSON.stringify(mapsMatchingType)}`;
+
+          property.enum = idsMatchingType;
+        }
+
+        property.description = description;
+  
+        const fieldTypeMap = fieldTypes.find((entry) => entry.id === meta.field_type_id);
+
+        // Assign data type by retrieving the data type based on the matching field_type_id
+        if (meta.is_required) {
+          property.type = fieldTypeMap.data_type; 
+        } else {
+          property.type = [fieldTypeMap.data_type, "null"]; // How we handle non-required fields in strict mode
+        }
+
+        if (fieldTypeMap.is_array) {
+          // If true, surround property within an array structure
+          const propertyArrContainer: any = {
+            type: "array",
+            description: `Array of ${meta.name} items`,
+            items: property,
+          };
+          properties[meta.id] = propertyArrContainer;
+        } else {
+          properties[meta.id] = property;
+        }
+
+        // Add all IDs to is_required (as we have to for strict mode - required is now determined via type property)
+        requiredIds.push(meta.id);
+      } else {
+        // Skipping metadata as allow_ai_update is false for objectType.id
+      }
+    });
+
+    // Assign to the maps
+    if (properties) {
+      objectMetadataFunctionProperties[objectType.id] = properties;
+    }
+    objectMetadataFunctionPropertiesRequiredIds[objectType.id] = requiredIds;
+  });
+
+  // Return both maps
+  return [objectMetadataFunctionProperties, objectMetadataFunctionPropertiesRequiredIds];
 }
 
 export function mergeRelatedIds(
@@ -280,17 +422,19 @@ export const VANILLA_SYSTEM_INSTRUCTION = `
 "user" = a user/customer of the organisation
 "object" = a piece of data stored in the organisation's DB (database)
 `;
-export const ASSISTANT_SYSTEM_INSTRUCTION = `
+export const VANILLA_ASSISTANT_SYSTEM_INSTRUCTION = `
 ${VANILLA_SYSTEM_INSTRUCTION}
+\n\nYou may need to create, read, update and delete signals and jobs. When creating signals, deeply analyse a given trigger, doing research like e.g. searching the object database or searching the web to uncover insight(s) that should be signals. If Athenic thinks a job(s) should also be carried out as a consequence of this analysis, do that.
 \n\nIterately work through the following task, using Function/Tool Calling and code generation where necessary.
 `;
+
 export const SLACK_REDIRECT_URI = "https://gvblzovvpfeepnhifwqh.supabase.co/functions/v1/auth/slack"
 // export const NLP_MODELS_LITE = ["microsoft/phi-3-medium-128k-instruct:free", "gpt-4o-mini"];
 // export const NLP_MODELS_FULL = ["microsoft/phi-3-medium-128k-instruct:free", "gpt-4o"];
 // export const NLP_MODELS_LITE = ["meta-llama/llama-3.2-11b-vision-instruct:free", "microsoft/phi-3-medium-128k-instruct:free", "microsoft/phi-3-mini-128k-instruct:free"];
 // export const NLP_MODELS_FULL = ["meta-llama/llama-3.2-11b-vision-instruct:free", "microsoft/phi-3-medium-128k-instruct:free", "microsoft/phi-3-mini-128k-instruct:free"];
 export const NLP_MODELS_LITE = ["gpt-4o-mini"];
-export const NLP_MODELS_FULL = ["gpt-4o"]; // TODO: change this in prod
+export const NLP_MODELS_FULL = ["gpt-4o-mini"]; // TODO: change this in prod
 export const NLP_EMBEDDING_MODEL = "text-embedding-3-small"; // Note: if you change this model, also change it in the client's code
 export const NLP_EMBEDDING_MAX_CHARS = 10000; // Note: if you change this model, also change it in the client's code. OpenAI's text-embedding-3-small has a token limit of 8191, so we're setting this to 10000 to be safe
 

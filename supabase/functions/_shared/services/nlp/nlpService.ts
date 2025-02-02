@@ -278,9 +278,10 @@ export class NlpService {
 
   async executeThread({
     prompt,
-    // Model controlled within /executables
+    assistantId
 }: {
     prompt: string;
+    assistantId: any
 }) {
     if (!prompt) {
       throw new Error("No text provided for executeThread");
@@ -288,12 +289,6 @@ export class NlpService {
 
     try {
       console.log(`executeThread called with prompt: ${prompt}`);
-
-      const createGeneralAssistantResult = await this.createGeneralAssistant();
-      if (createGeneralAssistantResult.status !== 200) {
-        throw new Error(createGeneralAssistantResult.message);
-      }
-      const assistantId = createGeneralAssistantResult.data;
 
       // TODO: currently haven't added support for chat history - add this!
       const messages = [
@@ -383,14 +378,19 @@ export class NlpService {
             threadRun.status === "expired" ||
             threadRun.status === "failed"
         ) {
-          threadRunHistory.push(`[${runLoop}] Thread run failed with status: ${threadRun.status}`);
+          // Log the failure reason if available
+          const failureReason = threadRun.last_error?.message || "Unknown error";
+            
+          threadRunHistory.push(`[${runLoop}] Thread run failed with status: ${threadRun.status}\nReason: ${failureReason}`);
+
           console.log(`threadRun failed with run history:\n${threadRunHistory.join("\n-----\n")}`);
+
           const result: FunctionResult = {
             status: 500,
-            message: `Oops! I was unable to get a result (${threadRun.status}). Please try again shortly.`
+            message: `Oops! I was unable to get a result (${threadRun.status}). Reason: ${failureReason}. Please try again shortly.`
           };
           return result;
-        }
+          }
 
         threadRun = await this.clientOpenAi.beta.threads.runs.retrieve(
             thread.id,
@@ -434,8 +434,49 @@ export class NlpService {
 
       const assistant = await this.clientOpenAi.beta.assistants.create({
         name: "General Athenic AI Assistant",
-        instructions: `You have been tasked with helping the member to create, read, update and delete signals and jobs. When creating signals, deeply analyse a given trigger, doing research like e.g. searching the object database or searching the web to uncover insight(s) that should be signals. If Athenic thinks a job(s) should also be carried out as a consequence of this analysis, do that`,
+        instructions: config.VANILLA_ASSISTANT_SYSTEM_INSTRUCTION,
         tools: generalAssisantTools,
+        temperature: 0.5,
+        model: config.NLP_MODELS_FULL[0],
+      });  
+
+      if (!assistant || !assistant.id) {
+        throw new Error("Unable to create assistant");
+      }
+
+      const result: FunctionResult = {
+        status: 200,
+        message: `Created assistant successfully`,
+        data: assistant.id,
+      };
+      return result;
+    } catch (error) {
+      console.log(`Error creating assistant: ${error.message}`);
+      const result: FunctionResult = {
+        status: 500,
+        message: `Oops! I was unable to get a result (${error.message}). Please try again shortly.`
+      };
+      return result;
+    }
+  }
+
+  async createEcommerceAssistant(): Promise<FunctionResult> {
+    // TODO: Reuse assistant instead of creating one during every call!
+    try {
+      console.log("createEcommerceAssistant called");
+
+      await this.updateFunctionDeclarations({
+        functionGroupsIncluded: ["nlpFunctionsEcommerce"], // TODO: add "nlpFunctionsData"
+      }); // Support all functions by default within the groups included by not specifying functionsIncluded
+
+      const ecommerceAssisantTools = [...this.functionDeclarations]; // Shallow copy to avoid affecting this.functionDeclarations
+      ecommerceAssisantTools.push({"type": "code_interpreter"}); // Adding support for code interpreter
+
+      const assistant = await this.clientOpenAi.beta.assistants.create({
+        name: "Ecommerce Athenic AI Assistant",
+        instructions: `${config.VANILLA_ASSISTANT_SYSTEM_INSTRUCTION}
+        \n\nYou have been specifically been given the additional scope of supporting with ecommerce-related work.`,
+        tools: ecommerceAssisantTools,
         temperature: 0.5,
         model: config.NLP_MODELS_FULL[0],
       });  

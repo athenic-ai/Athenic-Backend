@@ -1,9 +1,3 @@
-// import { defineSecret } from "firebase-functions/params";
-// import { Readable } from "stream";
-// import csv from "csv-parser";
-// import NLPGeminiPlugin from "../plugins/nlp/nlpGeminiPlugin";
-// const geminiApiKeySecret = defineSecret("GEMINI_API_KEY");
-
 import * as config from "../../_shared/configs/index.ts";
 import { StorageService } from "../services/storage/storageService.ts";
 import { NlpService } from "../services/nlp/nlpService.ts";
@@ -41,7 +35,7 @@ export class UpsertDataJob<T> {
 }): Promise<any> {
     console.log(`[I:${initialCall}] Processing data from connection: ${connection} and dryRun: ${dryRun} and dataIn: ${JSON.stringify(dataIn)}`);
 
-    let dataContents, objectTypeId;
+    let dataContents, objectTypeId, assistantId;
     try {
       await this.nlpService.initialiseClientCore();
       await this.nlpService.initialiseClientOpenAi();
@@ -81,7 +75,7 @@ export class UpsertDataJob<T> {
       }
 
       if (!fieldTypes) {
-        const getFieldTypesResult = await this.getFieldTypes();
+        const getFieldTypesResult = await config.getFieldTypes({storageService: this.storageService});
         if (getFieldTypesResult.status != 200) {
           throw Error(getFieldTypesResult.message);
         }
@@ -89,7 +83,7 @@ export class UpsertDataJob<T> {
       }
 
       if (!dictionaryTerms) {
-        const getDictionaryTermsResult = await this.getDictionaryTerms();
+        const getDictionaryTermsResult = await config.getDictionaryTerms({storageService: this.storageService});
         if (getDictionaryTermsResult.status != 200) {
           throw Error(getDictionaryTermsResult.message);
         }
@@ -100,7 +94,7 @@ export class UpsertDataJob<T> {
         objectTypeDescriptions = config.createObjectTypeDescriptions(objectTypes, objectMetadataTypes); // Example output: {"product":{"name":"Product","description":"An item that is sold to users by teams (e.g. Apple Music is sold to users by Apple).","metadata":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}},"ids":{"description":"In the form:\n   \"android/ios/...\"\n      -> \"id\"","type":"object"}}},"feedback":{"name":"Feedback","description":"Feedback from users about topics such as a product, service, experience or even the organisation in general.","metadata":{"author_name":{"description":"Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}}
       }
 
-      const [objectMetadataFunctionProperties, objectMetadataFunctionPropertiesRequiredIds] = this.createObjectMetadataFunctionProperties(objectTypes, objectMetadataTypes, fieldTypes, dictionaryTerms); // Example output: {"product":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}}},"feedback":{"author_name":{"description":"Author name: Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Deal size: Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}
+      const [objectMetadataFunctionProperties, objectMetadataFunctionPropertiesRequiredIds] = config.createObjectMetadataFunctionProperties(objectTypes, objectMetadataTypes, fieldTypes, dictionaryTerms); // Example output: {"product":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}}},"feedback":{"author_name":{"description":"Author name: Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Deal size: Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}
 
       this.nlpService.setMemberVariables({
         organisationId,
@@ -145,6 +139,17 @@ export class UpsertDataJob<T> {
         objectTypeId = predictObjectTypeBeingReferencedResult.data;
       }
       console.log(`[I:${initialCall}] ✅ Completed "Step 4: Determine which object type the data relates to", with objectTypeId: ${objectTypeId}`);
+
+      // -----------Step 5: Get the relevant assistant id-----------
+      console.log(`[I:${initialCall}] ⏭️ Starting "Step 5: Get the relevant assistant id"`);
+      // (Currently hardcoded to just create a general assistant)
+      const createGeneralAssistantResult = await this.nlpService.createGeneralAssistant();
+      if (createGeneralAssistantResult.status !== 200) {
+        throw new Error(createGeneralAssistantResult.message);
+      }
+      assistantId = createGeneralAssistantResult.data;
+      console.log(`[I:${initialCall}] ✅ Completed "Step 5: Get the relevant assistant id", with assistantId: ${assistantId}`);
+
     } catch (error) {
       // If haven't even managed to get past this stage, assume it's a critical error and return at this stage
       const result: FunctionResult = {
@@ -154,8 +159,8 @@ export class UpsertDataJob<T> {
       return result;
     }
 
-    // -----------Step 5: Process the data using the chosen object type's metadata----------- 
-    console.log(`[I:${initialCall}] ⏭️ Step 5: Process the data using the chosen object type's metadata"`);
+    // -----------Step 6: Process the data using the chosen object type's metadata----------- 
+    console.log(`[I:${initialCall}] ⏭️ Step 6: Process the data using the chosen object type's metadata"`);
     if (!Array.isArray(dataContents)) {
       console.log(`[I:${initialCall}] dataContents is not array so converting it to one (it's currently a ${typeof dataContents}. dataContents: ${dataContents})`);
       dataContents = [dataContents]; // Make it a list if not already so that it can be iterated on below
@@ -174,8 +179,8 @@ export class UpsertDataJob<T> {
           selectedObjectTypeId: objectTypeId,
         });
 
-        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5a: Process the given data item", with item: ${config.stringify(dataContentsItem)} and objectTypeId: ${objectTypeId}`);
-        // -----------Step 5a: Process the given data item----------- 
+        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 6a: Process the given data item", with item: ${config.stringify(dataContentsItem)} and objectTypeId: ${objectTypeId}`);
+        // -----------Step 6a: Process the given data item----------- 
         let processDataPrompt = `You MUST call the 'processDataUsingGivenObjectsMetadataStructure' function to process the following data:\n${config.stringify(dataContentsItem)}
         \n\nTo help, the object type you will be creating is called ${objectTypeDescriptions[objectTypeId].name}, and its description is: ${objectTypeDescriptions[objectTypeId].description}.`;
         if (dataIn.companyMetadata && dataIn.companyMetadata.dataDescription) {
@@ -203,25 +208,25 @@ export class UpsertDataJob<T> {
         if (!newObjectData) {
           throw Error("Failed to process data using the given object's metadata structure");
         }
-        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5a: Process the given data item", with newObjectData: ${JSON.stringify(newObjectData)}`);
+        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6a: Process the given data item", with newObjectData: ${JSON.stringify(newObjectData)}`);
   
-        // -----------Step 5b: If object type demands a parent object, determine which object should be the parent-----------
-        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5b: If object type demands a parent object, determine which object should be the parent"`);
+        // -----------Step 6b: If object type demands a parent object, determine which object should be the parent-----------
+        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 6b: If object type demands a parent object, determine which object should be the parent"`);
         if (dataIn.companyMetadata && dataIn.companyMetadata.parentObject) {
           // Add immediately if explictly provided, as long as it's a standard data type
           const providedObjectType = objectTypes.find(obj => obj.id === dataIn.companyMetadata.parentObject.related_object_type_id);
           if (providedObjectType && providedObjectType.category === "organisation_data_standard") {
             newObjectData.metadata.parent_id = dataIn.companyMetadata.parentObject.id;
-            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5b: Auto assigned object's parent", with: parent id: ${newObjectData.metadata.parent_id}, newObjectData: ${config.stringify(newObjectData)} and dataContents: ${config.stringify(dataContents)}`);  
+            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6b: Auto assigned object's parent", with: parent id: ${newObjectData.metadata.parent_id}, newObjectData: ${config.stringify(newObjectData)} and dataContents: ${config.stringify(dataContents)}`);  
           } else {
-            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5b: Auto assigned object's parent" (didn't assign as parent missing or not standard) with: providedObjectType: ${config.stringify(providedObjectType)}, dataContents: ${config.stringify(dataContents)}`);  
+            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6b: Auto assigned object's parent" (didn't assign as parent missing or not standard) with: providedObjectType: ${config.stringify(providedObjectType)}, dataContents: ${config.stringify(dataContents)}`);  
           }
         } else {
           console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] Investigating potential parent object, with objectTypes: ${config.stringify(objectTypes)} and objectTypeId: ${objectTypeId}`);
           const predictedObjectType = objectTypes.find(obj => obj.id === objectTypeId);
           if (predictedObjectType && predictedObjectType.parent_object_type_id) {
-            // Step 5bi: Retrieve all objects of this type
-            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5bi: Retrieve all objects of this type"`);
+            // Step 6bi: Retrieve all objects of this type
+            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 6bi: Retrieve all objects of this type"`);
             const parentObjectTypeId = predictedObjectType.parent_object_type_id;
             const getPotentialParentObjectsResult = await this.storageService.getRows(config.OBJECT_TABLE_NAME, {
               whereOrConditions: [
@@ -233,15 +238,15 @@ export class UpsertDataJob<T> {
               ],
             });
             const potentialParentObjects = getPotentialParentObjectsResult.data;
-            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5bi: Retrieve all objects of this type", with: ${JSON.stringify(potentialParentObjects)}`);
+            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6bi: Retrieve all objects of this type", with: ${JSON.stringify(potentialParentObjects)}`);
             if (potentialParentObjects && potentialParentObjects.length) {
               // If there are actually some parent objects found
               const potentialParentObjectsIds = potentialParentObjects.map(item => item.id); // List of strings of the ID of each object type
               this.nlpService.setMemberVariables({
                 selectedObjectPotentialParentIds: potentialParentObjectsIds,
               });
-              // Step 5bii: Predict the appropriate object's parent
-              console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5bii: Predict the appropriate object's parent"`);
+              // Step 6bii: Predict the appropriate object's parent
+              console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 6bii: Predict the appropriate object's parent"`);
     
               const newObjectDataCopyLimitedData = structuredClone(newObjectData); // Create a deep copy
               delete newObjectDataCopyLimitedData.id; // Remove the `id` key to help avoid the NLP getting confused and choosing this id as the chosen parent id
@@ -256,12 +261,12 @@ export class UpsertDataJob<T> {
                 functionsIncluded: ["predictObjectParent"],
                 useLiteModels: true,
               });
-              console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5bii: Predict the appropriate object's parent", with: ${JSON.stringify(predictObjectParentResult)}`)
+              console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6bii: Predict the appropriate object's parent", with: ${JSON.stringify(predictObjectParentResult)}`)
               if (predictObjectParentResult.status == 200 && predictObjectParentResult.data) {
-                // Step 5biii: Assign a parent object assuming one could be found
-                console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5biii: Assign a parent object assuming one could be found, with newObjectData: ${config.stringify(newObjectData)} and predictedObjectType: ${config.stringify(predictedObjectType)}"`);
+                // Step 6biii: Assign a parent object assuming one could be found
+                console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 6biii: Assign a parent object assuming one could be found, with newObjectData: ${config.stringify(newObjectData)} and predictedObjectType: ${config.stringify(predictedObjectType)}"`);
                 newObjectData.metadata.parent_id = predictObjectParentResult.data;
-                console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5biii: Assign a parent object assuming one could be found", with: ${JSON.stringify(newObjectData)}`);
+                console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6biii: Assign a parent object assuming one could be found", with: ${JSON.stringify(newObjectData)}`);
               }
             } else {
               console.log("Not adding parent to object as no objects of suitable type found");
@@ -271,8 +276,8 @@ export class UpsertDataJob<T> {
           }
         }
         
-        // -----------Step 5c: Save object as appropriate-----------
-        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5c: Save object as appropriate"`);
+        // -----------Step 6c: Save object as appropriate-----------
+        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 6c: Save object as appropriate"`);
         if (dryRun) {
           // Not actually saving data if dry run, just returning what would be saved
           dataContentsOutcomes.push(newObjectData);
@@ -377,10 +382,10 @@ export class UpsertDataJob<T> {
 
             objectThatWasStored = newObjectData;
           }
-          console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5c: Save object as appropriate", with: dryRun: ${dryRun}`);
+          console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6c: Save object as appropriate", with: dryRun: ${dryRun}`);
 
-          // -----------Step 5d: Do some related work post-object storage-----------
-          console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5d: Do some related work post-object storage"`);
+          // -----------Step 6d: Do some related work post-object storage-----------
+          console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 6d: Do some related work post-object storage"`);
           if (this.nlpService.relatedObjectIds) {
             console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] this.nlpService.relatedObjectIds: ${JSON.stringify(this.nlpService.relatedObjectIds)}`);
             // Iterate through each type and its related IDs in the map
@@ -424,9 +429,9 @@ export class UpsertDataJob<T> {
 
           // Only want to add a signal to the original data call, otherwise will keep calling upsertDataJob infinitely
           if (initialCall) {
-            const assistantPrompt = `${config.ASSISTANT_SYSTEM_INSTRUCTION}
-            \nBear in mind:
-            \n\n - New data has just been stored in Athenic. Critically analyse this data as the Athenic AI, making tool calls when necessary, and then based on your analysis, you MUST store one signal object type, and if any job(s) need doing, create object type(s) too.
+            const assistantPrompt = `
+            \n\nNew data has just been stored in Athenic. Critically analyse this data as the Athenic AI, making tool calls when necessary, and then based on your analysis, you MUST store one signal object type, and if any job(s) need doing, create object type(s) too.
+            \n\nBear in mind:
             \n\n - For context, signals are described as:\n${objectTypeDescriptions[config.OBJECT_TYPE_ID_SIGNAL].description}.
             \n\n - For context, jobs are described as:\n${objectTypeDescriptions[config.OBJECT_TYPE_ID_JOB].description}.
             \n\n - Don't ask for clarification or approval before taking action, as the your reply won't be seen by the member. Just make your best guess.
@@ -434,12 +439,13 @@ export class UpsertDataJob<T> {
   
             await this.nlpService.executeThread({
               prompt: assistantPrompt,
+              assistantId
             });
 
             this.nlpService.relatedObjectIds = null; // Reset this prior to next iteration
           }
         }
-        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5d: Do some related work post-object storage"`);
+        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6d: Do some related work post-object storage"`);
       }
       catch (error) {
         dataContentsFailures.push(`Failed to process data with error: ${error.message}.\n Data: ${config.stringify(dataContentsItem)}.`);
@@ -463,147 +469,5 @@ export class UpsertDataJob<T> {
       };
       return result;
     }
-  }
-
-  private async getFieldTypes(): Promise<FunctionResult> {
-    try {
-      const getFieldTypesResult = await this.storageService.getRows('field_types', {
-      });
-      if (getFieldTypesResult.status != 200) {
-        return new Error(getFieldTypesResult.message);
-      }
-      const fieldTypes = getFieldTypesResult.data;
-      const result: FunctionResult = {
-        status: 200,
-        message: "Success running getFieldTypes",
-        data: fieldTypes,
-      };
-      return result;
-    } catch(error) {
-      const result: FunctionResult = {
-        status: 500,
-        message: `❌ ${error.message}`,
-      };
-      console.error(result.message);
-      return result;
-    }
-  }
-
-  private async getDictionaryTerms(): Promise<FunctionResult> {
-    try {
-      const getDictionaryTermsResult = await this.storageService.getRows('dictionary_terms', {
-      });
-      if (getDictionaryTermsResult.status != 200) {
-        return new Error(getDictionaryTermsResult.message);
-      }
-      const dictionaryTerms = getDictionaryTermsResult.data;
-      const result: FunctionResult = {
-        status: 200,
-        message: "Success running getDictionaryTerms",
-        data: dictionaryTerms,
-      };
-      return result;
-    } catch(error) {
-      const result: FunctionResult = {
-        status: 500,
-        message: `❌ ${error.message}`,
-      };
-      console.error(result.message);
-      return result;
-    }
-  }
-
-  private createObjectMetadataFunctionProperties(
-    objectTypes: any[],
-    metadataTypes: any[],
-    fieldTypes: any[],
-    dictionaryTerms: any[]
-  ): [Record<string, Record<string, any>>, Record<string, string[]>] {
-    // Creates two maps:  
-    // 1. `objectMetadataFunctionProperties` - A map where the key is the object ID and the value is a structured object describing for the AI how to create this object's metadata, including metadata where `related_object_type_id` is `null` and excluding those with `allow_ai_update` explicitly set to `false`.  
-    // 2. `objectMetadataFunctionPropertiesRequiredIds` - A map where the key is the metadata ID and the value is a list of all the metadata type ids where `is_required` property is `true` (if allow_ai_update marked as false, these will already be exlcuded from this even if is_required is set to true)
-  
-    // Initialize the result maps
-    const objectMetadataFunctionProperties: Record<string, Record<string, any>> = {};
-    const objectMetadataFunctionPropertiesRequiredIds: Record<string, string[]> = {};
-  
-    // Loop through each objectType
-    objectTypes.forEach((objectType) => {
-      // Filter metadata types relevant to this objectType
-      const relatedMetadata = metadataTypes.filter(
-        (meta) =>
-          (meta.related_object_type_id === objectType.id || meta.related_object_type_id === null) &&
-          meta.allow_ai_update !== false // Skip if allow_ai_update is false
-      );
-  
-      // Initialize properties and required IDs
-      const properties: Record<string, any> = {};
-      const requiredIds: string[] = [];
-  
-      // Populate properties and requiredIds
-      relatedMetadata.forEach((meta) => {
-        if (meta.allow_ai_update) {
-          const property: any = {};
-          let description = meta.description
-            ? `${meta.name}: ${meta.description}`
-            : meta.name;
-          if (meta.max_value) {
-            description += `\nThe max value is: ${meta.max_value}`;
-          }
-          if (meta.dictionary_term_type) {
-            // 1. List of IDs matching the given type.
-            const idsMatchingType = dictionaryTerms
-            .filter(term => term.type === meta.dictionary_term_type)
-            .map(term => term.id);
-
-            // 2. List of maps with id and description for matching items.
-            const mapsMatchingType = dictionaryTerms
-            .filter(term => term.type === meta.dictionary_term_type)
-            .map(term => ({ id: term.id, description: term.description }));
-
-            description += `\nDescriptions for the enums are: ${JSON.stringify(mapsMatchingType)}`;
-
-            property.enum = idsMatchingType;
-          }
-
-          property.description = description;
-    
-          const fieldTypeMap = fieldTypes.find((entry) => entry.id === meta.field_type_id);
-
-          // Assign data type by retrieving the data type based on the matching field_type_id
-          if (meta.is_required) {
-            property.type = fieldTypeMap.data_type; 
-          } else {
-            property.type = [fieldTypeMap.data_type, "null"]; // How we handle non-required fields in strict mode
-          }
-
-          if (fieldTypeMap.is_array) {
-            // If true, surround property within an array structure
-            const propertyArrContainer: any = {
-              type: "array",
-              description: `Array of ${meta.name} items`,
-              items: property,
-            };
-            properties[meta.id] = propertyArrContainer;
-          } else {
-            properties[meta.id] = property;
-          }
-
-          // Add all IDs to is_required (as we have to for strict mode - required is now determined via type property)
-          requiredIds.push(meta.id);
-        } else {
-          // Skipping metadata as allow_ai_update is false for objectType.id
-        }
-      });
-  
-      // Assign to the maps
-      if (properties) {
-        objectMetadataFunctionProperties[objectType.id] = properties;
-      }
-      objectMetadataFunctionPropertiesRequiredIds[objectType.id] = requiredIds;
-    });
-  
-    // Return both maps
-    return [objectMetadataFunctionProperties, objectMetadataFunctionPropertiesRequiredIds];
   }
 }

@@ -1,5 +1,6 @@
 import * as nlpFunctionsData from "./nlpFunctionsData.ts";
 import * as nlpFunctionsDataHelpers from "./nlpFunctionsDataHelpers.ts";
+import * as nlpFunctionsEcommerce from "./nlpFunctionsEcommerce.ts";
 
 // Define the base class
 export class NlpFunctionsBase {
@@ -10,6 +11,7 @@ export class NlpFunctionsBase {
   private moduleMap: Record<string, any> = {
     'nlpFunctionsData': nlpFunctionsData,
     'nlpFunctionsDataHelpers': nlpFunctionsDataHelpers,
+    'nlpFunctionsEcommerce': nlpFunctionsEcommerce,
   };
 
   constructor(parent: any) {
