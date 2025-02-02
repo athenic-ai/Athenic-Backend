@@ -8,6 +8,8 @@ import { UpsertDataJob } from '../_shared/jobs/upsertDataJob.ts';
 import { NlpService } from "../_shared/services/nlp/nlpService.ts";
 import * as config from "../_shared/configs/index.ts";
 
+config.initSentry(); // Initialise Sentry
+
 const app = express();
 const port = 3000;
 
@@ -99,6 +101,7 @@ app.post('/data/con/:connection/typ/:datatype/dry/:dryrun', async (req, res) => 
     }
   } catch (error) {
     console.error(`Error in /data/:connection/:type: ${error.message}`);
+    config.Sentry.captureException(error); // Capture the error in Sentry
     res.status(500).send(error.message);
   }
 });

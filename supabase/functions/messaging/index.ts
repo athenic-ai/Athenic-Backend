@@ -6,6 +6,8 @@ import bodyParser from 'npm:body-parser';
 import { ProcessMessageJob } from '../_shared/jobs/processMessageJob.ts';
 import * as config from "../_shared/configs/index.ts";
 
+config.initSentry(); // Initialise Sentry
+
 const app = express();
 const port = 3000;
 
@@ -76,6 +78,7 @@ app.post('/messaging/con/:connection', async (req, res) => {
     res.status(processMessageJobResult.status).send(processMessageJobResult.data);
   } catch (error) {
     console.error(`Error in /messaging/:connection/:type: ${error.message}`);
+    config.Sentry.captureException(error); // Capture the error in Sentry
     res.status(500).send(error.message);  }
 });
 

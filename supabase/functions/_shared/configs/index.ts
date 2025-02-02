@@ -1,4 +1,5 @@
 import { EcommerceService } from "../services/ecommerce/ecommerceService.ts";
+import * as Sentry from 'https://deno.land/x/sentry/index.mjs'
 
 // Interfaces
 export interface FunctionResult<T = unknown> {
@@ -32,6 +33,20 @@ export function stringify(obj: any): string {
   cache = null; // reset the cache
   return str;
 }
+ 
+export function initSentry() {
+  Sentry.init({
+    dsn: Deno.env.get('SENTRY_DSN'),
+    defaultIntegrations: false,
+    tracesSampleRate: 1.0,
+    profilesSampleRate: 1.0,
+  })
+
+  // Set region and execution_id as custom tags
+  Sentry.setTag('region', Deno.env.get('SB_REGION') || 'unknown')
+  Sentry.setTag('execution_id', Deno.env.get('SB_EXECUTION_ID') || 'unknown')
+}
+export { Sentry } // Export this variable so it can then be used
 
 export async function inferOrganisation({ connection, dataIn, req, storageService }: { connection: string; dataIn: T; req: express.Request; storageService: StorageService }): Promise<FunctionResult> {
   try {

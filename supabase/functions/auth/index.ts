@@ -7,6 +7,8 @@ import { EcommerceService } from '../_shared/services/ecommerce/ecommerceService
 import { MessagingService } from '../_shared/services/messaging/messagingService.ts';
 import * as config from "../_shared/configs/index.ts";
 
+config.initSentry(); // Initialise Sentry
+
 const app = express();
 const port = 3000;
 
@@ -45,6 +47,7 @@ app.get('/auth/:connection', async (req, res) => {
     }
   } catch (error) {
     console.error(`Error in /auth/:connection: ${error.message}`);
+    config.Sentry.captureException(error); // Capture the error in Sentry
     res.status(500).send(error.message);
   }
 });
