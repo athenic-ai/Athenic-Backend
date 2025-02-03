@@ -461,41 +461,55 @@ export async function initialiseFunctions(baseInstance: any) {
         function: {
           name: "updateShopifyProduct",
           description:
-            "Update an existing Shopify product by providing its ID and the fields to modify.",
+            "Update an existing product by ID, including fields like title, description, vendor, tags, and optionally update variant pricing (sale price).",
           strict: true,
           parameters: {
             type: "object",
             properties: {
               productId: {
                 type: ["string", "null"],
-                description: "ID of the product to update",
+                description: "ID of the product to update"
               },
               title: {
                 type: ["string", "null"],
-                description: "Updated title of the product",
+                description: "Updated title of the product"
               },
               body_html: {
                 type: ["string", "null"],
-                description: "Updated HTML description",
+                description: "Updated product description in HTML"
               },
               vendor: {
                 type: ["string", "null"],
-                description: "Updated vendor",
+                description: "Updated vendor information"
               },
               product_type: {
                 type: ["string", "null"],
-                description: "Updated product type",
+                description: "Updated product type"
               },
               tags: {
                 type: ["array", "null"],
                 items: { type: "string" },
-                description: "Updated array of tags",
+                description: "Updated list of tags"
               },
+              variants: {
+                type: ["array", "null"],
+                description: "Optional array to update variant pricing details",
+                items: {
+                  type: "object",
+                  properties: {
+                    variantId: { type: ["string", "null"] },
+                    price: { type: ["number", "null"], description: "New sale price" },
+                    compare_at_price: { type: ["number", "null"], description: "Previous price for comparison" }
+                  },
+                  required: ["variantId", "price", "compare_at_price"],
+                  additionalProperties: false
+                }
+              }
             },
-            required: ["productId", "title", "body_html", "vendor", "product_type", "tags"],
-            additionalProperties: false,
-          },
-        },
+            required: ["productId", "title", "body_html", "vendor", "product_type", "tags", "variants"],
+            additionalProperties: false
+          }
+        }
       },
       implementation: async ({
         productId,
@@ -504,6 +518,7 @@ export async function initialiseFunctions(baseInstance: any) {
         vendor,
         product_type,
         tags,
+        variants
       }: {
         productId?: string;
         title?: string;
@@ -511,11 +526,12 @@ export async function initialiseFunctions(baseInstance: any) {
         vendor?: string;
         product_type?: string;
         tags?: string[];
+        variants?: Array<{variantId?: string; price?: number; compare_at_price?: number}>;
       }) => {
         try {
           console.log(`updateShopifyProduct called for productId: ${productId}`);
-
-          const payload = {
+    
+          const payload: any = {
             product: {
               id: productId,
               title,
@@ -525,7 +541,16 @@ export async function initialiseFunctions(baseInstance: any) {
               tags,
             },
           };
-
+    
+          // If variants information is supplied, add it to the payload for updating variant prices.
+          if (variants && Array.isArray(variants)) {
+            payload.product.variants = variants.map((variant) => ({
+              id: variant.variantId,
+              price: variant.price,
+              compare_at_price: variant.compare_at_price,
+            }));
+          }
+    
           const response = await shopifyAPI.put(
             `/admin/api/2024-01/products/${productId}.json`,
             payload,
@@ -539,10 +564,11 @@ export async function initialiseFunctions(baseInstance: any) {
             });
             throw error;
           });
-
+    
           const data = response.data || response;
+    
           console.log(`updateShopifyProduct response: ${config.stringify(data)}`);
-
+    
           return {
             status: 200,
             message: "Product updated successfully",
@@ -551,12 +577,12 @@ export async function initialiseFunctions(baseInstance: any) {
         } catch (error) {
           return {
             status: 500,
-            message:
-              "❌ Error in updateShopifyProduct: " + error.message,
+            message: "❌ Error in updateShopifyProduct: " + error.message,
           };
         }
       },
     };
+    
 
     /*************** deleteShopifyProduct Function ***************/
     console.log("Attempting to initialise deleteShopifyProduct");
