@@ -279,57 +279,53 @@ export class NlpService {
   async executeThread({
     prompt,
     assistantId
-}: {
+  }: {
     prompt: string;
     assistantId: any
-}) {
+  }) {
     if (!prompt) {
       throw new Error("No text provided for executeThread");
     }
-
+  
     try {
       console.log(`executeThread called with prompt: ${prompt}`);
-              
-      // // TEST
-      // const chosenFunctionImplementation = this.nlpFunctionsBase.nlpFunctions.searchShopifyProducts.implementation;
-      // const functionResult = await chosenFunctionImplementation({"query": "snow"});
-      // console.log(`functionResult.message: ${functionResult.message}`);
-      // return true;
-      
-
+  
       // TODO: currently haven't added support for chat history - add this!
       const messages = [
         {"role": "user", "content": prompt}, // system not supported when using assistant. 
       ];
-
+  
       console.log(`messages: ${JSON.stringify(messages)}`);
-
+  
       const thread = await this.clientOpenAi.beta.threads.create({
         messages: messages,
       });
-
+  
       console.log(`thread created with id: ${thread.id}`);
-
+  
+      // Create a list of available functions to include in the error messages
+      const availableFunctions = Object.keys(this.nlpFunctionsBase.nlpFunctions);
+      
       let threadRun = await this.clientOpenAi.beta.threads.runs.create(
-          thread.id,
-          {assistant_id: assistantId},
+        thread.id,
+        {
+          assistant_id: assistantId,
+        },
       );
-
-      console.log(`threadRun created: \nWith threadRun: ${config.stringify(threadRun)}\n\nWith accessible nlpFunctions: ${Object.keys(this.nlpFunctionsBase.nlpFunctions)}`);
-
+  
+      console.log(`threadRun created: \nWith threadRun: ${config.stringify(threadRun)}\n\nWith accessible nlpFunctions: ${availableFunctions}`);
+  
       let runLoop = 1;
       const threadRunHistory: string[] = [];
       while (true) {
         if (threadRun.status === "requires_action") {
           const toolOutputs: Array<{ tool_call_id: string; output: any }> = [];
           const toolCalls = (
-            threadRun &&
-            threadRun.required_action &&
-            threadRun.required_action.submit_tool_outputs &&
-            Array.isArray(threadRun.required_action.submit_tool_outputs.tool_calls)
-          ) ? threadRun.required_action.submit_tool_outputs.tool_calls : []; // assign functions to toolCalls if there are any
+            threadRun?.required_action?.submit_tool_outputs?.tool_calls
+          ) ?? []; 
+  
           console.log(`[${runLoop}] threadRun requires action(s)\n${JSON.stringify(toolCalls)}`);
-
+  
           // Run tool calls sequentially (if in parallel, can cause some conflicts)
           for (const toolCall of toolCalls) {
             if (toolCall.type === "function") {
@@ -338,37 +334,68 @@ export class NlpService {
               
               console.log(`[${runLoop}] Function called: ${functionName} with arguments: ${JSON.stringify(functionArgs)}`);
               
-              // Select and execute the specific function implementation
-              const chosenFunctionImplementation = this.nlpFunctionsBase.nlpFunctions[functionName].implementation;
-              const functionResult = await chosenFunctionImplementation(functionArgs);
+              // Check if the function exists before trying to execute it
+              if (!this.nlpFunctionsBase.nlpFunctions[functionName]) {
+                const errorMessage = `Function "${functionName}" not found. Available functions are: ${availableFunctions.join(", ")}`;
+                console.error(errorMessage);
+                
+                // Add error output to tool outputs
+                toolOutputs.push({
+                  tool_call_id: toolCall.id,
+                  output: JSON.stringify({
+                    status: 404,
+                    error: errorMessage
+                  })
+                });
+                
+                threadRunHistory.push(`[${runLoop}] Error: ${errorMessage}`);
+                continue; // Skip to next tool call
+              }
               
-              // Log the function execution details
-              threadRunHistory.push(`[${runLoop}] Ran function: ${functionName}\nArguments: ${JSON.stringify(functionArgs)}\nResult: ${functionResult.message}`);
-              
-              // Add function output to tool outputs
-              toolOutputs.push({
-                tool_call_id: toolCall.id, 
-                output: config.stringify(functionResult)
-              });
+              try {
+                // Select and execute the specific function implementation
+                const chosenFunctionImplementation = this.nlpFunctionsBase.nlpFunctions[functionName].implementation;
+                const functionResult = await chosenFunctionImplementation(functionArgs);
+                
+                // Log the function execution details
+                threadRunHistory.push(`[${runLoop}] Ran function: ${functionName}\nArguments: ${JSON.stringify(functionArgs)}\nResult: ${functionResult.message}`);
+                
+                // Add function output to tool outputs
+                toolOutputs.push({
+                  tool_call_id: toolCall.id, 
+                  output: config.stringify(functionResult)
+                });
+              } catch (error) {
+                const errorMessage = `Error executing function "${functionName}": ${error.message}`;
+                console.error(errorMessage);
+                
+                toolOutputs.push({
+                  tool_call_id: toolCall.id,
+                  output: JSON.stringify({
+                    status: 500,
+                    error: errorMessage
+                  })
+                });
+                
+                threadRunHistory.push(`[${runLoop}] Error: ${errorMessage}`);
+              }
             }
           }
-
+  
           console.log(`toolOutputs: ${JSON.stringify(toolOutputs)}`);
-
-          // const outputs = await config.sandbox.openai.actions.run(threadRun); // Orig code, seemingly calling OpenAI within the sandbox (not within the Firebase Function)
+  
           if (toolOutputs.length > 0) {
-            // Run found function (ie. "tool")
             await this.clientOpenAi.beta.threads.runs.submitToolOutputs(
-                thread.id,
-                threadRun.id,
-                {tool_outputs: toolOutputs},
+              thread.id,
+              threadRun.id,
+              {tool_outputs: toolOutputs},
             );
           }
         } else if (threadRun.status === "completed") {
           console.log("\n✅ Run completed");
           const messages = (await this.clientOpenAi.beta.threads.messages.list(thread.id)).data[0].content;
           const textMessages = messages.filter(
-              (message) => message.type === "text",
+            (message) => message.type === "text",
           );
           threadRunHistory.push(`[${runLoop}] Thread run completed with first text message:\n${textMessages[0].text.value}`);
           console.log(`threadRun completed with run history:\n${threadRunHistory.join("\n-----\n")}`);
@@ -380,30 +407,27 @@ export class NlpService {
         } else if (threadRun.status === "queued" || threadRun.status === "in_progress") {
           // Do nothing, wait for completion
         } else if (
-          threadRun.status === "cancelled" ||
-            threadRun.status === "cancelling" ||
-            threadRun.status === "expired" ||
-            threadRun.status === "failed"
+          ["cancelled", "cancelling", "expired", "failed"].includes(threadRun.status)
         ) {
           // Log the failure reason if available
           const failureReason = threadRun.last_error?.message || "Unknown error";
             
           threadRunHistory.push(`[${runLoop}] Thread run failed with status: ${threadRun.status}\nReason: ${failureReason}`);
-
+  
           console.log(`threadRun failed with run history:\n${threadRunHistory.join("\n-----\n")}`);
-
+  
           const result: FunctionResult = {
             status: 500,
             message: `Oops! I was unable to get a result (${threadRun.status}). Reason: ${failureReason}. Please try again shortly.`
           };
           return result;
-          }
-
+        }
+  
         threadRun = await this.clientOpenAi.beta.threads.runs.retrieve(
-            thread.id,
-            threadRun.id,
+          thread.id,
+          threadRun.id,
         );
-
+  
         this.sleep(500);
         runLoop += 1;
       }

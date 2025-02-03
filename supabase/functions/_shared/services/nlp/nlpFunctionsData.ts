@@ -10,7 +10,7 @@ export async function initialiseFunctions(baseInstance: any) {
   const functionsToReturn = {};
 
   // upsertData
-  if (baseInstance.parent.organisationId && baseInstance.parent.organisationData && baseInstance.parent.objectTypes && baseInstance.parent.objectMetadataTypes && baseInstance.parent.objectTypeDescriptions && baseInstance.parent.fieldTypes && baseInstance.parent.dictionaryTerms && baseInstance.parent.selectedObject) {
+  if (baseInstance.parent.organisationId && baseInstance.parent.organisationData && baseInstance.parent.objectTypes && baseInstance.parent.objectMetadataTypes && baseInstance.parent.objectTypeDescriptions && baseInstance.parent.fieldTypes && baseInstance.parent.dictionaryTerms) {
     const objectTypesIds = baseInstance.parent.objectTypes.map(item => item.id); // List of strings of the ID of each object type
 
     functionsToReturn.upsertData = {
