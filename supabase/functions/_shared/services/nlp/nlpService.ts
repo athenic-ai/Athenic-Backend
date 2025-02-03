@@ -315,7 +315,7 @@ export class NlpService {
           {assistant_id: assistantId},
       );
 
-      console.log(`threadRun created: ${config.stringify(threadRun)}`);
+      console.log(`threadRun created: \nWith threadRun: ${config.stringify(threadRun)}\n\nWith accessible nlpFunctions: ${Object.keys(this.nlpFunctionsBase.nlpFunctions)}`);
 
       let runLoop = 1;
       const threadRunHistory: string[] = [];

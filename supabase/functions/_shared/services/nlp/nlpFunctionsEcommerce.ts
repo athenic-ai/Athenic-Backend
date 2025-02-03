@@ -72,7 +72,7 @@ export async function initialiseFunctions(baseInstance: any) {
                 properties: {
                   field: {
                     type: ["string", "null"],
-                    enum: ['title', 'price', 'created_at', 'updated_at', 'inventory_quantity', 'vendor']
+                    enum: ['relevance', 'title', 'price', 'created_at', 'updated_at', 'inventory_total', 'vendor']
                   },
                   direction: {
                     type: ["string", "null"],
@@ -203,7 +203,7 @@ export async function initialiseFunctions(baseInstance: any) {
 
     type SortDirection = 'asc' | 'desc';
     type ProductSort = {
-      field: 'title' | 'price' | 'created_at' | 'updated_at' | 'inventory_quantity' | 'vendor';
+      field: 'relevance' | 'title' | 'price' | 'created_at' | 'updated_at' | 'inventory_total' | 'vendor';
       direction: SortDirection;
     };
     type DateRange = {
