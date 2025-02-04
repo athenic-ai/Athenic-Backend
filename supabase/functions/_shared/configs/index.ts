@@ -467,5 +467,8 @@ export const OBJECT_DICTIONARY_TERM_PLANNED = "planned";
 export const OBJECT_DICTIONARY_TERM_DONE = "done";
 export const OBJECT_DICTIONARY_TERM_FAILED = "failed";
 
-export const OBJECT_METADATA_JOB_RUN_SUCCESS = "success";
+export const OBJECT_METADATA_JOB_RUN_STATUS = "status";
 export const OBJECT_METADATA_JOB_RUN_OUTCOME = "outcome";
+
+export const OBJECT_DICTIONARY_TERM_JOB_RUN_COMPLETED = "jobRunCompleted";
+export const OBJECT_DICTIONARY_TERM_JOB_RUN_FAILED = "jobRunFailed";

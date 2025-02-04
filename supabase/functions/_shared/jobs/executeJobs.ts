@@ -191,7 +191,7 @@ export class ExecuteJobs<T> {
           related_object_type_id: config.OBJECT_TYPE_ID_JOB_RUN,
           metadata: {
             [config.OBJECT_METADATA_DEFAULT_TITLE]: executeThreadResult.status == 200 ? `Ran job successfully on ${jobCompletionDate.toISOString().split('T')[0]}` : `Failed to run job on ${jobCompletionDate.toISOString().split('T')[0]}`,
-            [config.OBJECT_METADATA_JOB_RUN_SUCCESS]: executeThreadResult.status == 200,
+            [config.OBJECT_METADATA_JOB_RUN_STATUS]: executeThreadResult.status == 200 ? config.OBJECT_DICTIONARY_TERM_JOB_RUN_COMPLETED : config.OBJECT_DICTIONARY_TERM_JOB_RUN_FAILED,
             [config.OBJECT_METADATA_JOB_RUN_OUTCOME]: executeThreadResult.message,
             [config.OBJECT_METADATA_DEFAULT_PARENT_ID]: jobObject.id,
             [config.OBJECT_METADATA_DEFAULT_CREATED_AT]: jobCompletionDate.toISOString(),
