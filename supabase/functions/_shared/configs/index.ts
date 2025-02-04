@@ -447,13 +447,25 @@ export const OBJECT_TABLE_NAME = "objects";
 
 export const OBJECT_TYPE_ID_SIGNAL = "signal";
 export const OBJECT_TYPE_ID_JOB = "job";
+export const OBJECT_TYPE_ID_JOB_RUN = "job_run";
 export const OBJECT_TYPE_ID_CONNECTION = "connection";
 export const OBJECT_TYPE_ID_MESSAGE_THREAD = "message_thread";
 export const OBJECT_TYPE_ID_MESSAGE = "message";
 
 export const OBJECT_METADATA_DEFAULT_TITLE = "title";
 export const OBJECT_METADATA_DEFAULT_PARENT_ID = "parent_id";
+export const OBJECT_METADATA_DEFAULT_CHILD_IDS = "child_ids";
 export const OBJECT_METADATA_DEFAULT_CREATED_AT = "created_at";
 
 export const OBJECT_METADATA_TYPE_ID_MESSAGE_AUTHOR_ID = "author_id";
 export const OBJECT_MESSAGE_AUTHOR_ID_VALUE_IF_COMPANY = "company";
+
+export const OBJECT_METADATA_JOB_STATUS = "status";
+export const OBJECT_METADATA_JOB_SCHEDULE = "schedule";
+
+export const OBJECT_DICTIONARY_TERM_PLANNED = "planned";
+export const OBJECT_DICTIONARY_TERM_DONE = "done";
+export const OBJECT_DICTIONARY_TERM_FAILED = "failed";
+
+export const OBJECT_METADATA_JOB_RUN_SUCCESS = "success";
+export const OBJECT_METADATA_JOB_RUN_OUTCOME = "outcome";

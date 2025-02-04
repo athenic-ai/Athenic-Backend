@@ -401,7 +401,7 @@ export class NlpService {
           console.log(`threadRun completed with run history:\n${threadRunHistory.join("\n-----\n")}`);
           const result: FunctionResult = {
             status: 200,
-            message: "Successfully completed thread.",
+            message: textMessages[0].text.value, // This is a message posted by the AI, which typically describes the actions taken and whether the job was successful
           };
           return result;
         } else if (threadRun.status === "queued" || threadRun.status === "in_progress") {
@@ -418,7 +418,7 @@ export class NlpService {
   
           const result: FunctionResult = {
             status: 500,
-            message: `Oops! I was unable to get a result (${threadRun.status}). Reason: ${failureReason}. Please try again shortly.`
+            message: `Oops! I was unable to get a result. Please try again shortly.\n\nRun History:${threadRunHistory.join("\n-----\n")}`
           };
           return result;
         }

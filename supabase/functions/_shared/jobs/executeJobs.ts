@@ -1,6 +1,7 @@
 import * as config from "../../_shared/configs/index.ts";
 import { StorageService } from "../services/storage/storageService.ts";
 import { NlpService } from "../services/nlp/nlpService.ts";
+import * as uuid from "jsr:@std/uuid";
 
 interface OrganisationData {
   [key: string]: any;
@@ -161,6 +162,7 @@ export class ExecuteJobs<T> {
     let jobLoopCounter = 0;
     for (const jobObject of jobObjects) {
       try {
+        // -----------Step 5a: Execute selected job----------- 
         console.log(`[D:${jobLoopCounter}] ⏭️ "Step 5a: Execute selected job" called with jobObject: ${config.stringify(jobObject)}`);
 
         const assistantPrompt = `
@@ -171,12 +173,74 @@ export class ExecuteJobs<T> {
         \n\n - Don't ask for clarification or approval before taking action, as the your reply won't be seen by the member. Just make your best guess.
         \n\n - Job that needs to be executed:\n${config.stringify(jobObject)}.`
   
-        await this.nlpService.executeThread({
+        const executeThreadResult = await this.nlpService.executeThread({
           prompt: assistantPrompt,
           assistantId
         });
-       
         console.log(`[D:${jobLoopCounter}] ✅ Completed "Step 5a: Execute selected job"`);
+
+        // -----------Step 5b: Save job run----------- 
+        console.log(`[D:${jobLoopCounter}] ⏭️ "Step 5b: Save job run"`);
+
+        const jobCompletionDate = new Date();
+
+        // Create and store job run object
+        const jobRunObjectData = {
+          id: uuid.v1.generate(),
+          owner_organisation_id: organisationId,
+          related_object_type_id: config.OBJECT_TYPE_ID_JOB_RUN,
+          metadata: {
+            [config.OBJECT_METADATA_DEFAULT_TITLE]: executeThreadResult.status == 200 ? `Ran job successfully on ${jobCompletionDate.toISOString().split('T')[0]}` : `Failed to run job on ${jobCompletionDate.toISOString().split('T')[0]}`,
+            [config.OBJECT_METADATA_JOB_RUN_SUCCESS]: executeThreadResult.status == 200,
+            [config.OBJECT_METADATA_JOB_RUN_OUTCOME]: executeThreadResult.message,
+            [config.OBJECT_METADATA_DEFAULT_PARENT_ID]: jobObject.id,
+            [config.OBJECT_METADATA_DEFAULT_CREATED_AT]: jobCompletionDate.toISOString(),
+          }
+        };
+        const jobRunObjectCreationResult = await this.storageService.updateRow({
+          table: config.OBJECT_TABLE_NAME,
+          keys: {id: jobRunObjectData.id},
+          rowData: jobRunObjectData,
+          nlpService: this.nlpService,
+          mayAlreadyExist: false,
+        });
+        if (jobRunObjectCreationResult.status != 200) {
+          throw Error(jobRunObjectCreationResult.message);
+        }
+
+        // Update job object with reference to the job run object
+        let jobNewStatus;
+        if (executeThreadResult.status == 200) {
+          if (jobObject.metadata[config.OBJECT_METADATA_JOB_SCHEDULE]) {
+            // If has a schedule, set it to proposed as it will need to be run again
+            jobNewStatus = config.OBJECT_DICTIONARY_TERM_PLANNED;
+          } else {
+            jobNewStatus = config.OBJECT_DICTIONARY_TERM_DONE;
+          }
+        } else {
+          jobNewStatus = config.OBJECT_DICTIONARY_TERM_FAILED;
+        }
+        console.log(`[D:${jobLoopCounter}] Updating job with jobNewStatus: ${jobNewStatus}`);
+        const jobObjectUpdateResult = await this.storageService.updateRow({
+          table: config.OBJECT_TABLE_NAME,
+          keys: {id: jobObject.id},
+          rowData: {
+            metadata: {
+              [config.OBJECT_METADATA_DEFAULT_CHILD_IDS]: {
+                [jobRunObjectData.related_object_type_id]: [jobRunObjectData.id],
+              },
+              [config.OBJECT_METADATA_JOB_STATUS]: jobNewStatus,
+            },
+          },
+          nlpService: this.nlpService,
+          mayAlreadyExist: true,
+        });
+        if (jobObjectUpdateResult.status != 200) {
+          throw Error(jobObjectUpdateResult.message);
+        }
+
+        console.log(`[D:${jobLoopCounter}] ✅ Completed "Step 5b: Save job run"`);
+
       }
       catch (error) {
         jobFailures.push(`Failed to execute job with error: ${error.message}.\n Data: ${config.stringify(jobObject)}.`);
