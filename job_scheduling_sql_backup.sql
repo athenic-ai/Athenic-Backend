@@ -16,9 +16,10 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Function to create a cron job for a specific job row
+-- Function to create a cron job for a specific job row
 CREATE OR REPLACE FUNCTION create_job_cron(
   job_id UUID,
-  owner_organisation_id UUID,
+  owner_organisation_id TEXT,  -- Changed from UUID to TEXT
   schedule TEXT
 ) RETURNS void AS $$
 DECLARE
@@ -35,7 +36,7 @@ BEGIN
   ));
 
   -- Validate schedule format
-  IF NOT regexp_match(schedule, '^(\S+\s+){4}\S+$') IS NOT NULL THEN
+  IF regexp_match(schedule, '^(\S+\s+){4}\S+$') IS NULL THEN
     RAISE EXCEPTION 'Invalid cron schedule format: %', schedule;
   END IF;
 
