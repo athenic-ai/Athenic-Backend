@@ -113,12 +113,18 @@ export class ProcessMessageJob<T> {
       console.log("Starting NLP processing for message:", messageParts);
 
       console.log("Getting chat history");
-      const chatHistory = await this.messagingService.getChatHistory({
+      let chatHistory = [];
+      const chatHistoryResult = await this.messagingService.getChatHistory({
         organisationId,
         memberId,
         messageThreadId,
         storageService: this.storageService,
       });
+      if (chatHistoryResult.status == 200) {
+        chatHistory = chatHistoryResult.data;
+      }
+
+      console.log(`chatHistory retrieved: ${config.stringify(chatHistory)}`);
 
       console.log("Getting model response");
 
@@ -150,20 +156,39 @@ export class ProcessMessageJob<T> {
       console.log(`✅ Completed "Step 3: Get additional data that may be used within function calls"`);
 
       // -----------Step 4: Get the AI's response to the message-----------
-      const messageReplyResult = await this.nlpService.execute({
-        promptParts: messageParts,
-        chatHistory: chatHistory,
-        systemInstruction: systemInstruction,
-        functionUsage: "auto",
-        interpretFuncCalls: true,
-        useLiteModels: true,
-      });
-      console.log("d");
-      console.log("messageReplyResult", messageReplyResult);
-      if (messageReplyResult.status != 200) {
-        throw Error(messageReplyResult.message);
+      const createGeneralAssistantResult = await this.nlpService.createGeneralAssistant();
+      if (createGeneralAssistantResult.status !== 200) {
+        throw new Error(createGeneralAssistantResult.message);
       }
-      const messageReply = messageReplyResult.message;
+      const assistantId = createGeneralAssistantResult.data;
+
+      const executeThreadResult = await this.nlpService.executeThread({
+        promptParts: messageParts,
+        assistantId,
+        chatHistory,
+      });
+      if (executeThreadResult.status != 200) {
+        throw Error(executeThreadResult.message);
+      }
+      console.log(`Message thread result: ${config.stringify(executeThreadResult)}`);
+      const messageReply = executeThreadResult.message;
+      
+
+      // TODO: consider adding back support for more simple execution via the below based on what is being asked
+      // const messageReplyResult = await this.nlpService.execute({
+      //   promptParts: messageParts,
+      //   chatHistory: chatHistory,
+      //   systemInstruction: systemInstruction,
+      //   functionUsage: "auto",
+      //   interpretFuncCalls: true,
+      //   useLiteModels: true,
+      // });
+      // console.log("d");
+      // console.log("messageReplyResult", messageReplyResult);
+      // if (messageReplyResult.status != 200) {
+      //   throw Error(messageReplyResult.message);
+      // }
+      // const messageReply = messageReplyResult.message;
 
       // Send the response back to the messaging platform if not Athenic (if it is, will send it back via return statement)
       if (connectionId != "company" && messageReply && messageReply.length > 0) {
@@ -183,7 +208,7 @@ export class ProcessMessageJob<T> {
       const result: FunctionResult = {
         status: 200,
         message: "Successfully processed message.",
-        data: messageReplyResult,
+        data: executeThreadResult,
       };
       return result;
     } catch (error) {

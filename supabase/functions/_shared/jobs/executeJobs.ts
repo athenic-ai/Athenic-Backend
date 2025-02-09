@@ -165,16 +165,19 @@ export class ExecuteJobs<T> {
         // -----------Step 5a: Execute selected job----------- 
         console.log(`[D:${jobLoopCounter}] ⏭️ "Step 5a: Execute selected job" called with jobObject: ${config.stringify(jobObject)}`);
 
-        const assistantPrompt = `
+        const promptParts = [
+          {"type": "text", 
+            "text": `
         \n\nA job needs to be executed. Carefully consider the best way to complete this job, and then carry it out as the Athenic AI, making tool calls when necessary. Finally once the job has been completed, update the state of the job that has been worked on, and if it makes sense, store one/more signal object types to describe what has happened, and if any further job(s) clearly need doing, create object(s) for them too.
         \n\nBear in mind:
         \n\n - For context, signals are described as:\n${objectTypeDescriptions[config.OBJECT_TYPE_ID_SIGNAL].description}.
         \n\n - For context, jobs are described as:\n${objectTypeDescriptions[config.OBJECT_TYPE_ID_JOB].description}.
         \n\n - Don't ask for clarification or approval before taking action, as the your reply won't be seen by the member. Just make your best guess.
-        \n\n - Job that needs to be executed:\n${config.stringify(jobObject)}.`
+        \n\n - Job that needs to be executed:\n${config.stringify(jobObject)}.`}
+        ];
   
         const executeThreadResult = await this.nlpService.executeThread({
-          prompt: assistantPrompt,
+          promptParts,
           assistantId
         });
         console.log(`[D:${jobLoopCounter}] ✅ Completed "Step 5a: Execute selected job"`);

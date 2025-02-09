@@ -429,16 +429,19 @@ export class UpsertDataJob<T> {
 
           // Only want to add a signal to the original data call, otherwise will keep calling upsertDataJob infinitely
           if (initialCall) {
-            const assistantPrompt = `
+            const promptParts = [
+              {"type": "text", 
+                "text": `
             \n\nNew data has just been stored in Athenic. Critically analyse this data as the Athenic AI, making tool calls when necessary, and then based on your analysis, you MUST store one signal object type, and if any job(s) need doing, create object type(s) too.
             \n\nBear in mind:
             \n\n - For context, signals are described as:\n${objectTypeDescriptions[config.OBJECT_TYPE_ID_SIGNAL].description}.
             \n\n - For context, jobs are described as:\n${objectTypeDescriptions[config.OBJECT_TYPE_ID_JOB].description}.
             \n\n - Don't ask for clarification or approval before taking action, as the your reply won't be seen by the member. Just make your best guess.
-            \n\n - Data that has just been stored:\n${config.stringify(objectThatWasStored)}.`
+            \n\n - Data that has just been stored:\n${config.stringify(objectThatWasStored)}.`}
+            ];
   
             await this.nlpService.executeThread({
-              prompt: assistantPrompt,
+              promptParts,
               assistantId
             });
 

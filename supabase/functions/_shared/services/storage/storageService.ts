@@ -104,13 +104,9 @@ export class StorageService {
           return condition.column;
         }
         
-        // For JSON/JSONB columns, we need to use the -> operator for nested access
-        // and ->> for the final value to get it as text
-        const path = condition.jsonPath;
-        return `${condition.column}${path.map((key, index) => 
-          index === path.length - 1 ? `->>'${key}'` : `->'${key}'`
-        ).join('')}`;
-      };
+        // Remove the inner quotes around the json key
+        return `${condition.column}->>${condition.jsonPath[0]}`;
+      };      
   
       // Apply "AND" conditions
       whereAndConditions.forEach((condition) => {

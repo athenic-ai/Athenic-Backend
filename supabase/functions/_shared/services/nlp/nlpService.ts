@@ -277,28 +277,30 @@ export class NlpService {
   }
 
   async executeThread({
-    prompt,
-    assistantId
+    promptParts,
+    assistantId,
+    chatHistory = [],
   }: {
-    prompt: string;
-    assistantId: any
+    promptParts: Array;
+    assistantId: any;
+    chatHistory?: Array<{ role: string; content: string }>;
   }) {
-    if (!prompt) {
-      throw new Error("No text provided for executeThread");
+    if (!promptParts) {
+      throw new Error("No promptParts provided for executeThread");
     }
   
     try {
-      console.log(`executeThread called with prompt: ${prompt}`);
-  
-      // TODO: currently haven't added support for chat history - add this!
+      console.log(`executeThread called with prompt: ${config.stringify(promptParts)}, assistantId: ${assistantId}, and chat history: ${config.stringify(chatHistory)}`);
+
       const messages = [
-        {"role": "user", "content": prompt}, // system not supported when using assistant. 
+        ...chatHistory, // Add chat history
+        ...promptParts.map((part) => ({ role: "user", content: [part] })), // Add user's prompt parts (system not supported when using assistant)
       ];
   
       console.log(`messages: ${JSON.stringify(messages)}`);
   
       const thread = await this.clientOpenAi.beta.threads.create({
-        messages: messages,
+        messages,
       });
   
       console.log(`thread created with id: ${thread.id}`);

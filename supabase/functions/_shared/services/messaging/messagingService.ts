@@ -40,11 +40,11 @@ export class MessagingService {
           { column: 'owner_organisation_id', operator: 'eq', value: organisationId },
           { column: 'owner_member_id', operator: 'eq', value: memberId },
           { column: 'related_object_type_id', operator: 'eq', value: config.OBJECT_TYPE_ID_MESSAGE },
-          { column: 'metadata', jsonPath:['metadata', 'parent_id'], operator: 'eq', value: messageThreadId },
-          { column: 'metadata', jsonPath:['metadata', 'created_at'], operator: 'gte', value: twelveHoursAgo },
+          { column: 'metadata', jsonPath:['parent_id'], operator: 'eq', value: messageThreadId },
+          { column: 'metadata', jsonPath:['created_at'], operator: 'gte', value: twelveHoursAgo },
         ],
         orderByConditions: [
-          { column: 'metadata', jsonPath:['metadata', 'created_at'], ascending: false }, // desc so we get the most recent messages
+          { column: 'metadata', jsonPath:['created_at'], ascending: false }, // desc so we get the most recent messages
         ],
         limitCount: 6 // TODO: consider increasing this to maybe 20
       });
@@ -82,7 +82,11 @@ export class MessagingService {
         console.log(`chatHistory after: ${JSON.stringify(chatHistory)}`);
       }
 
-      return chatHistory;
+      const result: FunctionResult = {
+        status: 200,
+        data: chatHistory,
+      };
+      return result;
     } catch (error) {
       const result: FunctionResult = {
         status: 500,
