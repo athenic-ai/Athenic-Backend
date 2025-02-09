@@ -13,7 +13,7 @@ BEGIN
       'metadata', details
     );
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER; -- SECURITY DEFINER is required to force functions to run with the privileges of the role that owns the function (which should be a role that has access to the cron schema) - though be aware of the security implications
 
 -- Function to create a cron job for a specific job row
 -- Function to create a cron job for a specific job row
@@ -61,7 +61,7 @@ EXCEPTION WHEN OTHERS THEN
   ));
   RAISE;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER; -- SECURITY DEFINER is required to force functions to run with the privileges of the role that owns the function (which should be a role that has access to the cron schema) - though be aware of the security implications
 
 -- Function to remove a cron job for a specific job
 CREATE OR REPLACE FUNCTION remove_job_cron(
@@ -98,7 +98,7 @@ EXCEPTION WHEN OTHERS THEN
   ));
   RAISE;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER; -- SECURITY DEFINER is required to force functions to run with the privileges of the role that owns the function (which should be a role that has access to the cron schema) - though be aware of the security implications
 
 -- Function to handle job insert
 CREATE OR REPLACE FUNCTION handle_job_insert() RETURNS TRIGGER AS $$
@@ -132,7 +132,7 @@ EXCEPTION WHEN OTHERS THEN
   ));
   RAISE;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER; -- SECURITY DEFINER is required to force functions to run with the privileges of the role that owns the function (which should be a role that has access to the cron schema) - though be aware of the security implications
 
 -- Function to handle job update
 CREATE OR REPLACE FUNCTION handle_job_update() RETURNS TRIGGER AS $$
@@ -172,7 +172,7 @@ EXCEPTION WHEN OTHERS THEN
   ));
   RAISE;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER; -- SECURITY DEFINER is required to force functions to run with the privileges of the role that owns the function (which should be a role that has access to the cron schema) - though be aware of the security implications
 
 -- Function to handle job delete
 CREATE OR REPLACE FUNCTION handle_job_delete() RETURNS TRIGGER AS $$
@@ -196,7 +196,7 @@ EXCEPTION WHEN OTHERS THEN
   ));
   RAISE;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER; -- SECURITY DEFINER is required to force functions to run with the privileges of the role that owns the function (which should be a role that has access to the cron schema) - though be aware of the security implications
 
 -- Drop existing triggers first
 DROP TRIGGER IF EXISTS job_insert_trigger ON objects;

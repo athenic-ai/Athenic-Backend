@@ -237,6 +237,7 @@ export class StorageService {
     mayAlreadyExist?: boolean;
   }) {
     try {
+      console.log(`Updating row in table: ${table}, with keys: ${JSON.stringify(keys)}, and data: ${JSON.stringify(rowData)}`);
       // Validate input
       if (!table || Object.keys(keys).length === 0) {
         throw new Error("Table name and at least one key are required.");
@@ -265,6 +266,7 @@ export class StorageService {
       : { ...keys, ...rowData };
 
       if (isObject) {
+        console.log(`Updating object data in DB with mergedRowData: ${JSON.stringify(mergedRowData)}`);
         const currentDate = new Date().toISOString(); // Current date and time in ISO format
         if (!existingRow) {
           mergedRowData.metadata.created_at = currentDate; // Add created_at if not already set
@@ -282,6 +284,7 @@ export class StorageService {
   
       // Perform upsert with the merged data
       const queryBuilder = this.supabase.from(table);
+      console.log(`Upserting row with data: ${JSON.stringify(mergedRowData)}`);
       const { error } = await queryBuilder.upsert(mergedRowData);
   
       if (error) {
