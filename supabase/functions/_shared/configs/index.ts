@@ -400,6 +400,35 @@ export function mergeRelatedIds(
   return mergedIds;
 }
 
+// Helper function to remove null and undefined values recursively from any object
+export function removeNullValues(obj: any): any {
+  console.log(`removeNullValues called with: ${JSON.stringify(obj)}`);
+  // Handle arrays
+  if (Array.isArray(obj)) {
+    return obj
+      .filter(item => item != null)  // Uses loose equality to catch both null and undefined
+      .map(item => (typeof item === 'object' ? removeNullValues(item) : item));
+  }
+
+  console.log(`removeNullValues obj type: ${typeof obj}`);
+  
+  // Handle objects
+  if (obj !== null && typeof obj === 'object') {
+    return Object.fromEntries(
+      Object.entries(obj)
+        .filter(([_, value]) => value != null)
+        .map(([key, value]) => [
+          key,
+          typeof value === 'object' ? removeNullValues(value) : value
+        ])
+    );
+  }
+  console.log(`removeNullValues returning: ${JSON.stringify(obj)}`);
+  
+  // Return primitive values as is
+  return obj;
+};
+
 // Enums
 // export enum TriBool {
 //   True,

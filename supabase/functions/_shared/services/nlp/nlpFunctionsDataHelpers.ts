@@ -1,4 +1,5 @@
 import * as uuid from "jsr:@std/uuid";
+import * as config from "../../configs/index.ts";
 
 // Exporting functions and declarations
 // NOTE: must add this file when calling nlpFunctionsBase's loadFunctionGroups()
@@ -129,12 +130,14 @@ export async function initialiseFunctions(baseInstance: any) {
       },
       implementation: async (processedMetadata: processedMetadata) => {
         try {
-          console.log(`processDataUsingGivenObjectsMetadataStructure called with: ${JSON.stringify(processedMetadata)}`);
+          console.log(`processDataUsingGivenObjectsMetadataStructure called with: ${config.stringify(processedMetadata)}`);
+          const cleanedMetadata = config.removeNullValues(processedMetadata);
+          console.log(`cleanedMetadata: ${config.stringify(cleanedMetadata)}`);
           const objectData = {
             id: uuid.v1.generate(),
             owner_organisation_id: baseInstance.parent.organisationId,
             related_object_type_id: baseInstance.parent.selectedObjectTypeId,
-            metadata: processedMetadata
+            metadata: cleanedMetadata
           };
           const result: FunctionResult = {
             status: 200,

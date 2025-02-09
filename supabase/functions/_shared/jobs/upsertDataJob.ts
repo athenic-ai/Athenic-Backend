@@ -55,7 +55,7 @@ export class UpsertDataJob<T> {
 
       // -----------Step 2: Get object types accessible to the organisation----------- 
       console.log(`[I:${initialCall}] ⏭️ Starting "Step 2: Get object types accessible to the organisation"`);
-      if (!objectTypes) {
+      if (!objectTypes || objectTypes.length === 0) {
         const getOrganisationObjectTypesResult = await config.getOrganisationObjectTypes({storageService: this.storageService, organisationId: organisationId});
         if (getOrganisationObjectTypesResult.status != 200) {
           throw Error(getOrganisationObjectTypesResult.message);
@@ -66,7 +66,7 @@ export class UpsertDataJob<T> {
         .filter(item => item.category === "organisation_data_standard") // Filter by category NOTE: this line is untested
         .map(item => item.id); // List of strings of the ID of each object type of the organisation_data_standard category
 
-      if (!objectMetadataTypes) {
+      if (!objectMetadataTypes || objectMetadataTypes.length === 0) {
         const getObjectMetadataTypesResult = await config.getObjectMetadataTypes({storageService: this.storageService, organisationId: organisationId});
         if (getObjectMetadataTypesResult.status != 200) {
           throw Error(getObjectMetadataTypesResult.message);
@@ -74,7 +74,7 @@ export class UpsertDataJob<T> {
         objectMetadataTypes = getObjectMetadataTypesResult.data;
       }
 
-      if (!fieldTypes) {
+      if (!fieldTypes || fieldTypes.length === 0) {
         const getFieldTypesResult = await config.getFieldTypes({storageService: this.storageService});
         if (getFieldTypesResult.status != 200) {
           throw Error(getFieldTypesResult.message);
@@ -82,7 +82,7 @@ export class UpsertDataJob<T> {
         fieldTypes = getFieldTypesResult.data;
       }
 
-      if (!dictionaryTerms) {
+      if (!dictionaryTerms || dictionaryTerms.length === 0) {
         const getDictionaryTermsResult = await config.getDictionaryTerms({storageService: this.storageService});
         if (getDictionaryTermsResult.status != 200) {
           throw Error(getDictionaryTermsResult.message);
@@ -90,7 +90,7 @@ export class UpsertDataJob<T> {
         dictionaryTerms = getDictionaryTermsResult.data;
       }
 
-      if (!objectTypeDescriptions) {
+      if (!objectTypeDescriptions || objectTypeDescriptions.length === 0) {
         objectTypeDescriptions = config.createObjectTypeDescriptions(objectTypes, objectMetadataTypes); // Example output: {"product":{"name":"Product","description":"An item that is sold to users by teams (e.g. Apple Music is sold to users by Apple).","metadata":{"marketing_url":{"description":"Marketing URL","type":"string"},"types":{"description":"Product types","type":"array","items":{"type":"string"}},"ids":{"description":"In the form:\n   \"android/ios/...\"\n      -> \"id\"","type":"object"}}},"feedback":{"name":"Feedback","description":"Feedback from users about topics such as a product, service, experience or even the organisation in general.","metadata":{"author_name":{"description":"Name/username of the feedback's author.","type":"string"},"feedback_deal_size":{"description":"Estimated or actual deal size of the user submitting the feedback.","type":"number"}}}}
       }
 

@@ -161,7 +161,7 @@ export class StorageService {
   async searchRows({ 
     table, 
     queryText, 
-    matchThreshold,
+    matchThreshold, // The minimum similarity between embeddings. This is a value between 1 and -1, where 1 is most similar and -1 is most dissimilar.
     matchCount,
     nlpService,
     organisationId, 
