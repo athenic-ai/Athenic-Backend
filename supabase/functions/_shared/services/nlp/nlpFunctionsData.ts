@@ -47,7 +47,7 @@ export async function initialiseFunctions(baseInstance: any) {
           console.log(`Upserting data with objectTypeId: ${objectTypeId}\ndataContents: ${dataContents}\ndataDescription: ${dataDescription}`);
           const upsertDataJob = new UpsertDataJob(baseInstance.parent);
 
-          let requiredMatchThreshold = 0.9; // TODO: potentially add support for the AI to set this based on what it thinks (BUT note if it's not added, data will never be merged with existing data)
+          let requiredMatchThreshold = 0.95; // TODO: potentially add support for the AI to set this based on what it thinks (BUT note if it's not added, data will never be merged with existing data)
           if (objectTypeId == config.OBJECT_TYPE_ID_SIGNAL || objectTypeId == config.OBJECT_TYPE_ID_JOB) {
             requiredMatchThreshold = 0.7; // Lower threshold for signals and jobs as more likely to want to merge them
           }
