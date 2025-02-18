@@ -361,7 +361,7 @@ export async function initialiseFunctions(baseInstance: any) {
         function: {
           name: "createShopifyProduct",
           description:
-            "Create a new product in Shopify with multiple attributes provided via parameters.",
+            "Create a new product in Shopify with multiple attributes provided via parameters. Note: to variants should be created after this product is created via the separate variant creation function.",
           strict: true,
           parameters: {
             type: "object",
@@ -461,7 +461,7 @@ export async function initialiseFunctions(baseInstance: any) {
         function: {
           name: "updateShopifyProduct",
           description:
-            "Update an existing product by ID, including fields like title, description, vendor, tags, and optionally update variant pricing (sale price).",
+            "Update an existing product by ID, including fields like title, description, vendor, tags. Excludes handling variant data, that other functions handle instead.",
           strict: true,
           parameters: {
             type: "object",
@@ -491,22 +491,8 @@ export async function initialiseFunctions(baseInstance: any) {
                 items: { type: "string" },
                 description: "Updated list of tags"
               },
-              variants: {
-                type: ["array", "null"],
-                description: "Optional array to update variant pricing details",
-                items: {
-                  type: "object",
-                  properties: {
-                    variantId: { type: ["string", "null"] },
-                    price: { type: ["number", "null"], description: "New sale price" },
-                    compare_at_price: { type: ["number", "null"], description: "Previous price for comparison" }
-                  },
-                  required: ["variantId", "price", "compare_at_price"],
-                  additionalProperties: false
-                }
-              }
             },
-            required: ["productId", "title", "body_html", "vendor", "product_type", "tags", "variants"],
+            required: ["productId", "title", "body_html", "vendor", "product_type", "tags"],
             additionalProperties: false
           }
         }
@@ -518,7 +504,6 @@ export async function initialiseFunctions(baseInstance: any) {
         vendor,
         product_type,
         tags,
-        variants
       }: {
         productId?: string;
         title?: string;
@@ -526,7 +511,6 @@ export async function initialiseFunctions(baseInstance: any) {
         vendor?: string;
         product_type?: string;
         tags?: string[];
-        variants?: Array<{variantId?: string; price?: number; compare_at_price?: number}>;
       }) => {
         try {
           console.log(`updateShopifyProduct called for productId: ${productId}`);
@@ -541,15 +525,6 @@ export async function initialiseFunctions(baseInstance: any) {
               tags,
             },
           };
-    
-          // If variants information is supplied, add it to the payload for updating variant prices.
-          if (variants && Array.isArray(variants)) {
-            payload.product.variants = variants.map((variant) => ({
-              id: variant.variantId,
-              price: variant.price,
-              compare_at_price: variant.compare_at_price,
-            }));
-          }
     
           const response = await shopifyAPI.put(
             `/admin/api/2024-01/products/${productId}.json`,
@@ -582,44 +557,145 @@ export async function initialiseFunctions(baseInstance: any) {
         }
       },
     };
-    
 
-    /*************** deleteShopifyProduct Function ***************/
-    console.log("Attempting to initialise deleteShopifyProduct");
-    functionsToReturn.deleteShopifyProduct = {
+    // Add these functions to your existing code alongside the other Shopify functions
+
+    /*************** createShopifyVariant Function ***************/
+    functionsToReturn.createShopifyVariant = {
       declaration: {
         type: "function",
         function: {
-          name: "deleteShopifyProduct",
-          description:
-            "Delete an existing Shopify product given its ID.",
+          name: "createShopifyVariant",
+          description: "Create a new variant for an existing Shopify product with complete metadata",
           strict: true,
           parameters: {
             type: "object",
             properties: {
               productId: {
                 type: ["string", "null"],
-                description: "ID of the product to delete",
+                description: "ID of the product to add the variant to"
               },
+              option: {
+                type: ["object", "null"],
+                description: "Variant option details",
+                properties: {
+                  name: { type: ["string", "null"] },
+                  value: { type: ["string", "null"] }
+                },
+                required: ["name", "value"],
+                additionalProperties: false
+              },
+              price: {
+                type: ["number", "null"],
+                description: "Selling price of the variant"
+              },
+              compare_at_price: {
+                type: ["number", "null"],
+                description: "Original price for comparison"
+              },
+              sku: {
+                type: ["string", "null"],
+                description: "Stock Keeping Unit"
+              },
+              barcode: {
+                type: ["string", "null"],
+                description: "Barcode (ISBN, UPC, GTIN, etc.)"
+              },
+              weight: {
+                type: ["number", "null"],
+                description: "Weight in grams"
+              },
+              weight_unit: {
+                type: ["string", "null"],
+                enum: ["g", "kg", "oz", "lb"],
+                description: "Weight unit"
+              },
+              requires_shipping: {
+                type: ["boolean", "null"],
+                description: "Whether this is a physical product requiring shipping"
+              },
+              inventory_quantity: {
+                type: ["number", "null"],
+                description: "Initial inventory quantity"
+              },
+              inventory_management: {
+                type: ["string", "null"],
+                enum: ["shopify", null],
+                description: "Inventory management system"
+              },
+              inventory_policy: {
+                type: ["string", "null"],
+                enum: ["deny", "continue"],
+                description: "Whether to allow sales when out of stock"
+              },
+              cost: {
+                type: ["number", "null"],
+                description: "Cost per item"
+              }
             },
-            required: ["productId"],
-            additionalProperties: false,
-          },
-        },
+            required: [
+              "productId",
+              "option",
+              "price",
+              "compare_at_price",
+              "sku",
+              "barcode",
+              "weight",
+              "weight_unit",
+              "requires_shipping",
+              "inventory_quantity",
+              "inventory_management",
+              "inventory_policy",
+              "cost"
+            ],
+            additionalProperties: false
+          }
+        }
       },
       implementation: async ({
         productId,
-      }: {
-        productId?: string;
+        option,
+        price,
+        compare_at_price,
+        sku,
+        barcode,
+        weight,
+        weight_unit,
+        requires_shipping,
+        inventory_quantity,
+        inventory_management,
+        inventory_policy,
+        cost
       }) => {
         try {
-          console.log(`deleteShopifyProduct called for productId: ${productId}`);
+          console.log(`createShopifyVariant called for productId: ${productId}`);
 
-          const response = await shopifyAPI.delete(
-            `/admin/api/2024-01/products/${productId}.json`,
+          // Construct the variant payload
+          const variantPayload = {
+            variant: {
+              option1: option?.value,  // The option value (e.g., "Small" for a "Size" option)
+              price: price?.toString(),
+              compare_at_price: compare_at_price?.toString(),
+              sku,
+              barcode,
+              weight,
+              weight_unit,
+              requires_shipping,
+              inventory_quantity,
+              inventory_management,
+              inventory_policy,
+              cost: cost?.toString()
+            }
+          };
+
+          // Create the variant using the Shopify API
+          const response = await shopifyAPI.post(
+            `/admin/api/2024-01/products/${productId}/variants.json`,
+            variantPayload
           ).catch((error) => {
-            console.error("Shopify API Error in deleteShopifyProduct:", {
+            console.error("Shopify API Error in createShopifyVariant:", {
               productId,
+              payload: variantPayload,
               error: error.response?.errors || error.message,
               headers: error.response?.headers,
               status: error.response?.status,
@@ -627,21 +703,216 @@ export async function initialiseFunctions(baseInstance: any) {
             throw error;
           });
 
-          console.log(`deleteShopifyProduct response: ${config.stringify(response)}`);
+          const data = response.data || response;
+          console.log(`createShopifyVariant response: ${config.stringify(data)}`);
 
           return {
             status: 200,
-            message: "Product deleted successfully",
-            data: response,
+            message: "Variant created successfully",
+            data: data.variant
           };
         } catch (error) {
           return {
             status: 500,
-            message:
-              "❌ Error in deleteShopifyProduct: " + error.message,
+            message: "❌ Error in createShopifyVariant: " + error.message
           };
         }
+      }
+    };
+
+    /*************** updateShopifyVariant Function ***************/
+    functionsToReturn.updateShopifyVariant = {
+      declaration: {
+        type: "function",
+        function: {
+          name: "updateShopifyVariant",
+          description: "Update an existing variant's details including pricing, inventory, and metadata",
+          strict: true,
+          parameters: {
+            type: "object",
+            properties: {
+              productId: {
+                type: ["string", "null"],
+                description: "ID of the product containing the variant"
+              },
+              variantId: {
+                type: ["string", "null"],
+                description: "ID of the variant to update"
+              },
+              updates: {
+                type: ["object", "null"],
+                properties: {
+                  option: {
+                    type: ["object", "null"],
+                    properties: {
+                      name: { type: ["string", "null"] },
+                      value: { type: ["string", "null"] }
+                    },
+                    required: ["name", "value"],
+                    additionalProperties: false
+                  },
+                  price: { type: ["number", "null"] },
+                  compare_at_price: { type: ["number", "null"] },
+                  sku: { type: ["string", "null"] },
+                  barcode: { type: ["string", "null"] },
+                  weight: { type: ["number", "null"] },
+                  weight_unit: {
+                    type: ["string", "null"],
+                    enum: ["g", "kg", "oz", "lb"]
+                  },
+                  requires_shipping: { type: ["boolean", "null"] },
+                  inventory_quantity: { type: ["number", "null"] },
+                  inventory_management: {
+                    type: ["string", "null"],
+                    enum: ["shopify", null]
+                  },
+                  inventory_policy: {
+                    type: ["string", "null"],
+                    enum: ["deny", "continue"]
+                  },
+                  cost: { type: ["number", "null"] }
+                },
+                required: [
+                  "option",
+                  "price",
+                  "compare_at_price",
+                  "sku",
+                  "barcode",
+                  "weight",
+                  "weight_unit",
+                  "requires_shipping",
+                  "inventory_quantity",
+                  "inventory_management",
+                  "inventory_policy",
+                  "cost"
+                ],
+                additionalProperties: false
+              }
+            },
+            required: ["productId", "variantId", "updates"],
+            additionalProperties: false
+          }
+        }
       },
+      implementation: async ({ productId, variantId, updates }) => {
+        try {
+          console.log(`updateShopifyVariant called for variantId: ${variantId}`);
+
+          // Construct the update payload, converting numeric values to strings as required by Shopify
+          const updatePayload = {
+            variant: {
+              id: variantId,
+              ...(updates?.option && { option1: updates.option.value }),
+              ...(updates?.price !== undefined && { price: updates.price.toString() }),
+              ...(updates?.compare_at_price !== undefined && { 
+                compare_at_price: updates.compare_at_price.toString() 
+              }),
+              ...(updates?.sku !== undefined && { sku: updates.sku }),
+              ...(updates?.barcode !== undefined && { barcode: updates.barcode }),
+              ...(updates?.weight !== undefined && { weight: updates.weight }),
+              ...(updates?.weight_unit !== undefined && { weight_unit: updates.weight_unit }),
+              ...(updates?.requires_shipping !== undefined && { 
+                requires_shipping: updates.requires_shipping 
+              }),
+              ...(updates?.inventory_quantity !== undefined && { 
+                inventory_quantity: updates.inventory_quantity 
+              }),
+              ...(updates?.inventory_management !== undefined && { 
+                inventory_management: updates.inventory_management 
+              }),
+              ...(updates?.inventory_policy !== undefined && { 
+                inventory_policy: updates.inventory_policy 
+              }),
+              ...(updates?.cost !== undefined && { cost: updates.cost.toString() })
+            }
+          };
+
+          // Update the variant using the Shopify API
+          const response = await shopifyAPI.put(
+            `/admin/api/2024-01/variants/${variantId}.json`,
+            updatePayload
+          ).catch((error) => {
+            console.error("Shopify API Error in updateShopifyVariant:", {
+              variantId,
+              payload: updatePayload,
+              error: error.response?.errors || error.message,
+              headers: error.response?.headers,
+              status: error.response?.status,
+            });
+            throw error;
+          });
+
+          const data = response.data || response;
+          console.log(`updateShopifyVariant response: ${config.stringify(data)}`);
+
+          return {
+            status: 200,
+            message: "Variant updated successfully",
+            data: data.variant
+          };
+        } catch (error) {
+          return {
+            status: 500,
+            message: "❌ Error in updateShopifyVariant: " + error.message
+          };
+        }
+      }
+    };
+
+    /*************** deleteShopifyVariant Function ***************/
+    functionsToReturn.deleteShopifyVariant = {
+      declaration: {
+        type: "function",
+        function: {
+          name: "deleteShopifyVariant",
+          description: "Delete a specific variant from a Shopify product",
+          strict: true,
+          parameters: {
+            type: "object",
+            properties: {
+              productId: {
+                type: ["string", "null"],
+                description: "ID of the product containing the variant"
+              },
+              variantId: {
+                type: ["string", "null"],
+                description: "ID of the variant to delete"
+              }
+            },
+            required: ["productId", "variantId"],
+            additionalProperties: false
+          }
+        }
+      },
+      implementation: async ({ productId, variantId }) => {
+        try {
+          console.log(`deleteShopifyVariant called for variantId: ${variantId}`);
+
+          // Delete the variant using the Shopify API
+          const response = await shopifyAPI.delete(
+            `/admin/api/2024-01/products/${productId}/variants/${variantId}.json`
+          ).catch((error) => {
+            console.error("Shopify API Error in deleteShopifyVariant:", {
+              productId,
+              variantId,
+              error: error.response?.errors || error.message,
+              headers: error.response?.headers,
+              status: error.response?.status,
+            });
+            throw error;
+          });
+
+          return {
+            status: 200,
+            message: "Variant deleted successfully"
+          };
+        } catch (error) {
+          return {
+            status: 500,
+            message: "❌ Error in deleteShopifyVariant: " + error.message
+          };
+        }
+      }
     };
 
     /*************** Helper function for constructing search queries ***************/
@@ -682,3 +953,69 @@ export async function initialiseFunctions(baseInstance: any) {
 
   return functionsToReturn;
 }
+
+
+
+
+
+
+    // Temporarily disabled as dont want it calling it accidentally without proper checks
+    /*************** deleteShopifyProduct Function ***************/
+    // console.log("Attempting to initialise deleteShopifyProduct");
+    // functionsToReturn.deleteShopifyProduct = {
+    //   declaration: {
+    //     type: "function",
+    //     function: {
+    //       name: "deleteShopifyProduct",
+    //       description:
+    //         "Delete an existing Shopify product given its ID.",
+    //       strict: true,
+    //       parameters: {
+    //         type: "object",
+    //         properties: {
+    //           productId: {
+    //             type: ["string", "null"],
+    //             description: "ID of the product to delete",
+    //           },
+    //         },
+    //         required: ["productId"],
+    //         additionalProperties: false,
+    //       },
+    //     },
+    //   },
+    //   implementation: async ({
+    //     productId,
+    //   }: {
+    //     productId?: string;
+    //   }) => {
+    //     try {
+    //       console.log(`deleteShopifyProduct called for productId: ${productId}`);
+
+    //       const response = await shopifyAPI.delete(
+    //         `/admin/api/2024-01/products/${productId}.json`,
+    //       ).catch((error) => {
+    //         console.error("Shopify API Error in deleteShopifyProduct:", {
+    //           productId,
+    //           error: error.response?.errors || error.message,
+    //           headers: error.response?.headers,
+    //           status: error.response?.status,
+    //         });
+    //         throw error;
+    //       });
+
+    //       console.log(`deleteShopifyProduct response: ${config.stringify(response)}`);
+
+    //       return {
+    //         status: 200,
+    //         message: "Product deleted successfully",
+    //         data: response,
+    //       };
+    //     } catch (error) {
+    //       return {
+    //         status: 500,
+    //         message:
+    //           "❌ Error in deleteShopifyProduct: " + error.message,
+    //       };
+    //     }
+    //   },
+    // };
