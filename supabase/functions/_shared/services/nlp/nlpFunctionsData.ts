@@ -79,6 +79,9 @@ export async function initialiseFunctions(baseInstance: any) {
             dictionaryTerms: baseInstance.parent.dictionaryTerms
           }); 
           console.log(`upsertDataJob.start() complete with upsertDataJobResult: ${config.stringify(upsertDataJobResult)}`);
+          if (upsertDataJobResult.status != 200) {
+            throw Error(upsertDataJobResult.message);
+          }
         
           const result: FunctionResult = {
             status: 200,

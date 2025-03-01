@@ -1,10 +1,10 @@
 import * as uuid from "jsr:@std/uuid";
-import { req, res, Server } from "https://deno.land/x/faster/mod.ts";
+import { req, res, Server } from "jsr:@hviana/faster@1.1.0";
 import {
   ShopifyAPI,
   ShopifyApp,
   WebHookCall,
-} from "https://deno.land/x/shopify_deno/mod.ts";
+} from "jsr:@hviana/shopify-deno@1.0.3";
 import * as config from "../../configs/index.ts";
 
 // Exporting functions and declarations

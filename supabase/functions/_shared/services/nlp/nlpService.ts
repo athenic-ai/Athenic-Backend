@@ -168,11 +168,15 @@ export class NlpService {
 
       await this.updateFunctionDeclarations({functionsIncluded});
 
+      console.log(`Preparing messages with:\nsystem instruction: ${systemInstruction}\n chatHistory: ${config.stringify(chatHistory)}\n promptParts: ${config.stringify(promptParts)}`);
+
       const messages = [
         { role: "developer", content: systemInstruction },
         ...chatHistory, // Add chat history
         ...promptParts.map((part) => ({ role: "user", content: [part] })), // Add user's prompt parts
       ];
+
+      console.log(`Creating chat with:\nmodels: ${models} \nmessages: ${JSON.stringify(messages)}\ntemperature: ${temperature} \nfunctionUsage: ${functionUsage} \nfunctionsIncluded: ${JSON.stringify(functionsIncluded)}`);
 
       const initialCreateResult = await this.clientCore!.chat.completions.create({
         models,
@@ -184,7 +188,11 @@ export class NlpService {
         //   data_collection: "deny"
         // },
       });
+      console.log(`initialCreateResult created: ${config.stringify(initialCreateResult)}`)
+
       const createResMessage = initialCreateResult.choices[0].message;
+
+      console.log(`createResMessage created: ${config.stringify(createResMessage)}`)
 
       if (createResMessage.tool_calls) {
         const functionResultsData = [];
@@ -448,7 +456,9 @@ export class NlpService {
     // For each param, if not specified, all is loaded
     if (!this.functionDeclarations || functionGroupsIncluded !== this.currentFunctionGroupsIncluded || functionsIncluded !== this.currentFunctionsIncluded) {
       await this.nlpFunctionsBase.loadFunctionGroups(functionGroupsIncluded);
+      console.log("this.nlpFunctionsBase.loadFunctionGroups complete");
       this.functionDeclarations = this.nlpFunctionsBase.getFunctionDeclarations(functionsIncluded);
+      console.log("this.nlpFunctionsBase.getFunctionDeclarations complete");
       this.currentFunctionsIncluded = functionsIncluded;
     }
   }

@@ -109,10 +109,10 @@ export async function initialiseFunctions(baseInstance: any) {
 
   // processDataUsingGivenObjectsMetadataStructure
   if (selectedObjectMetadataFunctionProperties) {
-    console.log(`processDataUsingGivenObjectsMetadataStructure with:
-      \nselectedObjectMetadataFunctionProperties: ${JSON.stringify(selectedObjectMetadataFunctionProperties)}
-      \nobjectTypeDescriptions: ${JSON.stringify(baseInstance.parent.objectTypeDescriptions)}
-      \nselectedObjectTypeId: ${baseInstance.parent.selectedObjectTypeId}`);
+    console.log("processDataUsingGivenObjectsMetadataStructure called");
+    console.log(`nselectedObjectMetadataFunctionProperties: ${JSON.stringify(selectedObjectMetadataFunctionProperties)}`);
+    console.log(`objectTypeDescriptions: ${JSON.stringify(baseInstance.parent.objectTypeDescriptions)}`);
+    console.log(`selectedObjectTypeId: ${baseInstance.parent.selectedObjectTypeId}`)
     functionsToReturn.processDataUsingGivenObjectsMetadataStructure = {
       declaration: {
         type: "function",

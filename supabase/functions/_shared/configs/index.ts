@@ -331,11 +331,16 @@ export function createObjectMetadataFunctionProperties(
   
         const fieldTypeMap = fieldTypes.find((entry) => entry.id === meta.field_type_id);
 
+        let dataType = fieldTypeMap.data_type;
+        if (dataType === "object") {
+          dataType = "string"; // Added this code temporarily until we support json metadata field types being created in this way. Until then, lets jsut create the json by storing it as a string
+        }
+
         // Assign data type by retrieving the data type based on the matching field_type_id
         if (meta.is_required) {
-          property.type = fieldTypeMap.data_type; 
+          property.type = dataType; 
         } else {
-          property.type = [fieldTypeMap.data_type, "null"]; // How we handle non-required fields in strict mode
+          property.type = [dataType, "null"]; // How we handle non-required fields in strict mode
         }
 
         if (fieldTypeMap.is_array) {
