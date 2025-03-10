@@ -215,7 +215,7 @@ export class ExecuteJobs<T> {
         let jobNewStatus;
         if (executeThreadResult.status == 200) {
           if (jobObject.metadata[config.OBJECT_METADATA_JOB_SCHEDULE]) {
-            // If has a schedule, set it to proposed as it will need to be run again
+            // If has a schedule, set it to planned as it will need to be run again
             jobNewStatus = config.OBJECT_DICTIONARY_TERM_PLANNED;
           } else {
             jobNewStatus = config.OBJECT_DICTIONARY_TERM_DONE;

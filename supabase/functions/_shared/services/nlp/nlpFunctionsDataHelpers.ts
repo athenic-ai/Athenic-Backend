@@ -118,7 +118,7 @@ export async function initialiseFunctions(baseInstance: any) {
         type: "function",
         function: {
           name: "processDataUsingGivenObjectsMetadataStructure",
-          description: `Given some data, process it to create an object of type: ${baseInstance.parent.objectTypeDescriptions[baseInstance.parent.selectedObjectTypeId].name}, with description: ${baseInstance.parent.objectTypeDescriptions[baseInstance.parent.selectedObjectTypeId].description}.`,
+          description: `Given some data, process it to create an object of type: ${baseInstance.parent.objectTypeDescriptions[baseInstance.parent.selectedObjectTypeId].name},\nwith description: ${baseInstance.parent.objectTypeDescriptions[baseInstance.parent.selectedObjectTypeId].description},\nfor organisation: ${config.stringify(baseInstance.parent.organisationData)}`,
           strict: true, // As this is here, all properties must be required & additionalProperties set to false
           parameters: {
             type: "object",

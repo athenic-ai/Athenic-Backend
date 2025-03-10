@@ -208,6 +208,7 @@ export class UpsertDataJob<T> {
         if (!newObjectData) {
           throw Error("Failed to process data using the given object's metadata structure");
         }
+
         console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6a: Process the given data item", with newObjectData: ${JSON.stringify(newObjectData)}`);
   
         // -----------Step 6b: If object type demands a parent object, determine which object should be the parent-----------
