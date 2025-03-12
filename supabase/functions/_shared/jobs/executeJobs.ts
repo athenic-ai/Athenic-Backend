@@ -187,6 +187,12 @@ export class ExecuteJobs<T> {
 
         const jobCompletionDate = new Date();
 
+        // Remove the job object from the upsertedObjectIds map (as it's not designed to be stored as an output of the job run)
+        const upsertedObjectIdsCleaned = config.removeObjectFromObjectIdMap({objectIdMap: this.nlpService.upsertedObjectIds, objectType: jobObject.related_object_type_id, objectId: jobObject.id});
+        this.nlpService.setMemberVariables({
+          upsertedObjectIds: upsertedObjectIdsCleaned,
+        });
+
         // Create and store job run object
         const jobRunObjectData = {
           id: uuid.v1.generate(),
@@ -197,6 +203,7 @@ export class ExecuteJobs<T> {
             [config.OBJECT_METADATA_JOB_RUN_STATUS]: executeThreadResult.status == 200 ? config.OBJECT_DICTIONARY_TERM_JOB_RUN_COMPLETED : config.OBJECT_DICTIONARY_TERM_JOB_RUN_FAILED,
             [config.OBJECT_METADATA_JOB_RUN_OUTCOME]: executeThreadResult.message,
             [config.OBJECT_METADATA_DEFAULT_PARENT_ID]: jobObject.id,
+            [config.OBJECT_METADATA_JOB_RUN_OUTPUT]: this.nlpService.upsertedObjectIds,
             [config.OBJECT_METADATA_DEFAULT_CREATED_AT]: jobCompletionDate.toISOString(),
           }
         };

@@ -345,7 +345,7 @@ export class UpsertDataJob<T> {
             console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] Saving object by creating new object with ID: ${newObjectData.id}`);
 
             // Just in case newObjectData already has some related_ids, merge them with the new ones
-            newObjectData.metadata.related_ids = config.mergeRelatedIds(this.nlpService.relatedObjectIds, newObjectData.metadata.related_ids);
+            newObjectData.metadata.related_ids = config.mergeObjectIdMaps(this.nlpService.relatedObjectIds, newObjectData.metadata.related_ids);
 
             // Create new object
             const objectCreateResult = await this.storageService.updateRow({
@@ -417,16 +417,18 @@ export class UpsertDataJob<T> {
             }
           }
 
-          const combinedRelatedIds = config.mergeRelatedIds(objectThatWasStored.metadata.related_ids, {[objectThatWasStored.related_object_type_id]: [objectThatWasStored.id]});
+          const objectThatWasStoredTypeIdFormat = {[objectThatWasStored.related_object_type_id]: [objectThatWasStored.id]};
+          const combinedRelatedIds = config.mergeObjectIdMaps(objectThatWasStored.metadata.related_ids, objectThatWasStoredTypeIdFormat);
 
-          console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] combinedRelatedIds after adding via mergeRelatedIds: ${JSON.stringify(combinedRelatedIds)}`);
+          console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] combinedRelatedIds after adding via mergeObjectIdMaps: ${JSON.stringify(combinedRelatedIds)}`);
 
           this.nlpService.setMemberVariables({
-            relatedObjectIds: config.mergeRelatedIds(this.nlpService.relatedObjectIds, combinedRelatedIds),
+            relatedObjectIds: config.mergeObjectIdMaps(this.nlpService.relatedObjectIds, combinedRelatedIds),
+            upsertedObjectIds: config.mergeObjectIdMaps(this.nlpService.upsertedObjectIds, objectThatWasStoredTypeIdFormat), // eg. used by jobs to know what objects have been created by them
             selectedObject: objectThatWasStored,
           });
 
-          console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] relatedObjectIds now after adding again via mergeRelatedIds: ${JSON.stringify(this.nlpService.relatedObjectIds)}`);
+          console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] relatedObjectIds now after adding again via mergeObjectIdMaps: ${JSON.stringify(this.nlpService.relatedObjectIds)}`);
 
           // Only want to add a signal to the original data call, otherwise will keep calling upsertDataJob infinitely
           if (initialCall) {

@@ -21,6 +21,7 @@ export class NlpService {
   private selectedObjectTypeId: string | null = null;
   private selectedObjectPotentialParentIds: string[] = [];
   private relatedObjectIds: Record<string, unknown> | null = null; // Type ID -> Object ID map of all objects that have been called/created during this run and so related to each other
+  private upsertedObjectIds: Record<string, unknown> | null = null; // Type ID -> Object ID map of all new objects that have been created during this run
   private objectMetadataFunctionProperties: Record<string, unknown> | null = null;
   private objectMetadataFunctionPropertiesRequiredIds: Record<string, string[]> | null = null;
   private fieldTypes: string[] = [];
@@ -60,6 +61,7 @@ export class NlpService {
     selectedObjectTypeId,
     selectedObjectPotentialParentIds,
     relatedObjectIds,
+    upsertedObjectIds,
     objectMetadataFunctionProperties,
     objectMetadataFunctionPropertiesRequiredIds,
     fieldTypes,
@@ -77,6 +79,7 @@ export class NlpService {
     selectedObjectTypeId?: string;
     selectedObjectPotentialParentIds?: string[];
     relatedObjectIds? : Record<string, unknown>;
+    upsertedObjectIds?: Record<string, unknown>;
     objectMetadataFunctionProperties?: Record<string, unknown>;
     objectMetadataFunctionPropertiesRequiredIds?: Record<string, string[]>;
     fieldTypes?: string[];
@@ -96,6 +99,7 @@ export class NlpService {
     this.selectedObjectTypeId = selectedObjectTypeId ?? this.selectedObjectTypeId;
     this.selectedObjectPotentialParentIds = selectedObjectPotentialParentIds ?? this.selectedObjectPotentialParentIds;
     this.relatedObjectIds = relatedObjectIds ?? this.relatedObjectIds;
+    this.upsertedObjectIds = upsertedObjectIds ?? this.upsertedObjectIds;
     this.objectMetadataFunctionProperties = objectMetadataFunctionProperties ?? this.objectMetadataFunctionProperties;
     this.objectMetadataFunctionPropertiesRequiredIds =
       objectMetadataFunctionPropertiesRequiredIds ?? this.objectMetadataFunctionPropertiesRequiredIds;

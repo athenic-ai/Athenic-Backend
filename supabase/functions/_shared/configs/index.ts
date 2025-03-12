@@ -373,11 +373,12 @@ export function createObjectMetadataFunctionProperties(
   return [objectMetadataFunctionProperties, objectMetadataFunctionPropertiesRequiredIds];
 }
 
-export function mergeRelatedIds(
+export function mergeObjectIdMaps(
   existingIds?: Record<string, string[]>,
   newIds?: Record<string, string[]>
 ): Record<string, string[]> {
-  console.log(`mergeRelatedIds called with: existingIds: ${JSON.stringify(existingIds)} and newIds: ${JSON.stringify(newIds)}`);
+  // Merges two maps of object IDs, ensuring no duplicates and returning null if no IDs exist at all (used in data forms such as are used for related IDs)
+  console.log(`mergeObjectIdMaps called with: existingIds: ${JSON.stringify(existingIds)} and newIds: ${JSON.stringify(newIds)}`);
   
   // If no IDs exist at all, return null
   if (!existingIds && !newIds) {
@@ -389,9 +390,9 @@ export function mergeRelatedIds(
 
   // If there are new IDs to merge, process each key
   if (newIds) {
-    console.log("mergeRelatedIds has new ones");
+    console.log("mergeObjectIdMaps has new ones");
     Object.entries(newIds).forEach(([key, ids]) => {
-      console.log(`mergeRelatedIds... merging key: ${key} with ids: ${JSON.stringify(ids)}`);
+      console.log(`mergeObjectIdMaps... merging key: ${key} with ids: ${JSON.stringify(ids)}`);
       mergedIds[key] = [
         ...new Set([
           ...(existingIds?.[key] || []), // Include existing IDs or an empty array
@@ -401,8 +402,34 @@ export function mergeRelatedIds(
     });
   }
 
-  console.log(`mergeRelatedIds now: ${JSON.stringify(mergedIds)}`);
+  console.log(`mergeObjectIdMaps now: ${JSON.stringify(mergedIds)}`);
   return mergedIds;
+}
+
+export function removeObjectFromObjectIdMap({
+  objectIdMap,
+  objectType,
+  objectId
+}: {
+  objectIdMap: Record<string, string[]>;
+  objectType: string;
+  objectId: string;
+}): Record<string, string[]> {
+  // Creates a copy of the existing IDs object to avoid mutating the original
+  const updatedIdMap: Record<string, string[]> = { ...objectIdMap };
+  
+  // Check if the object type exists in the map
+  if (updatedIdMap[objectType]) {
+    // Filter out the specified object ID
+    updatedIdMap[objectType] = updatedIdMap[objectType].filter(id => id !== objectId);
+    
+    // If the object type's array is now empty, remove the object type entry
+    if (updatedIdMap[objectType].length === 0) {
+      delete updatedIdMap[objectType];
+    }
+  }
+  
+  return updatedIdMap;
 }
 
 // Helper function to remove null and undefined values recursively from any object
@@ -503,6 +530,7 @@ export const OBJECT_DICTIONARY_TERM_FAILED = "failed";
 
 export const OBJECT_METADATA_JOB_RUN_STATUS = "status";
 export const OBJECT_METADATA_JOB_RUN_OUTCOME = "outcome";
+export const OBJECT_METADATA_JOB_RUN_OUTPUT = "output";
 
 export const OBJECT_DICTIONARY_TERM_JOB_RUN_COMPLETED = "jobRunCompleted";
 export const OBJECT_DICTIONARY_TERM_JOB_RUN_FAILED = "jobRunFailed";
