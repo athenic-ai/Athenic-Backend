@@ -3,6 +3,7 @@ import { StorageService } from "../storage/storageService.ts";
 // import TasksPlugin from "../tasks/tasksPlugin";
 import OpenAI from "npm:openai"
 import * as config from "../../configs/index.ts";
+import { FunctionResult } from "../../configs/index.ts";
 
 export class NlpService {
   private nlpFunctionsBase: NlpFunctionsBase;
@@ -290,19 +291,129 @@ export class NlpService {
 
   async executeThread({
     promptParts,
-    assistantId,
     chatHistory = [],
   }: {
-    promptParts: Array;
-    assistantId: any;
+    promptParts: Array<any>;
     chatHistory?: Array<{ role: string; content: string }>;
-  }) {
+  }): Promise<FunctionResult> {
     if (!promptParts) {
       throw new Error("No promptParts provided for executeThread");
     }
   
     try {
-      console.log(`executeThread called with prompt: ${config.stringify(promptParts)}, assistantId: ${assistantId}, and chat history: ${config.stringify(chatHistory)}`);
+      console.log(`executeThread called with prompt: ${config.stringify(promptParts)} and chat history: ${config.stringify(chatHistory)}`);
+
+      let assistantId = null;
+      
+      // 1. Pull down all assistants from the database
+      const getAssistantsResult = await this.storageService.getRows('objects', {
+        whereAndConditions: [{
+          column: 'related_object_type_id',
+          operator: 'eq',
+          value: 'assistant'
+        }]
+      });
+      
+      if (getAssistantsResult.status != 200) {
+        console.error(`Error getting assistants: ${getAssistantsResult.message}`);
+        throw new Error(`Unable to get assistants: ${getAssistantsResult.message}`);
+      }
+      
+      const assistants = getAssistantsResult.data || [];
+      console.log(`Found ${assistants.length} assistants in the database`);
+
+      console.log(`Assistants data: ${config.stringify(assistants)}`);
+      
+      // 2. Use NLP to triage the prompt
+      // Combine the prompt parts into a single text for analysis
+      const promptText = promptParts.map(part => 
+        typeof part === 'string' ? part : JSON.stringify(part)
+      ).join('\n');
+      
+      // Always add a "General Assistant" option for triage even if no assistants are found
+      const triagePrompt = `
+I need to determine if the following user prompt requires a specialized assistant.
+The prompt is: "${promptText}"
+
+Available assistants:
+${assistants.length > 0 ? 
+  assistants.map(assistant => 
+    `- ${assistant.metadata.title}: ${assistant.metadata.instructions}`
+  ).join('\n') : 
+  ''}
+- General Assistant: A versatile assistant with access to all tools that can handle any general request or task.
+
+If this is a simple prompt that doesn't require deep thinking, tool calling, or specialized knowledge, respond with "USE_BASIC".
+Otherwise, respond with either:
+${assistants.length > 0 ? 
+  '- The ID of the most appropriate specialized assistant from the list above' : 
+  ''}
+- "USE_GENERAL" for the General Assistant if the prompt requires advanced capabilities but no specialized assistant is appropriate.
+
+Respond only with "USE_BASIC", "USE_GENERAL", or an assistant ID, nothing else.`;
+
+      const triageResult = await this.execute({
+        promptParts: [triagePrompt],
+        systemInstruction: "You are a helpful AI assistant that analyzes text to determine the most appropriate specialized assistant to handle it.",
+        useLiteModels: true, // Use lite models for triage to keep it fast
+        functionUsage: "none" // No need for function usage in triage
+      });
+      
+      if (triageResult.status === 200) {
+        const triageResponse = triageResult.message?.trim();
+        console.log(`Triage response: ${triageResponse}`);
+        
+        // If the triage suggests using a specific assistant
+        if (triageResponse && triageResponse !== "USE_BASIC") {
+          if (triageResponse === "USE_GENERAL") {
+            // Create a general assistant with all tools
+            console.log("Using general assistant based on triage");
+            const generalAssistantResult = await this.createGeneralAssistant();
+            if (generalAssistantResult.status === 200) {
+              assistantId = generalAssistantResult.data;
+            } else {
+              throw new Error(`Failed to create general assistant: ${generalAssistantResult.message}`);
+            }
+          } else {
+            // Find the assistant with the matching ID
+            const selectedAssistant = assistants.find(a => a.id === triageResponse);
+            
+            if (selectedAssistant) {
+              // 3. Create the assistant dynamically
+              const assistantCreateResult = await this.createDynamicAssistant(selectedAssistant);
+              if (assistantCreateResult.status === 200) {
+                assistantId = assistantCreateResult.data;
+                console.log(`Created dynamic assistant with ID: ${assistantId}`);
+              } else {
+                console.error(`Failed to create dynamic assistant: ${assistantCreateResult.message}`);
+                // Fall back to general assistant if we can't create the dynamic one
+                const generalAssistantResult = await this.createGeneralAssistant();
+                assistantId = generalAssistantResult.data;
+              }
+            } else {
+              // If assistant ID wasn't found, use general assistant
+              console.log(`Assistant with ID ${triageResponse} not found, using general assistant`);
+              const generalAssistantResult = await this.createGeneralAssistant();
+              assistantId = generalAssistantResult.data;
+            }
+          }
+        } else {
+          // For simple prompts or USE_BASIC response, just use execute() with a basic model
+          console.log("Using basic model for simple prompt");
+          const basicResult = await this.execute({
+            promptParts,
+            systemInstruction: config.VANILLA_SYSTEM_INSTRUCTION,
+            chatHistory,
+            useLiteModels: true
+          });
+          return basicResult;
+        }
+      } else {
+        // If triage fails, fall back to general assistant
+        console.error(`Triage failed: ${triageResult.message}, using general assistant`);
+        const generalAssistantResult = await this.createGeneralAssistant();
+        assistantId = generalAssistantResult.data;
+      }
 
       const messages = [
         ...chatHistory, // Add chat history
@@ -507,23 +618,27 @@ export class NlpService {
     }
   }
 
-  async createEcommerceAssistant(): Promise<FunctionResult> {
-    // TODO: Reuse assistant instead of creating one during every call!
+  async createDynamicAssistant(assistantObject: any): Promise<FunctionResult> {
     try {
-      console.log("createEcommerceAssistant called");
+      console.log(`createDynamicAssistant called for ${assistantObject.metadata.title}`);
 
+      // Provide all function groups for simplicity, as requested
       await this.updateFunctionDeclarations({
-        functionGroupsIncluded: ["nlpFunctionsEcommerce", "nlpFunctionsData"],
-      }); // Support all functions by default within the groups included by not specifying functionsIncluded
+        functionGroupsIncluded: ["nlpFunctionsData", "nlpFunctionsEcommerce"],
+      });
 
-      const ecommerceAssisantTools = [...this.functionDeclarations]; // Shallow copy to avoid affecting this.functionDeclarations
-      ecommerceAssisantTools.push({"type": "code_interpreter"}); // Adding support for code interpreter
+      const assistantTools = [...this.functionDeclarations]; // Shallow copy to avoid affecting this.functionDeclarations
+      assistantTools.push({"type": "code_interpreter"}); // Adding support for code interpreter
+
+      // Combine the assistant-specific instructions with the vanilla instructions
+      const combinedInstructions = `${config.VANILLA_ASSISTANT_SYSTEM_INSTRUCTION}
+      
+${assistantObject.metadata.instructions}`;
 
       const assistant = await this.clientOpenAi.beta.assistants.create({
-        name: "Ecommerce Athenic AI Assistant",
-        instructions: `${config.VANILLA_ASSISTANT_SYSTEM_INSTRUCTION}
-        \n\nYou have been specifically been given the additional scope of supporting with ecommerce-related work.`,
-        tools: ecommerceAssisantTools,
+        name: assistantObject.metadata.title,
+        instructions: combinedInstructions,
+        tools: assistantTools,
         temperature: 0.5,
         model: config.NLP_MODELS_FULL[0],
       });  
@@ -539,10 +654,10 @@ export class NlpService {
       };
       return result;
     } catch (error) {
-      console.log(`Error creating assistant: ${error.message}`);
+      console.log(`Error creating dynamic assistant: ${error.message}`);
       const result: FunctionResult = {
         status: 500,
-        message: `Oops! I was unable to get a result (${error.message}). Please try again shortly.`
+        message: `❌ Error creating dynamic assistant: ${error.message}`,
       };
       return result;
     }

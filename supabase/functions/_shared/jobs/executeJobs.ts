@@ -31,7 +31,7 @@ export class ExecuteJobs<T> {
     dictionaryTerms?: any[];
 }): Promise<any> {
     console.log(`Executing jobs with dataIn: ${config.stringify(dataIn)}`);
-    let jobObjects, assistantId;
+    let jobObjects;
     try {
       await this.nlpService.initialiseClientCore();
       await this.nlpService.initialiseClientOpenAi();
@@ -136,16 +136,6 @@ export class ExecuteJobs<T> {
       }
       console.log(`✅ Completed "Step 3: Get jobs data", with jobObjects: ${config.stringify(jobObjects)}`);
 
-
-      // -----------Step 4: Get the relevant assistant id-----------
-      console.log(`⏭️ Starting "Step 4: Get the relevant assistant id"`);
-      // (Currently hardcoded to create an ecommerce assistant - obv this needs changing)
-      const createEcommerceAssistantResult = await this.nlpService.createEcommerceAssistant();
-      if (createEcommerceAssistantResult.status !== 200) {
-        throw new Error(createEcommerceAssistantResult.message);
-      }
-      assistantId = createEcommerceAssistantResult.data;
-      console.log(`✅ Completed "Step 4: Get the relevant assistant id", with assistantId: ${assistantId}`);
     } catch (error) {
       const result: FunctionResult = {
         status: 500,
@@ -155,15 +145,15 @@ export class ExecuteJobs<T> {
     }
 
 
-    // -----------Step 5: Execute the job(s)----------- 
-    console.log(`⏭️ Step 5: Execute the job(s)"`);
+    // -----------Step 4: Execute the job(s)----------- 
+    console.log(`⏭️ Step 4: Execute the job(s)"`);
     let jobOutcomes: any[] = []; // If dry run will contain data objects
     let jobFailures: any[] = []; // Lists all failed jobs
     let jobLoopCounter = 0;
     for (const jobObject of jobObjects) {
       try {
-        // -----------Step 5a: Execute selected job----------- 
-        console.log(`[D:${jobLoopCounter}] ⏭️ "Step 5a: Execute selected job" called with jobObject: ${config.stringify(jobObject)}`);
+        // -----------Step 4a: Execute selected job----------- 
+        console.log(`[D:${jobLoopCounter}] ⏭️ "Step 4a: Execute selected job" called with jobObject: ${config.stringify(jobObject)}`);
 
         const promptParts = [
           {"type": "text", 
@@ -178,12 +168,11 @@ export class ExecuteJobs<T> {
   
         const executeThreadResult = await this.nlpService.executeThread({
           promptParts,
-          assistantId
         });
-        console.log(`[D:${jobLoopCounter}] ✅ Completed "Step 5a: Execute selected job"`);
+        console.log(`[D:${jobLoopCounter}] ✅ Completed "Step 4a: Execute selected job"`);
 
-        // -----------Step 5b: Save job run----------- 
-        console.log(`[D:${jobLoopCounter}] ⏭️ "Step 5b: Save job run"`);
+        // -----------Step 4b: Save job run----------- 
+        console.log(`[D:${jobLoopCounter}] ⏭️ "Step 4b: Save job run"`);
 
         const jobCompletionDate = new Date();
 
@@ -249,7 +238,7 @@ export class ExecuteJobs<T> {
           throw Error(jobObjectUpdateResult.message);
         }
 
-        console.log(`[D:${jobLoopCounter}] ✅ Completed "Step 5b: Save job run"`);
+        console.log(`[D:${jobLoopCounter}] ✅ Completed "Step 4b: Save job run"`);
 
       }
       catch (error) {
@@ -258,7 +247,7 @@ export class ExecuteJobs<T> {
       jobLoopCounter++;
     }
 
-    console.log(`[D:${jobLoopCounter}] ✅ Completed "Step 5: Execute the job(s)"`);
+    console.log(`[D:${jobLoopCounter}] ✅ Completed "Step 4: Execute the job(s)"`);
 
     if (jobFailures.length) {
       console.error(`Failed to execute job:\n\n${jobFailures.join("\n")}`);

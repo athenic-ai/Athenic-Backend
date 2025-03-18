@@ -35,7 +35,7 @@ export class UpsertDataJob<T> {
 }): Promise<any> {
     console.log(`[I:${initialCall}] Processing data from connection: ${connection} and dryRun: ${dryRun} and dataIn: ${JSON.stringify(dataIn)}`);
 
-    let dataContents, objectTypeId, assistantId;
+    let dataContents, objectTypeId;
     try {
       await this.nlpService.initialiseClientCore();
       await this.nlpService.initialiseClientOpenAi();
@@ -140,16 +140,6 @@ export class UpsertDataJob<T> {
       }
       console.log(`[I:${initialCall}] ✅ Completed "Step 4: Determine which object type the data relates to", with objectTypeId: ${objectTypeId}`);
 
-      // -----------Step 5: Get the relevant assistant id-----------
-      console.log(`[I:${initialCall}] ⏭️ Starting "Step 5: Get the relevant assistant id"`);
-      // (Currently hardcoded to just create a general assistant)
-      const createGeneralAssistantResult = await this.nlpService.createGeneralAssistant();
-      if (createGeneralAssistantResult.status !== 200) {
-        throw new Error(createGeneralAssistantResult.message);
-      }
-      assistantId = createGeneralAssistantResult.data;
-      console.log(`[I:${initialCall}] ✅ Completed "Step 5: Get the relevant assistant id", with assistantId: ${assistantId}`);
-
     } catch (error) {
       // If haven't even managed to get past this stage, assume it's a critical error and return at this stage
       const result: FunctionResult = {
@@ -159,8 +149,8 @@ export class UpsertDataJob<T> {
       return result;
     }
 
-    // -----------Step 6: Process the data using the chosen object type's metadata----------- 
-    console.log(`[I:${initialCall}] ⏭️ Step 6: Process the data using the chosen object type's metadata"`);
+    // -----------Step 5: Process the data using the chosen object type's metadata----------- 
+    console.log(`[I:${initialCall}] ⏭️ Step 5: Process the data using the chosen object type's metadata"`);
     if (!Array.isArray(dataContents)) {
       console.log(`[I:${initialCall}] dataContents is not array so converting it to one (it's currently a ${typeof dataContents}. dataContents: ${dataContents})`);
       dataContents = [dataContents]; // Make it a list if not already so that it can be iterated on below
@@ -179,8 +169,8 @@ export class UpsertDataJob<T> {
           selectedObjectTypeId: objectTypeId,
         });
 
-        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 6a: Process the given data item", with item: ${config.stringify(dataContentsItem)} and objectTypeId: ${objectTypeId}`);
-        // -----------Step 6a: Process the given data item----------- 
+        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5a: Process the given data item", with item: ${config.stringify(dataContentsItem)} and objectTypeId: ${objectTypeId}`);
+        // -----------Step 5a: Process the given data item----------- 
         let processDataPrompt = `You MUST call the 'processDataUsingGivenObjectsMetadataStructure' function to process the following data:\n${config.stringify(dataContentsItem)}
         \n\nTo help, the object type you will be creating is called ${objectTypeDescriptions[objectTypeId].name}, and its description is: ${objectTypeDescriptions[objectTypeId].description}.`;
         if (dataIn.companyMetadata && dataIn.companyMetadata.dataDescription) {
@@ -209,25 +199,25 @@ export class UpsertDataJob<T> {
           throw Error("Failed to process data using the given object's metadata structure");
         }
 
-        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6a: Process the given data item", with newObjectData: ${JSON.stringify(newObjectData)}`);
+        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5a: Process the given data item", with newObjectData: ${JSON.stringify(newObjectData)}`);
   
-        // -----------Step 6b: If object type demands a parent object, determine which object should be the parent-----------
-        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 6b: If object type demands a parent object, determine which object should be the parent"`);
+        // -----------Step 5b: If object type demands a parent object, determine which object should be the parent-----------
+        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5b: If object type demands a parent object, determine which object should be the parent"`);
         if (dataIn.companyMetadata && dataIn.companyMetadata.parentObject) {
           // Add immediately if explictly provided, as long as it's a standard data type
           const providedObjectType = objectTypes.find(obj => obj.id === dataIn.companyMetadata.parentObject.related_object_type_id);
           if (providedObjectType && providedObjectType.category === "organisation_data_standard") {
             newObjectData.metadata.parent_id = dataIn.companyMetadata.parentObject.id;
-            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6b: Auto assigned object's parent", with: parent id: ${newObjectData.metadata.parent_id}, newObjectData: ${config.stringify(newObjectData)} and dataContents: ${config.stringify(dataContents)}`);  
+            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5b: Auto assigned object's parent", with: parent id: ${newObjectData.metadata.parent_id}, newObjectData: ${config.stringify(newObjectData)} and dataContents: ${config.stringify(dataContents)}`);  
           } else {
-            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6b: Auto assigned object's parent" (didn't assign as parent missing or not standard) with: providedObjectType: ${config.stringify(providedObjectType)}, dataContents: ${config.stringify(dataContents)}`);  
+            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5b: Auto assigned object's parent" (didn't assign as parent missing or not standard) with: providedObjectType: ${config.stringify(providedObjectType)}, dataContents: ${config.stringify(dataContents)}`);  
           }
         } else {
           console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] Investigating potential parent object, with objectTypes: ${config.stringify(objectTypes)} and objectTypeId: ${objectTypeId}`);
           const predictedObjectType = objectTypes.find(obj => obj.id === objectTypeId);
           if (predictedObjectType && predictedObjectType.parent_object_type_id) {
-            // Step 6bi: Retrieve all objects of this type
-            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 6bi: Retrieve all objects of this type"`);
+            // Step 5bi: Retrieve all objects of this type
+            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5bi: Retrieve all objects of this type"`);
             const parentObjectTypeId = predictedObjectType.parent_object_type_id;
             const getPotentialParentObjectsResult = await this.storageService.getRows(config.OBJECT_TABLE_NAME, {
               whereOrConditions: [
@@ -246,16 +236,16 @@ export class UpsertDataJob<T> {
                 delete potentialParentObjects[i].embedding;
               }
             }
-            
-            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6bi: Retrieve all objects of this type", with: ${JSON.stringify(potentialParentObjects)}`);
+
+            console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5bi: Retrieve all objects of this type", with: ${JSON.stringify(potentialParentObjects)}`);
             if (potentialParentObjects && potentialParentObjects.length) {
               // If there are actually some parent objects found
               const potentialParentObjectsIds = potentialParentObjects.map(item => item.id); // List of strings of the ID of each object type
               this.nlpService.setMemberVariables({
                 selectedObjectPotentialParentIds: potentialParentObjectsIds,
               });
-              // Step 6bii: Predict the appropriate object's parent
-              console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 6bii: Predict the appropriate object's parent"`);
+              // Step 5bii: Predict the appropriate object's parent
+              console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5bii: Predict the appropriate object's parent"`);
     
               const newObjectDataCopyLimitedData = structuredClone(newObjectData); // Create a deep copy
               delete newObjectDataCopyLimitedData.id; // Remove the `id` key to help avoid the NLP getting confused and choosing this id as the chosen parent id
@@ -270,12 +260,12 @@ export class UpsertDataJob<T> {
                 functionsIncluded: ["predictObjectParent"],
                 useLiteModels: true,
               });
-              console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6bii: Predict the appropriate object's parent", with: ${JSON.stringify(predictObjectParentResult)}`)
+              console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5bii: Predict the appropriate object's parent", with: ${JSON.stringify(predictObjectParentResult)}`)
               if (predictObjectParentResult.status == 200 && predictObjectParentResult.data) {
-                // Step 6biii: Assign a parent object assuming one could be found
-                console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 6biii: Assign a parent object assuming one could be found, with newObjectData: ${config.stringify(newObjectData)} and predictedObjectType: ${config.stringify(predictedObjectType)}"`);
+                // Step 5biii: Assign a parent object assuming one could be found
+                console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5biii: Assign a parent object assuming one could be found, with newObjectData: ${config.stringify(newObjectData)} and predictedObjectType: ${config.stringify(predictedObjectType)}"`);
                 newObjectData.metadata.parent_id = predictObjectParentResult.data;
-                console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6biii: Assign a parent object assuming one could be found", with: ${JSON.stringify(newObjectData)}`);
+                console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5biii: Assign a parent object assuming one could be found", with: ${JSON.stringify(newObjectData)}`);
               }
             } else {
               console.log("Not adding parent to object as no objects of suitable type found");
@@ -285,8 +275,8 @@ export class UpsertDataJob<T> {
           }
         }
         
-        // -----------Step 6c: Save object as appropriate-----------
-        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 6c: Save object as appropriate"`);
+        // -----------Step 5c: Save object as appropriate-----------
+        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5c: Save object as appropriate"`);
         if (dryRun) {
           // Not actually saving data if dry run, just returning what would be saved
           dataContentsOutcomes.push(newObjectData);
@@ -391,10 +381,10 @@ export class UpsertDataJob<T> {
 
             objectThatWasStored = newObjectData;
           }
-          console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6c: Save object as appropriate", with: dryRun: ${dryRun}`);
+          console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5c: Save object as appropriate", with: dryRun: ${dryRun}`);
 
-          // -----------Step 6d: Do some related work post-object storage-----------
-          console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 6d: Do some related work post-object storage"`);
+          // -----------Step 5d: Do some related work post-object storage-----------
+          console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ⏭️ Starting "Step 5d: Do some related work post-object storage"`);
           if (this.nlpService.relatedObjectIds) {
             console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] this.nlpService.relatedObjectIds: ${JSON.stringify(this.nlpService.relatedObjectIds)}`);
             // Iterate through each type and its related IDs in the map
@@ -453,13 +443,12 @@ export class UpsertDataJob<T> {
   
             await this.nlpService.executeThread({
               promptParts,
-              assistantId
             });
 
             this.nlpService.relatedObjectIds = null; // Reset this prior to next iteration
           }
         }
-        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 6d: Do some related work post-object storage"`);
+        console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5d: Do some related work post-object storage"`);
       }
       catch (error) {
         dataContentsFailures.push(`Failed to process data with error: ${error.message}.\n Data: ${config.stringify(dataContentsItem)}.`);

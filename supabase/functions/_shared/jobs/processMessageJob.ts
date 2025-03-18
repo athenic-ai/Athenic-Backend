@@ -156,15 +156,8 @@ export class ProcessMessageJob<T> {
       console.log(`✅ Completed "Step 3: Get additional data that may be used within function calls"`);
 
       // -----------Step 4: Get the AI's response to the message-----------
-      const createGeneralAssistantResult = await this.nlpService.createGeneralAssistant();
-      if (createGeneralAssistantResult.status !== 200) {
-        throw new Error(createGeneralAssistantResult.message);
-      }
-      const assistantId = createGeneralAssistantResult.data;
-
       const executeThreadResult = await this.nlpService.executeThread({
         promptParts: messageParts,
-        assistantId,
         chatHistory,
       });
       if (executeThreadResult.status != 200) {
