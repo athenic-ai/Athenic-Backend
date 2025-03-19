@@ -46,7 +46,8 @@ export class MessagingService {
         orderByConditions: [
           { column: 'metadata', jsonPath:['created_at'], ascending: false }, // desc so we get the most recent messages
         ],
-        limitCount: 6 // TODO: consider increasing this to maybe 20
+        limitCount: 6, // TODO: consider increasing this to maybe 20
+        removeEmbeddings: true // Exclude embeddings to reduce payload size
       });
       if (getChatHistoryResult.status != 200) {
         throw Error(getChatHistoryResult.message);

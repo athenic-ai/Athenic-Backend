@@ -129,6 +129,7 @@ export class ExecuteJobs<T> {
         whereAndConditions: [
           { column: 'owner_organisation_id', operator: 'eq', value: organisationId }, // Include entries created by the org
         ],
+        removeEmbeddings: true // Exclude embeddings to reduce payload size
       });
       jobObjects = getJobObjectsResult.data;
       if (!jobObjects) {

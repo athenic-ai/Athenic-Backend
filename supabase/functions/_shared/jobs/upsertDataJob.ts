@@ -227,16 +227,10 @@ export class UpsertDataJob<T> {
               whereAndConditions: [
                 { column: 'related_object_type_id', operator: 'eq', value: parentObjectTypeId },
               ],
+              removeEmbeddings: true // Exclude embeddings to reduce payload size
             });
             const potentialParentObjects = getPotentialParentObjectsResult.data;
-            
-            // Remove embedding value from potential parent objects to reduce NLP overhead
-            for (let i = 0; i < potentialParentObjects.length; i++) {
-              if ('embedding' in potentialParentObjects[i]) {
-                delete potentialParentObjects[i].embedding;
-              }
-            }
-
+                        
             console.log(`[I:${initialCall} D:${dataContentsLoopCounter}] ✅ Completed "Step 5bi: Retrieve all objects of this type", with: ${JSON.stringify(potentialParentObjects)}`);
             if (potentialParentObjects && potentialParentObjects.length) {
               // If there are actually some parent objects found

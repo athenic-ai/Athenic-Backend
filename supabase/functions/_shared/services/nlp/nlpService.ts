@@ -311,7 +311,8 @@ export class NlpService {
           column: 'related_object_type_id',
           operator: 'eq',
           value: 'assistant'
-        }]
+        }],
+        removeEmbeddings: true // Exclude embeddings to reduce payload size
       });
       
       if (getAssistantsResult.status != 200) {

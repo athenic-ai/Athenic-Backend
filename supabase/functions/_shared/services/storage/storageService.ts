@@ -22,6 +22,7 @@ type GetRowsOptions = {
   whereOrConditions?: WhereCondition[]; // At least one condition must be true
   orderByConditions?: OrderByCondition[];
   limitCount?: number;
+  removeEmbeddings?: boolean; // Whether to exclude embeddings from the results to reduce payload size
 };
 
 export class StorageService {
@@ -93,10 +94,18 @@ export class StorageService {
         whereAndConditions = [], // If included, all of those params must be true
         whereOrConditions = [], // If included, at least one of those must be true
         orderByConditions = [], // Eg. orderByConditions: [{ column: 'created_at', ascending: false }],
-        limitCount = null // Eg. limitCount: 10,
+        limitCount = null, // Eg. limitCount: 10,
+        removeEmbeddings = false // Whether to exclude embeddings from results
       } = options;
     
-      let query = this.supabase.from(table).select('*');
+      let query;
+      if (removeEmbeddings) {
+        // Use a more efficient approach: select all columns explicitly except 'embedding'
+        query = this.supabase.from(table).select('id, owner_organisation_id, related_object_type_id, metadata, created_at, owner_member_id');
+      } else {
+        // Select all columns including embedding
+        query = this.supabase.from(table).select('*');
+      }
     
       // Helper function to format column path for JSON/JSONB queries
       const formatColumnPath = (condition: WhereCondition | OrderByCondition): string => {
@@ -107,7 +116,7 @@ export class StorageService {
         // Remove the inner quotes around the json key
         return `${condition.column}->>${condition.jsonPath[0]}`;
       };      
-  
+
       // Apply "AND" conditions
       whereAndConditions.forEach((condition) => {
         const columnPath = formatColumnPath(condition);
