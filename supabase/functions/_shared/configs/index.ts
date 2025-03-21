@@ -509,6 +509,7 @@ export const OBJECT_TABLE_NAME = "objects";
 export const OBJECT_TYPE_ID_SIGNAL = "signal";
 export const OBJECT_TYPE_ID_JOB = "job";
 export const OBJECT_TYPE_ID_JOB_RUN = "job_run";
+export const OBJECT_TYPE_ID_ASSISTANT = "assistant";
 export const OBJECT_TYPE_ID_CONNECTION = "connection";
 export const OBJECT_TYPE_ID_MESSAGE_THREAD = "message_thread";
 export const OBJECT_TYPE_ID_MESSAGE = "message";

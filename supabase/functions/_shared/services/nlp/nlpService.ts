@@ -310,7 +310,7 @@ export class NlpService {
         whereAndConditions: [{
           column: 'related_object_type_id',
           operator: 'eq',
-          value: 'assistant'
+          value: config.OBJECT_TYPE_ID_ASSISTANT
         }],
         removeEmbeddings: true // Exclude embeddings to reduce payload size
       });
