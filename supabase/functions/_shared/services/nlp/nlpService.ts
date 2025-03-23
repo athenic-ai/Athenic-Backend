@@ -148,7 +148,7 @@ export class NlpService {
     interpretFuncCalls = false,
     useLiteModels = true,
   }: {
-    promptParts: Array;
+    promptParts: Array<any>;
     systemInstruction: string;
     chatHistory?: Array<{ role: string; content: string }>;
     temperature?: number;
@@ -178,7 +178,20 @@ export class NlpService {
       const messages = [
         { role: "developer", content: systemInstruction },
         ...chatHistory, // Add chat history
-        ...promptParts.map((part) => ({ role: "user", content: [part] })), // Add user's prompt parts
+        ...promptParts.map((part) => {
+          // Ensure content is always in the correct format (string or array of content blocks)
+          let content;
+          if (typeof part === 'string') {
+            content = part;
+          } else if (typeof part === 'object' && part.text) {
+            // If it's an object with a text property, use that text
+            content = part.text;
+          } else {
+            // Otherwise stringify it
+            content = JSON.stringify(part);
+          }
+          return { role: "user", content };
+        }),
       ];
 
       console.log(`Creating chat with:\nmodels: ${models} \nmessages: ${JSON.stringify(messages)}\ntemperature: ${temperature} \nfunctionUsage: ${functionUsage} \nfunctionsIncluded: ${JSON.stringify(functionsIncluded)}`);
@@ -342,7 +355,7 @@ The prompt is: "${promptText}"
 Available assistants:
 ${assistants.length > 0 ? 
   assistants.map(assistant => 
-    `- ${assistant.metadata.title}: ${assistant.metadata.instructions}`
+    `- ${assistant.metadata.title} (ID: ${assistant.id}): ${assistant.metadata.instructions}`
   ).join('\n') : 
   ''}
 - General Assistant: A versatile assistant with access to all tools that can handle any general request or task.
@@ -354,11 +367,13 @@ ${assistants.length > 0 ?
   ''}
 - "USE_GENERAL" for the General Assistant if the prompt requires advanced capabilities but no specialized assistant is appropriate.
 
-Respond only with "USE_BASIC", "USE_GENERAL", or an assistant ID, nothing else.`;
+Respond only with "USE_BASIC", "USE_GENERAL", or an assistant ID (as a UUID and nothing else).`;
+
+      console.log(`Triage prompt: ${triagePrompt}`);
 
       const triageResult = await this.execute({
         promptParts: [triagePrompt],
-        systemInstruction: "You are a helpful AI assistant that analyzes text to determine the most appropriate specialized assistant to handle it.",
+        systemInstruction: "You are a helpful AI assistant that analyses a prompt to determine the most appropriate specialized assistant to handle it.",
         useLiteModels: true, // Use lite models for triage to keep it fast
         functionUsage: "none" // No need for function usage in triage
       });
@@ -421,7 +436,20 @@ Respond only with "USE_BASIC", "USE_GENERAL", or an assistant ID, nothing else.`
 
       const messages = [
         ...chatHistory, // Add chat history
-        ...promptParts.map((part) => ({ role: "user", content: [part] })), // Add user's prompt parts (system not supported when using assistant)
+        ...promptParts.map((part) => {
+          // Ensure content is always in the correct format (string or array of content blocks)
+          let content;
+          if (typeof part === 'string') {
+            content = part;
+          } else if (typeof part === 'object' && part.text) {
+            // If it's an object with a text property, use that text
+            content = part.text;
+          } else {
+            // Otherwise stringify it
+            content = JSON.stringify(part);
+          }
+          return { role: "user", content };
+        }),
       ];
   
       console.log(`messages: ${JSON.stringify(messages)}`);
