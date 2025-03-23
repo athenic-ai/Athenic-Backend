@@ -305,13 +305,16 @@ export class NlpService {
 
       let assistantId = null;
       
-      // 1. Pull down all assistants from the database
+      // 1. Pull down all assistants from the database that are enabled
       const getAssistantsResult = await this.storageService.getRows('objects', {
-        whereAndConditions: [{
+        whereAndConditions: [
+          {
           column: 'related_object_type_id',
           operator: 'eq',
           value: config.OBJECT_TYPE_ID_ASSISTANT
-        }],
+          },
+          { column: 'metadata', jsonPath:['status'], operator: 'eq', value: 'assistantEnabled' }
+        ],
         removeEmbeddings: true // Exclude embeddings to reduce payload size
       });
       
