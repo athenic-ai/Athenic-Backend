@@ -1,9 +1,9 @@
 // NOTE: This function has JWT checks disabled in settings (as Shopify won't provide a bearer token)
+// @deno-types="https://deno.land/std@0.208.0/http/server.d.ts"
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
-import { EcommercePluginShopify } from "../../_shared/services/ecommerce/ecommercePluginShopify.ts";
-import { StorageService } from "../../_shared/services/storage/storageService.ts";
-import { NlpService } from "../../_shared/services/nlp/nlpService.ts";
-import * as config from "../../_shared/configs/index.ts";
+import { StorageService } from "../_shared/services/storage/storageService.ts";
+import { NlpService } from "../_shared/services/nlp/nlpService.ts";
+import * as config from "../_shared/configs/index.ts";
 
 config.initSentry(); // Initialize Sentry
 
@@ -16,43 +16,90 @@ interface ShopifyWebhookPayload {
   [key: string]: any; // To allow for various other properties based on the webhook type
 }
 
+// Direct HMAC verification function to ensure we return 401 correctly
+async function isValidShopifyHmac(body: string, hmacHeader: string): Promise<boolean> {
+  try {
+    // Get shared secret from environment
+    const secret = Deno.env.get("SHOPIFY_CLIENT_SECRET");
+    if (!secret) {
+      console.error("Missing SHOPIFY_CLIENT_SECRET environment variable");
+      return false;
+    }
+
+    // Convert strings to proper format for crypto
+    const key = new TextEncoder().encode(secret);
+    const message = new TextEncoder().encode(body);
+
+    // Create HMAC
+    const cryptoKey = await crypto.subtle.importKey(
+      "raw",
+      key,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+
+    const signature = await crypto.subtle.sign(
+      "HMAC",
+      cryptoKey,
+      message
+    );
+
+    // Convert the signature to base64
+    const signatureArray = new Uint8Array(signature);
+    let base64Signature = btoa(String.fromCharCode(...signatureArray));
+
+    return hmacHeader === base64Signature;
+  } catch (error) {
+    console.error("Error verifying HMAC:", error);
+    return false;
+  }
+}
+
 async function handleRequest(req: Request): Promise<Response> {
   // Only allow POST requests
   if (req.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 });
   }
 
+  // Extract Shopify headers - don't catch any errors here to make sure we run through verification
+  const hmacHeader = req.headers.get('x-shopify-hmac-sha256');
+  const shopDomain = req.headers.get('x-shopify-shop-domain');
+  const topic = req.headers.get('x-shopify-topic');
+
+  if (!hmacHeader || !shopDomain || !topic) {
+    console.error('Missing required Shopify headers');
+    return new Response('Unauthorized - Missing required headers', { status: 401 });
+  }
+
+  // Get the raw body for HMAC verification
+  let rawBody: string;
   try {
-    // Extract Shopify headers
-    const hmacHeader = req.headers.get('x-shopify-hmac-sha256');
-    const shopDomain = req.headers.get('x-shopify-shop-domain');
-    const topic = req.headers.get('x-shopify-topic');
+    const clonedRequest = req.clone(); // Clone the request to read it multiple times
+    rawBody = await clonedRequest.text();
+  } catch (error) {
+    console.error('Error reading request body:', error);
+    return new Response('Bad Request', { status: 400 });
+  }
 
-    if (!hmacHeader || !shopDomain || !topic) {
-      console.error('Missing required Shopify headers');
-      return new Response('Unauthorized', { status: 401 });
-    }
+  // Stop immediately if HMAC is invalid - always return 401
+  const isValid = await isValidShopifyHmac(rawBody, hmacHeader);
+  if (!isValid) {
+    console.error('HMAC verification failed');
+    return new Response('Unauthorized - Invalid signature', { status: 401 });
+  }
 
-    // Get the raw body for HMAC verification
-    const rawBody = await req.text();
-    let payload: ShopifyWebhookPayload;
-    
-    try {
-      payload = JSON.parse(rawBody);
-    } catch (error) {
-      console.error('Invalid JSON payload:', error);
-      return new Response('Bad Request - Invalid JSON', { status: 400 });
-    }
+  // Parse the JSON body
+  let payload: ShopifyWebhookPayload;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch (error) {
+    console.error('Invalid JSON payload:', error);
+    return new Response('Bad Request - Invalid JSON', { status: 400 });
+  }
 
-    // Verify the webhook signature
-    const shopifyPlugin = new EcommercePluginShopify();
-    const isValid = await shopifyPlugin.verifyWebhook(rawBody, hmacHeader);
-    
-    if (!isValid) {
-      console.error('HMAC verification failed');
-      return new Response('Unauthorized - Invalid signature', { status: 401 });
-    }
-
+  // If we get this far, the webhook is authenticated
+  try {
     // Get organization ID from the shop domain
     const storageService = new StorageService();
     const connectionMapping = await storageService.getRow({
@@ -62,14 +109,15 @@ async function handleRequest(req: Request): Promise<Response> {
 
     if (connectionMapping.status !== 200 || !connectionMapping.data) {
       console.error(`Shop not found: ${shopDomain}`);
-      return new Response('Unauthorized - Shop not registered', { status: 401 });
+      // Still return 200 to acknowledge receipt - we've verified the signature is valid
+      return new Response('Webhook processed - Shop not registered', { status: 200 });
     }
 
     const organisationId = connectionMapping.data.organisation_id;
 
     // Initialize the NLP service for operations that need embeddings
     const nlpService = new NlpService();
-    await nlpService.initialiseClientCore();
+    await nlpService.initialiseClientCore('');
 
     // Process the webhook based on topic
     console.log(`Processing webhook: ${topic} for shop: ${shopDomain}`);
