@@ -3,6 +3,18 @@ import axios from 'npm:axios@1.7.9';
 import * as config from "../../configs/index.ts";
 import { StorageService } from "../storage/storageService.ts";
 import { NlpService } from "../nlp/nlpService.ts";
+import { 
+  verifyAuth, 
+  syncCustomers, 
+  syncProducts, 
+  syncOrders 
+} from './ecommercePluginShopifyHelpers.ts';
+
+type FunctionResult = {
+  status: number;
+  message?: string;
+  data?: any;
+};
 
 export class EcommercePluginShopify implements EcommerceInterface {
   async auth(connectionMetadata: Map<string, any>) {
@@ -14,7 +26,7 @@ export class EcommercePluginShopify implements EcommerceInterface {
     try {
       // Verify HMAC if present (Shopify security measure)
       if (connectionMetadata["hmac"]) {
-        const isValid = await this.verifyAuth(connectionMetadata);
+        const isValid = await verifyAuth(connectionMetadata as unknown as Record<string, string>);
         if (!isValid) {
           throw new Error("Invalid HMAC signature");
         }
@@ -123,13 +135,13 @@ export class EcommercePluginShopify implements EcommerceInterface {
         console.log("Starting Shopify data synchronization...");
         
         // Fetch customers from Shopify
-        await this.syncCustomers(shop, shopifyAccessToken, stateMap.organisationId, storageService, nlpService);
+        await syncCustomers(shop, shopifyAccessToken, stateMap.organisationId, storageService, nlpService);
         
         // Fetch products from Shopify
-        await this.syncProducts(shop, shopifyAccessToken, stateMap.organisationId, storageService, nlpService);
+        await syncProducts(shop, shopifyAccessToken, stateMap.organisationId, storageService, nlpService);
         
         // Fetch orders from Shopify
-        await this.syncOrders(shop, shopifyAccessToken, stateMap.organisationId, storageService, nlpService);
+        await syncOrders(shop, shopifyAccessToken, stateMap.organisationId, storageService, nlpService);
         
         console.log("Shopify data synchronization completed successfully.");
       } catch (syncError) {
@@ -229,53 +241,6 @@ export class EcommercePluginShopify implements EcommerceInterface {
 
     // Convert to Base64 instead of hex
     return btoa(String.fromCharCode(...new Uint8Array(signature)));
-  }
-
-  // Utility method to make Shopify API requests with retry capability
-  private async makeShopifyRequest(url: string, accessToken: string, params = {}, maxRetries = 3) {
-    let retries = 0;
-    let lastError;
-    
-    while (retries < maxRetries) {
-      try {
-        const response = await axios.get(url, {
-          headers: {
-            'X-Shopify-Access-Token': accessToken,
-            'Content-Type': 'application/json'
-          },
-          params
-        });
-        
-        return response.data;
-      } catch (error) {
-        lastError = error;
-        
-        // Handle rate limiting (429 errors)
-        if (error.response && error.response.status === 429) {
-          const retryAfter = parseInt(error.response.headers['retry-after'] || '5', 10);
-          console.log(`Rate limited. Retrying after ${retryAfter} seconds...`);
-          await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
-        } else if (error.response && error.response.status === 403) {
-          // Permission error - may indicate missing scopes
-          console.error('Permission error (403):', {
-            url,
-            data: error.response.data,
-            headers: error.response.headers,
-          });
-          throw error; // No need to retry permission errors
-        } else {
-          // For other errors, use exponential backoff
-          const delay = Math.pow(2, retries) * 1000;
-          console.log(`Request failed. Retrying after ${delay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-        
-        retries++;
-      }
-    }
-    
-    // If we exhaust all retries, throw the last error
-    throw lastError;
   }
 
   // Synchronize Shopify customers to database
