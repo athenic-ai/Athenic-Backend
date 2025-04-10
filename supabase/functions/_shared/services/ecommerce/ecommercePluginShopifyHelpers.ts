@@ -136,8 +136,28 @@ export async function syncCustomers(shopDomain: string, accessToken: string, org
         const processedCustomer = mapShopifyCustomerToDbObject(customer);
         const shopifyId = customer.id.toString();
         
-        // Generate a new UUID for each object
-        const objectId = crypto.randomUUID();
+        // Check if an object with this shopify_id already exists
+        const existingObjectsQuery = await storageService.getRows("objects", {
+          whereAndConditions: [
+            { column: "owner_organisation_id", value: organisationId, operator: "eq" },
+            { column: "related_object_type_id", value: "customer", operator: "eq" },
+            { column: "metadata", jsonPath: ["shopify_id"], value: shopifyId, operator: "eq" }
+          ]
+        });
+        
+        let objectId;
+        let mayAlreadyExist = false;
+        
+        if (existingObjectsQuery.status === 200 && existingObjectsQuery.data && existingObjectsQuery.data.length > 0) {
+          // Use the existing object ID
+          objectId = existingObjectsQuery.data[0].id;
+          mayAlreadyExist = true;
+          console.log(`Updating existing customer with Shopify ID ${shopifyId}`);
+        } else {
+          // Generate a new UUID for a new object
+          objectId = crypto.randomUUID();
+          console.log(`Creating new customer with Shopify ID ${shopifyId}`);
+        }
         
         // Create or update the object
         await storageService.updateRow({
@@ -150,7 +170,7 @@ export async function syncCustomers(shopDomain: string, accessToken: string, org
           rowData: {
             metadata: processedCustomer
           },
-          mayAlreadyExist: false, // Set to false since we're creating a new object
+          mayAlreadyExist: mayAlreadyExist,
           nlpService: nlpService,
         });
       }
@@ -227,8 +247,28 @@ export async function syncProducts(shopDomain: string, accessToken: string, orga
         const processedProduct = mapShopifyProductToDbObject(product, shopDomain);
         const shopifyId = product.id.toString();
         
-        // Generate a new UUID for each object
-        const objectId = crypto.randomUUID();
+        // Check if an object with this shopify_id already exists
+        const existingObjectsQuery = await storageService.getRows("objects", {
+          whereAndConditions: [
+            { column: "owner_organisation_id", value: organisationId, operator: "eq" },
+            { column: "related_object_type_id", value: "product", operator: "eq" },
+            { column: "metadata", jsonPath: ["shopify_id"], value: shopifyId, operator: "eq" }
+          ]
+        });
+        
+        let objectId;
+        let mayAlreadyExist = false;
+        
+        if (existingObjectsQuery.status === 200 && existingObjectsQuery.data && existingObjectsQuery.data.length > 0) {
+          // Use the existing object ID
+          objectId = existingObjectsQuery.data[0].id;
+          mayAlreadyExist = true;
+          console.log(`Updating existing product with Shopify ID ${shopifyId}`);
+        } else {
+          // Generate a new UUID for a new object
+          objectId = crypto.randomUUID();
+          console.log(`Creating new product with Shopify ID ${shopifyId}`);
+        }
         
         // Create or update the object
         await storageService.updateRow({
@@ -241,7 +281,7 @@ export async function syncProducts(shopDomain: string, accessToken: string, orga
           rowData: {
             metadata: processedProduct
           },
-          mayAlreadyExist: false, // Set to false since we're creating a new object
+          mayAlreadyExist: mayAlreadyExist,
           nlpService: nlpService,
         });
       }
@@ -318,8 +358,28 @@ export async function syncOrders(shopDomain: string, accessToken: string, organi
         const processedOrder = mapShopifyOrderToDbObject(order);
         const shopifyId = order.id.toString();
         
-        // Generate a new UUID for each object
-        const objectId = crypto.randomUUID();
+        // Check if an object with this shopify_id already exists
+        const existingObjectsQuery = await storageService.getRows("objects", {
+          whereAndConditions: [
+            { column: "owner_organisation_id", value: organisationId, operator: "eq" },
+            { column: "related_object_type_id", value: "order", operator: "eq" },
+            { column: "metadata", jsonPath: ["shopify_id"], value: shopifyId, operator: "eq" }
+          ]
+        });
+        
+        let objectId;
+        let mayAlreadyExist = false;
+        
+        if (existingObjectsQuery.status === 200 && existingObjectsQuery.data && existingObjectsQuery.data.length > 0) {
+          // Use the existing object ID
+          objectId = existingObjectsQuery.data[0].id;
+          mayAlreadyExist = true;
+          console.log(`Updating existing order with Shopify ID ${shopifyId}`);
+        } else {
+          // Generate a new UUID for a new object
+          objectId = crypto.randomUUID();
+          console.log(`Creating new order with Shopify ID ${shopifyId}`);
+        }
         
         // Create or update the object
         await storageService.updateRow({
@@ -332,7 +392,7 @@ export async function syncOrders(shopDomain: string, accessToken: string, organi
           rowData: {
             metadata: processedOrder
           },
-          mayAlreadyExist: false, // Set to false since we're creating a new object
+          mayAlreadyExist: mayAlreadyExist,
           nlpService: nlpService,
         });
       }

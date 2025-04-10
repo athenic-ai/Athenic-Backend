@@ -1,0 +1,20 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+I am working on an AI brain for enterprises tool called Athenic (getathenic.com). It is built using a modular approach where members of organisations add authenticate with third party platforms to add data & functionality to Athenic.
+
+Organisation members can then use the Flutter web app to view data stored by Athenic. They can also use the chat functionality to ask it questions or ask it to do things on their behalf. 
+
+The stack is:
+ - Frontend: Flutter web app
+ - Backend: Supabase, with Typescript Edge functions
+
+------
+
+Bear in mind how we are defining the following terms:
+"organisation" = a business that uses Athenic to help them (e.g. Yahoo, Braun, ...)
+"member" = a member, typically an employee, of the organisation who uses Athenic to help them (eg. a Yahoo employee)
+"user" = a user/customer of the organisation
+"object" = a piece of data stored in the organisation's DB (Supabase database)
