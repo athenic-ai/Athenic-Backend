@@ -107,7 +107,8 @@ export class AgentOrchestrator {
       options.modelProvider,
       this.memoryManager,
       this.toolsManager,
-      this.organizationId
+      this.organizationId,
+      this.supabaseClient
     );
   }
 

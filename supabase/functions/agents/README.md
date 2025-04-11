@@ -109,4 +109,48 @@ This approach maintains database flexibility while allowing the agent system to 
 - Develop concrete tool implementations for web browsing, file operations, etc.
 - Create database schemas for agent memory storage
 - Build integration points with the frontend for real-time feedback
-- Enhance the Signal system with the new cognitive framework 
+- Enhance the Signal system with the new cognitive framework
+
+## Implemented Components
+
+### E2B Sandbox Environment
+
+The E2B Sandbox Environment has been implemented to provide a secure execution environment for agent operations. It leverages E2B's MicroVMs to run code in an isolated environment with controlled access to resources.
+
+Key features:
+- Secure execution of shell commands with configurable allowlists
+- Browser automation for web interactions
+- File system operations for data persistence
+- Firewall rules to control network access
+- Resource limits to prevent abuse
+- Comprehensive logging for audit purposes
+
+Usage example:
+
+```typescript
+// Create a sandbox with appropriate security policies
+const sandbox = new SandboxEnvironment(
+  supabaseClient,
+  organizationId,
+  {
+    allowedHosts: ['api.example.com'],
+    allowedCommands: ['node', 'npm', 'curl'],
+    resourceLimits: {
+      cpuLimit: 2,
+      memoryMB: 2048,
+      timeoutSec: 300
+    }
+  }
+);
+
+// Initialize the sandbox
+await sandbox.initialize();
+
+// Execute commands
+const result = await sandbox.executeCommand('curl https://api.example.com/data');
+
+// Clean up when done
+await sandbox.cleanup();
+```
+
+The Sandbox Environment is integrated with the ExecutorAgent to enable secure execution of tools and commands as part of agent tasks. 

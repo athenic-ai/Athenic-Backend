@@ -8,6 +8,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.5';
 import { AgentOrchestrator } from '../orchestrator/index.ts';
+import { SandboxEnvironment, SandboxSecurityPolicy } from '../sandboxEnvironment/index.ts';
 
 // Environment variables for Supabase and AI model provider
 const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
@@ -15,11 +16,15 @@ const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
 // Define request body types
 interface RequestBody {
-  action: 'process-request' | 'start-job' | 'query-status';
+  action: 'process-request' | 'start-job' | 'query-status' | 'execute-sandbox-command';
   organizationId: string;
   payload: {
     request?: string;
     jobId?: string;
+    command?: string;
+    browserAction?: string;
+    fileAction?: string;
+    parameters?: Record<string, any>;
     options?: Record<string, any>;
   };
 }
@@ -42,6 +47,42 @@ const modelProvider = {
     return Array.from({ length: 1536 }, () => Math.random() * 2 - 1);
   }
 };
+
+// Default security policy for the sandbox
+const defaultSecurityPolicy: SandboxSecurityPolicy = {
+  allowedHosts: [
+    'api.openai.com',
+    'api.shopify.com',
+    'supabase.co',
+    'githubusercontent.com',
+    'npmjs.org'
+  ],
+  allowedCommands: [
+    'node',
+    'npm',
+    'npx',
+    'curl',
+    'wget',
+    'git clone',
+    'git checkout',
+    'ls',
+    'cat',
+    'grep',
+    'find',
+    'echo',
+    'mkdir',
+    'cp',
+    'mv'
+  ],
+  resourceLimits: {
+    cpuLimit: 2,
+    memoryMB: 2048,
+    timeoutSec: 300
+  }
+};
+
+// Map to store sandbox instances by organization ID
+const sandboxInstances = new Map<string, SandboxEnvironment>();
 
 // Serve HTTP requests
 serve(async (req: Request) => {
@@ -120,6 +161,52 @@ serve(async (req: Request) => {
         
         // Start the job execution
         result = await orchestrator.startAgenticLoop([job]);
+        break;
+        
+      case 'execute-sandbox-command':
+        // Get or create a sandbox instance for this organization
+        let sandbox = sandboxInstances.get(body.organizationId);
+        
+        if (!sandbox) {
+          // Create a new sandbox instance
+          sandbox = new SandboxEnvironment(
+            supabase as any,
+            body.organizationId,
+            body.payload.options?.securityPolicy || defaultSecurityPolicy
+          );
+          
+          // Initialize the sandbox
+          await sandbox.initialize();
+          
+          // Store the sandbox instance
+          sandboxInstances.set(body.organizationId, sandbox);
+        }
+        
+        // Execute the requested command or action
+        if (body.payload.command) {
+          // Execute a shell command
+          result = await sandbox.executeCommand(body.payload.command);
+        } else if (body.payload.browserAction) {
+          // Execute a browser action
+          result = await sandbox.executeBrowserAction(
+            body.payload.browserAction,
+            body.payload.parameters || {}
+          );
+        } else if (body.payload.fileAction) {
+          // Execute a file operation
+          result = await sandbox.executeFileOperation(
+            body.payload.fileAction,
+            body.payload.parameters || {}
+          );
+        } else {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: 'Missing command or action to execute in sandbox'
+            } as ResponseBody),
+            { status: 400, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
         break;
         
       case 'query-status':
