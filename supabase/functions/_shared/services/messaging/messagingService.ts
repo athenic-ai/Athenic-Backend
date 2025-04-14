@@ -34,15 +34,25 @@ export class MessagingService {
       twelveHoursAgo = twelveHoursAgo.toISOString(); // Required for Supabase to compare with timestamps in the DB
       console.log(`twelveHoursAgo: ${twelveHoursAgo}`);
 
+      // Prepare where conditions based on whether organisationId is provided
+      const whereAndConditions = [
+        { column: 'related_object_type_id', operator: 'eq', value: config.OBJECT_TYPE_ID_MESSAGE },
+        { column: 'metadata', jsonPath:['parent_id'], operator: 'eq', value: messageThreadId },
+        { column: 'metadata', jsonPath:['created_at'], operator: 'gte', value: twelveHoursAgo },
+      ];
+      
+      // Add member and organization conditions only if they are provided
+      if (memberId) {
+        whereAndConditions.push({ column: 'owner_member_id', operator: 'eq', value: memberId });
+      }
+      
+      if (organisationId) {
+        whereAndConditions.push({ column: 'owner_organisation_id', operator: 'eq', value: organisationId });
+      }
+
       // Fetch the last 6 messages sent in the last 12 hours, ordered by lastModified ascending
       const getChatHistoryResult = await storageService.getRows(config.OBJECT_TABLE_NAME, {
-        whereAndConditions: [
-          { column: 'owner_organisation_id', operator: 'eq', value: organisationId },
-          { column: 'owner_member_id', operator: 'eq', value: memberId },
-          { column: 'related_object_type_id', operator: 'eq', value: config.OBJECT_TYPE_ID_MESSAGE },
-          { column: 'metadata', jsonPath:['parent_id'], operator: 'eq', value: messageThreadId },
-          { column: 'metadata', jsonPath:['created_at'], operator: 'gte', value: twelveHoursAgo },
-        ],
+        whereAndConditions,
         orderByConditions: [
           { column: 'metadata', jsonPath:['created_at'], ascending: false }, // desc so we get the most recent messages
         ],
@@ -99,11 +109,19 @@ export class MessagingService {
 
   async storeMessage({organisationId, memberId = null, connectionId, messageThreadId, messageIsFromBot, authorId, message, storageService, nlpService}) {
     try {
+      if (!message || message.trim().length === 0) {
+        console.log("⚠️ Skipping storing empty message");
+        return {
+          status: 400,
+          message: "Cannot store empty message"
+        };
+      }
+      
+      console.log(`Storing ${messageIsFromBot ? 'AI' : 'user'} message: "${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"`);
+      
       // Step 1: Create and store the message object
       const messageObjectData = {
         id: uuid.v1.generate(),
-        owner_organisation_id: organisationId,
-        owner_member_id: memberId,
         related_object_type_id: config.OBJECT_TYPE_ID_MESSAGE,
         metadata: {
           [config.OBJECT_METADATA_DEFAULT_TITLE]: message,
@@ -112,7 +130,17 @@ export class MessagingService {
           [config.OBJECT_METADATA_DEFAULT_PARENT_ID]: messageThreadId,
         },
       };
-      console.log(`Updating object data in DB with messageObjectData: ${JSON.stringify(messageObjectData)}`);
+      
+      // Add organisationId and memberId only if they are provided
+      if (organisationId) {
+        messageObjectData.owner_organisation_id = organisationId;
+      }
+      
+      if (memberId) {
+        messageObjectData.owner_member_id = memberId;
+      }
+      
+      console.log(`Upserting row with data: ${JSON.stringify(messageObjectData)}`);
       const messageUpdateResult = await storageService.updateRow({
         table: config.OBJECT_TABLE_NAME,
         keys: {id: messageObjectData.id},
@@ -124,15 +152,45 @@ export class MessagingService {
         throw Error(messageUpdateResult.message);
       }
 
-      // Step 2: Update the message thread object with the message object as a child
+      // Step 2: First get the existing message thread object to fetch current child_ids
+      const getThreadResult = await storageService.getRow({
+        table: config.OBJECT_TABLE_NAME,
+        keys: {id: messageThreadId}
+      });
+      
+      // If thread doesn't exist, throw an error
+      if (getThreadResult.status != 200) {
+        throw Error(`Message thread not found: ${getThreadResult.message}`);
+      }
+      
+      const threadData = getThreadResult.data;
+      
+      // Initialize or update the child_ids object in metadata
+      let childIds = {};
+      if (threadData.metadata && threadData.metadata.child_ids) {
+        // Keep existing child IDs
+        childIds = {...threadData.metadata.child_ids};
+      }
+      
+      // Add new message ID to the message array, or create a new array if it doesn't exist
+      if (!childIds[config.OBJECT_TYPE_ID_MESSAGE]) {
+        childIds[config.OBJECT_TYPE_ID_MESSAGE] = [];
+      }
+      
+      // Make sure we don't duplicate message IDs
+      if (!childIds[config.OBJECT_TYPE_ID_MESSAGE].includes(messageObjectData.id)) {
+        childIds[config.OBJECT_TYPE_ID_MESSAGE].push(messageObjectData.id);
+      }
+      
+      // Create update data
       const messageThreadObjectData = {
         metadata: {
-          child_ids: {
-            [config.OBJECT_TYPE_ID_MESSAGE]: [messageObjectData.id],
-          },
+          ...threadData.metadata,
+          child_ids: childIds
         },
       };
-      console.log(`Updating message thead object data in DB with messageThreadObjectData: ${JSON.stringify(messageThreadObjectData)}`);
+      
+      console.log(`Updating message thread object data in DB with messageThreadObjectData: ${JSON.stringify(messageThreadObjectData)}`);
       const messageThreadUpdateResult = await storageService.updateRow({
         table: config.OBJECT_TABLE_NAME,
         keys: {id: messageThreadId},
@@ -143,6 +201,12 @@ export class MessagingService {
       if (messageThreadUpdateResult.status != 200) {
         throw Error(messageThreadUpdateResult.message);
       }
+      
+      console.log(`✅ Successfully stored ${messageIsFromBot ? 'AI' : 'user'} message`);
+      return {
+        status: 200,
+        message: "Message stored successfully"
+      };
     } catch (error) {
       console.log(`❌ Failed to store message with error: ${error.message}.`);
       const result: FunctionResult = {

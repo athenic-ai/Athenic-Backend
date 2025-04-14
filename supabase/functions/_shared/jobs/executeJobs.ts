@@ -38,8 +38,8 @@ export class ExecuteJobs<T> {
       
        // -----------Step 1: Get organisation's ID and data----------- 
       console.log(`⏭️ Starting "Step 1: Get organisation's ID and data"`);
-      if (!organisationId || !organisationData) {
-        if (!organisationId && dataIn.companyMetadata?.organisationId) {
+      if (!organisationId) {
+        if (dataIn.companyMetadata?.organisationId) {
           organisationId = dataIn.companyMetadata.organisationId;
         } else {
           throw new Error("Unable to find organisationId");

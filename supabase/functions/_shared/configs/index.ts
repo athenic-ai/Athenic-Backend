@@ -51,6 +51,12 @@ export { Sentry } // Export this variable so it can then be used
 export async function inferOrganisation({ connection, dataIn, req, storageService }: { connection: string; dataIn: T; req: express.Request; storageService: StorageService }): Promise<FunctionResult> {
   try {
     let organisationId;
+    
+    // Check if this is a consumer app request
+    const isConsumerApp = dataIn.companyMetadata && dataIn.companyMetadata.isConsumerApp === true;
+    
+    // Consumer app now needs an organization ID - remove the special handling
+    
     if (dataIn.companyMetadata && dataIn.companyMetadata.organisationId) {
       // See if organisationId already stored in dataIn (connections such as CSV upload support this)
       organisationId = dataIn.companyMetadata.organisationId;
@@ -113,7 +119,7 @@ export async function inferOrganisation({ connection, dataIn, req, storageServic
   }
 }
 
-export async function getOrganisationObjectTypes({ storageService, organisationId, memberId }: { storageService: StorageService; organisationId: string; memberId: string }): Promise<FunctionResult> {
+export async function getOrganisationObjectTypes({ storageService, organisationId, memberId }: { storageService: StorageService; organisationId: string; memberId?: string }): Promise<FunctionResult> {
   try {
     const whereAndConditions = [
       { column: 'category', operator: 'neq', value: "company_data" }, // Only include entries where category is an organisation category
@@ -121,10 +127,10 @@ export async function getOrganisationObjectTypes({ storageService, organisationI
     const whereOrConditions = [
       { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
       { column: 'owner_member_id', operator: 'is', value: null }, // Include default entries where owner member not set
+      { column: 'owner_organisation_id', operator: 'eq', value: organisationId }, // Include entries created by the org
     ];
-    if (organisationId) {
-      whereOrConditions.push({ column: 'owner_organisation_id', operator: 'eq', value: organisationId }); // Include entries created by the org
-    }
+    
+    // Add member condition only if provided
     if (memberId) {
       whereOrConditions.push({ column: 'owner_member_id', operator: 'eq', value: memberId }); // Include entries created by the member
     }
@@ -153,15 +159,15 @@ export async function getOrganisationObjectTypes({ storageService, organisationI
   }
 }
 
-export async function getObjectMetadataTypes({ storageService, organisationId, memberId }: { storageService: StorageService; organisationId: string; memberId: string }): Promise<FunctionResult> {
+export async function getObjectMetadataTypes({ storageService, organisationId, memberId }: { storageService: StorageService; organisationId: string; memberId?: string }): Promise<FunctionResult> {
   try {
     const whereOrConditions = [
       { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
       { column: 'owner_member_id', operator: 'is', value: null }, // Include default entries where owner member not set
+      { column: 'owner_organisation_id', operator: 'eq', value: organisationId }, // Include entries created by the org
     ];
-    if (organisationId) {
-      whereOrConditions.push({ column: 'owner_organisation_id', operator: 'eq', value: organisationId }); // Include entries created by the org
-    }
+    
+    // Add member condition only if provided
     if (memberId) {
       whereOrConditions.push({ column: 'owner_member_id', operator: 'eq', value: memberId }); // Include entries created by the member
     }

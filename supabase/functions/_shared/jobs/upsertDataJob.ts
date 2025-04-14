@@ -50,6 +50,11 @@ export class UpsertDataJob<T> {
         }
   
         [organisationId, organisationData] = inferOrganisationResult.data;
+        
+        // Ensure organization ID is provided
+        if (!organisationId || !organisationData) {
+          throw Error(`Unable to determine organization for this request. Organization ID is required.`);
+        }
       }
       console.log(`[I:${initialCall}] ✅ Completed "Step 1: Get organisation's ID and data", with organisationId: ${organisationId} and organisationData: ${JSON.stringify(organisationData)}`);
 

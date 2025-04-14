@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "name": "athenic-agent",
+    "description": "A template for Athenic autonomous agent operations",
+    "icon": "🤖",
+    "tags": ["athenic", "agent", "automation"]
+  },
+  "template": {
+    "repository": {
+      "url": "https://github.com/e2b-dev/e2b-template-base-nodejs",
+      "branch": "main"
+    },
+    "setup": {
+      "commands": [
+        "npm install -g typescript ts-node node-fetch@2",
+        "npm install @supabase/supabase-js openai axios puppeteer"
+      ]
+    },
+    "env": {
+      "default": {
+        "NODE_VERSION": "18",
+        "ATHENIC_VERSION": "0.1.0"
+      },
+      "required": [
+        "ORGANIZATION_ID",
+        "SESSION_ID"
+      ]
+    }
+  }
+} 

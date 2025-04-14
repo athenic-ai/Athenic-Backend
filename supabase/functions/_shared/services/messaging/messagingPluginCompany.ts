@@ -1,5 +1,6 @@
 import { MessagingInterface } from './messagingInterface.ts';
 import * as config from "../../../_shared/configs/index.ts";
+import * as uuid from "jsr:@std/uuid";
 
 export class MessagingPluginCompany implements MessagingInterface {
   async receiveMessage(dataIn: Map<string, any>) {
@@ -7,7 +8,17 @@ export class MessagingPluginCompany implements MessagingInterface {
       console.log(`receiveMessage data is: ${config.stringify(dataIn)}`);
       
       if (Array.isArray(dataIn.companyDataContents.parts)) {
-        const messageDataThreadId = dataIn.companyMetadata.parentObject.id;
+        // For consumer app, parentObject might be null
+        let messageDataThreadId;
+        
+        if (dataIn.companyMetadata.parentObject && dataIn.companyMetadata.parentObject.id) {
+          messageDataThreadId = dataIn.companyMetadata.parentObject.id;
+        } else {
+          // For consumer app or when parentObject is missing, generate a thread ID
+          console.log("No parent object found, generating thread ID for consumer app");
+          messageDataThreadId = uuid.v1.generate();
+        }
+        
         const messageDataAuthorId = dataIn.companyDataContents.authorId;
         const messageDataParts = dataIn.companyDataContents.parts;
 

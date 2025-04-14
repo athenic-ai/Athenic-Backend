@@ -44,103 +44,300 @@ const defaultSecurityPolicy = {
   }
 };
 
-// Mock E2B module for local testing
-const mockE2B = {
-  startSession: async (options) => {
-    console.log(`Starting session with template: ${options.template}`);
-    console.log(`Environment variables: ${JSON.stringify(options.envVars)}`);
-    
-    return {
-      id: 'mock-session-' + Math.random().toString(36).substring(7),
-      process: {
-        start: async ({ cmd, onStdout, onStderr }) => {
-          console.log(`Executing command: ${cmd}`);
-          
-          // Simulate command execution
-          setTimeout(() => onStdout(`Output from ${cmd}`), 500);
-          
-          return {
-            wait: async () => {
-              return 0; // Successful exit code
-            }
-          };
-        }
-      },
-      filesystem: {
-        write: async (path, content) => {
-          console.log(`Writing to ${path}: ${content.substring(0, 20)}...`);
-          return true;
-        },
-        read: async (path) => {
-          console.log(`Reading from ${path}`);
-          return `Mock content from ${path}`;
-        },
-        list: async (path) => {
-          console.log(`Listing contents of ${path}`);
-          return ['file1.txt', 'file2.js', 'directory1/'];
-        },
-        remove: async (path) => {
-          console.log(`Removing ${path}`);
-          return true;
-        }
-      },
-      browser: {
-        launch: async () => {
-          console.log('Launching browser');
-        },
-        goto: async (url) => {
-          console.log(`Navigating to ${url}`);
-          return { url, title: 'Mock Page Title' };
-        },
-        click: async (selector) => {
-          console.log(`Clicking on ${selector}`);
-          return { clicked: true, selector };
-        },
-        type: async (selector, text) => {
-          console.log(`Typing '${text}' into ${selector}`);
-          return { typed: true, selector, text };
-        },
-        evaluate: async (script) => {
-          console.log(`Evaluating script: ${script}`);
-          return { result: 'Mock script result' };
-        },
-        close: async () => {
-          console.log('Closing browser');
-        }
-      },
-      addFirewallRule: async (rule) => {
-        console.log(`Adding firewall rule: ${JSON.stringify(rule)}`);
-      },
-      limitResources: async (limits) => {
-        console.log(`Setting resource limits: ${JSON.stringify(limits)}`);
-      },
-      close: async () => {
-        console.log('Closing session');
-      }
-    };
-  }
-};
-
-// Mock Supabase client for local testing
-const mockSupabaseClient = {
-  from: (table) => ({
-    insert: async (data) => {
-      console.log(`Inserting into ${table}: ${JSON.stringify(data)}`);
-      return { data: { id: 'mock-id-' + Math.random().toString(36).substring(7) }, error: null };
-    },
-    select: () => ({
-      eq: () => ({
-        single: async () => ({ data: {}, error: null })
-      })
-    })
-  })
-};
-
 // Create command line interface
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout
 });
+
+// Helper function to ask a question
+function askQuestion(question) {
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      resolve(answer);
+    });
+  });
+}
+
+// Create a mock Supabase client for testing
+const mockSupabaseClient = {
+  from: (table) => ({
+    insert: (data) => {
+      console.log(`[Mock Supabase] Inserting into ${table}:`, data);
+      return Promise.resolve({ data: null, error: null });
+    },
+    select: () => ({
+      eq: () => ({
+        single: () => Promise.resolve({ data: null, error: null }),
+        gt: () => Promise.resolve({ data: null, error: null })
+      })
+    }),
+    update: (data) => {
+      console.log(`[Mock Supabase] Updating ${table}:`, data);
+      return Promise.resolve({ data: null, error: null });
+    }
+  }),
+  rpc: (proc, params) => {
+    console.log(`[Mock Supabase] Calling RPC ${proc}:`, params);
+    return Promise.resolve({ data: [], error: null });
+  }
+};
+
+// Create a mock E2B module for testing without actual E2B API calls
+const mockE2B = {
+  startSession: async ({ template, envVars }) => {
+    console.log(`[Mock E2B] Starting session with template: ${template}, env vars:`, envVars);
+    
+    return {
+      id: `mock-session-${Date.now()}`,
+      close: async () => console.log('[Mock E2B] Session closed'),
+      
+      process: {
+        start: async ({ cmd, onStdout, onStderr, env, cwd }) => {
+          console.log(`[Mock E2B] Running command: ${cmd}`);
+          console.log(`[Mock E2B] Environment: ${JSON.stringify(env || {})}`);
+          console.log(`[Mock E2B] Working directory: ${cwd || '/home/user'}`);
+          
+          // Simulate stdout/stderr based on the command
+          setTimeout(() => {
+            if (onStdout) onStdout(`Output from: ${cmd}\n`);
+            
+            // Simulate different commands
+            if (cmd.startsWith('ls')) {
+              onStdout('documents\ndownloads\nprojects\n');
+            } else if (cmd.startsWith('cat')) {
+              onStdout('This is the content of the file.\n');
+            } else if (cmd.startsWith('echo')) {
+              onStdout(`${cmd.substring(5)}\n`);
+            } else if (cmd.includes('error')) {
+              if (onStderr) onStderr(`Error: Command failed: ${cmd}\n`);
+            }
+          }, 100);
+          
+          return {
+            id: `process-${Date.now()}`,
+            wait: async () => {
+              console.log('[Mock E2B] Waiting for process completion');
+              return cmd.includes('error') ? 1 : 0;
+            },
+            kill: async () => console.log('[Mock E2B] Process killed')
+          };
+        },
+        run: async ({ cmd, onStdout, onStderr, env, cwd }) => {
+          console.log(`[Mock E2B] Running command: ${cmd}`);
+          
+          // Simulate stdout/stderr based on the command
+          if (onStdout) onStdout(`Output from: ${cmd}\n`);
+          
+          let stdout = '';
+          let stderr = '';
+          
+          // Simulate different commands
+          if (cmd.startsWith('ls')) {
+            stdout = 'documents\ndownloads\nprojects\n';
+            if (onStdout) onStdout(stdout);
+          } else if (cmd.startsWith('cat')) {
+            stdout = 'This is the content of the file.\n';
+            if (onStdout) onStdout(stdout);
+          } else if (cmd.startsWith('echo')) {
+            stdout = `${cmd.substring(5)}\n`;
+            if (onStdout) onStdout(stdout);
+          } else if (cmd.includes('error')) {
+            stderr = `Error: Command failed: ${cmd}\n`;
+            if (onStderr) onStderr(stderr);
+          }
+          
+          return {
+            exitCode: cmd.includes('error') ? 1 : 0,
+            stdout,
+            stderr
+          };
+        }
+      },
+      
+      filesystem: {
+        write: async (path, content) => {
+          console.log(`[Mock E2B] Writing file: ${path}`);
+          console.log(`[Mock E2B] Content: ${content.substring(0, 50)}${content.length > 50 ? '...' : ''}`);
+        },
+        read: async (path) => {
+          console.log(`[Mock E2B] Reading file: ${path}`);
+          return `Mock content of ${path}`;
+        },
+        list: async (path) => {
+          console.log(`[Mock E2B] Listing directory: ${path}`);
+          return ['file1.txt', 'file2.md', 'directory1', 'directory2'];
+        },
+        remove: async (path) => {
+          console.log(`[Mock E2B] Removing file/directory: ${path}`);
+        }
+      },
+      
+      browser: null,
+      
+      addFirewallRule: async (rule) => {
+        console.log(`[Mock E2B] Adding firewall rule:`, rule);
+      },
+      
+      limitResources: async (limits) => {
+        console.log(`[Mock E2B] Setting resource limits:`, limits);
+      }
+    };
+  }
+};
+
+// Execute a shell command using the sandbox
+async function executeCommand(sandbox) {
+  const command = await askQuestion('\nEnter command to execute: ');
+  
+  console.log(`\nExecuting command: ${command}`);
+  const result = await sandbox.executeCommand(command);
+  
+  console.log('\nExecution Result:');
+  console.log(`Success: ${result.success}`);
+  
+  if (result.output) {
+    console.log('\nOutput:');
+    console.log(result.output);
+  }
+  
+  if (result.error) {
+    console.log('\nError:');
+    console.log(result.error);
+  }
+  
+  console.log(`Exit code: ${result.exitCode || 'unknown'}`);
+}
+
+// Execute a browser action using the sandbox
+async function executeBrowserAction(sandbox) {
+  console.log('\nBrowser Actions:');
+  console.log('1. Navigate to URL');
+  console.log('2. Click on element');
+  console.log('3. Type text');
+  console.log('4. Extract data');
+  
+  const actionChoice = await askQuestion('Select a browser action (1-4): ');
+  
+  let action, params = {};
+  
+  switch (actionChoice) {
+    case '1':
+      action = 'navigate';
+      params.url = await askQuestion('Enter URL: ');
+      break;
+    case '2':
+      action = 'click';
+      params.selector = await askQuestion('Enter CSS selector: ');
+      break;
+    case '3':
+      action = 'type';
+      params.selector = await askQuestion('Enter CSS selector: ');
+      params.text = await askQuestion('Enter text to type: ');
+      break;
+    case '4':
+      action = 'extract';
+      params.script = await askQuestion('Enter JavaScript to execute: ');
+      break;
+    default:
+      console.log('Invalid option, returning to main menu.');
+      return;
+  }
+  
+  console.log(`\nExecuting browser action: ${action}`);
+  const result = await sandbox.executeBrowserAction(action, params);
+  
+  console.log('\nExecution Result:');
+  console.log(`Success: ${result.success}`);
+  
+  if (result.output) {
+    console.log('\nOutput:');
+    console.log(result.output);
+  }
+  
+  if (result.error) {
+    console.log('\nError:');
+    console.log(result.error);
+  }
+}
+
+// Execute a file operation using the sandbox
+async function executeFileOperation(sandbox) {
+  console.log('\nFile Operations:');
+  console.log('1. Write file');
+  console.log('2. Read file');
+  console.log('3. List directory');
+  console.log('4. Remove file');
+  
+  const actionChoice = await askQuestion('Select a file operation (1-4): ');
+  
+  let action, params = {};
+  
+  switch (actionChoice) {
+    case '1':
+      action = 'write';
+      params.path = await askQuestion('Enter file path: ');
+      params.content = await askQuestion('Enter file content: ');
+      break;
+    case '2':
+      action = 'read';
+      params.path = await askQuestion('Enter file path: ');
+      break;
+    case '3':
+      action = 'list';
+      params.path = await askQuestion('Enter directory path: ');
+      break;
+    case '4':
+      action = 'remove';
+      params.path = await askQuestion('Enter file path: ');
+      break;
+    default:
+      console.log('Invalid option, returning to main menu.');
+      return;
+  }
+  
+  console.log(`\nExecuting file operation: ${action}`);
+  const result = await sandbox.executeFileOperation(action, params);
+  
+  console.log('\nExecution Result:');
+  console.log(`Success: ${result.success}`);
+  
+  if (result.output) {
+    console.log('\nOutput:');
+    console.log(result.output);
+  }
+  
+  if (result.error) {
+    console.log('\nError:');
+    console.log(result.error);
+  }
+}
+
+// Display execution history
+function displayExecutionHistory(sandbox) {
+  const history = sandbox.getExecutionHistory();
+  
+  console.log('\nExecution History:');
+  
+  if (history.length === 0) {
+    console.log('No commands executed yet.');
+    return;
+  }
+  
+  history.forEach((entry, index) => {
+    console.log(`\n[${index + 1}] Command: ${entry.command}`);
+    console.log(`    Time: ${entry.timestamp.toISOString()}`);
+    console.log(`    Success: ${entry.result.success}`);
+    
+    if (entry.result.output) {
+      console.log(`    Output: ${entry.result.output.substring(0, 50)}${entry.result.output.length > 50 ? '...' : ''}`);
+    }
+    
+    if (entry.result.error) {
+      console.log(`    Error: ${entry.result.error.substring(0, 50)}${entry.result.error.length > 50 ? '...' : ''}`);
+    }
+  });
+}
 
 // Main function
 async function main() {
@@ -207,162 +404,13 @@ async function main() {
   }
 }
 
-// Helper function to ask a question
-function askQuestion(question) {
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      resolve(answer);
-    });
-  });
-}
-
-// Execute a shell command
-async function executeCommand(sandbox) {
-  const command = await askQuestion('Enter command to execute: ');
-  
-  console.log(`\nExecuting command: ${command}`);
-  const result = await sandbox.executeCommand(command);
-  
-  console.log('\nResult:');
-  console.log('Success:', result.success);
-  
-  if (result.output) {
-    console.log('Output:', result.output);
-  }
-  
-  if (result.error) {
-    console.log('Error:', result.error);
-  }
-  
-  console.log('Exit Code:', result.exitCode);
-}
-
-// Execute a browser action
-async function executeBrowserAction(sandbox) {
-  console.log('\nBrowser Actions:');
-  console.log('1. Navigate to URL');
-  console.log('2. Click on element');
-  console.log('3. Type text');
-  console.log('4. Extract data');
-  
-  const actionChoice = await askQuestion('Select a browser action (1-4): ');
-  
-  let action, params = {};
-  
-  switch (actionChoice) {
-    case '1':
-      action = 'navigate';
-      params.url = await askQuestion('Enter URL: ');
-      break;
-    case '2':
-      action = 'click';
-      params.selector = await askQuestion('Enter CSS selector: ');
-      break;
-    case '3':
-      action = 'type';
-      params.selector = await askQuestion('Enter CSS selector: ');
-      params.text = await askQuestion('Enter text to type: ');
-      break;
-    case '4':
-      action = 'extract';
-      params.script = await askQuestion('Enter JavaScript to execute: ');
-      break;
-    default:
-      console.log('Invalid option, returning to main menu.');
-      return;
-  }
-  
-  console.log(`\nExecuting browser action: ${action}`);
-  const result = await sandbox.executeBrowserAction(action, params);
-  
-  console.log('\nResult:');
-  console.log('Success:', result.success);
-  
-  if (result.output) {
-    console.log('Output:', result.output);
-  }
-  
-  if (result.error) {
-    console.log('Error:', result.error);
-  }
-}
-
-// Execute a file operation
-async function executeFileOperation(sandbox) {
-  console.log('\nFile Operations:');
-  console.log('1. Write file');
-  console.log('2. Read file');
-  console.log('3. List directory');
-  console.log('4. Remove file');
-  
-  const actionChoice = await askQuestion('Select a file operation (1-4): ');
-  
-  let action, params = {};
-  
-  switch (actionChoice) {
-    case '1':
-      action = 'write';
-      params.path = await askQuestion('Enter file path: ');
-      params.content = await askQuestion('Enter file content: ');
-      break;
-    case '2':
-      action = 'read';
-      params.path = await askQuestion('Enter file path: ');
-      break;
-    case '3':
-      action = 'list';
-      params.path = await askQuestion('Enter directory path: ');
-      break;
-    case '4':
-      action = 'remove';
-      params.path = await askQuestion('Enter file path: ');
-      break;
-    default:
-      console.log('Invalid option, returning to main menu.');
-      return;
-  }
-  
-  console.log(`\nExecuting file operation: ${action}`);
-  const result = await sandbox.executeFileOperation(action, params);
-  
-  console.log('\nResult:');
-  console.log('Success:', result.success);
-  
-  if (result.output) {
-    console.log('Output:', result.output);
-  }
-  
-  if (result.error) {
-    console.log('Error:', result.error);
-  }
-}
-
-// Display execution history
-function displayExecutionHistory(sandbox) {
-  const history = sandbox.getExecutionHistory();
-  
-  console.log('\nExecution History:');
-  
-  if (history.length === 0) {
-    console.log('No executions recorded yet.');
-    return;
-  }
-  
-  history.forEach((entry, index) => {
-    console.log(`\n--- Execution ${index + 1} ---`);
-    console.log('Command:', entry.command);
-    console.log('Timestamp:', entry.timestamp);
-    console.log('Success:', entry.result.success);
-    
-    if (entry.result.output) {
-      console.log('Output:', entry.result.output);
-    }
-    
-    if (entry.result.error) {
-      console.log('Error:', entry.result.error);
-    }
-  });
-}
-
 // Run the main function
-main().catch(console.error); 
+if (require.main === module) {
+  main().catch(console.error);
+}
+
+module.exports = {
+  SandboxEnvironment,
+  mockE2B,
+  mockSupabaseClient
+}; 

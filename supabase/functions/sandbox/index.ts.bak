@@ -1,0 +1,547 @@
+// This function is public and bypasses JWT verification
+import { serve } from 'https://deno.land/std@0.131.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.14.0';
+
+// Add debugging to help diagnose deployment issues
+console.log("Starting Athenic Sandbox Edge Function with DB session persistence and API fixes...");
+
+// Configure CORS headers
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-api-key',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+};
+
+// Set a timeout for inactive sessions (30 minutes)
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+
+// Handle CORS preflight requests
+function handleCors(req: Request) {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+}
+
+// Import E2B only when needed to avoid bundling issues
+async function importE2B() {
+  try {
+    // Using the fixed import approach
+    const e2bModule = await import('https://esm.sh/e2b@1.2.5');
+    return e2bModule;
+  } catch (error) {
+    console.error("Error importing E2B:", error);
+    throw new Error(`Failed to import E2B: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+// Get Supabase client for database access
+function getSupabaseClient(req: Request) {
+  try {
+    // Extract JWT from auth header
+    const authHeader = req.headers.get('authorization') || '';
+    const token = authHeader.replace('Bearer ', '');
+    
+    const supabaseURL = Deno.env.get('SUPABASE_URL') || 'https://gvblzovvpfeepnhifwqh.supabase.co';
+    const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_SERVICE_KEY') || '';
+    
+    return createClient(supabaseURL, supabaseKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Failed to create Supabase client:", error);
+    return null;
+  }
+}
+
+// Handle running a command in the sandbox
+async function handleRunCommand(req: Request) {
+  try {
+    console.log("=== SANDBOX COMMAND EXECUTION STARTED ===");
+    const e2bApiKey = Deno.env.get('E2B_API_KEY');
+    console.log(`E2B API Key configured: ${!!e2bApiKey}`);
+    
+    if (!e2bApiKey) {
+      console.log("E2B API key is not configured!");
+      return new Response(
+        JSON.stringify({ 
+          error: 'E2B_API_KEY not configured',
+          details: 'Please set the E2B_API_KEY environment variable' 
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Parse the request body
+    const { command, sessionId, organizationId, templateId = 'base' } = await req.json();
+    const sessionIdToUse = sessionId || `session-${Date.now()}`;
+    
+    console.log(`Running command '${command}' for session ${sessionIdToUse} and org ${organizationId}`);
+    
+    if (!command) {
+      console.log("Command is missing in request!");
+      return new Response(
+        JSON.stringify({ error: 'Command is required' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Get Supabase client for database operations
+    const supabase = getSupabaseClient(req);
+    if (!supabase) {
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to create Supabase client for database operations',
+          details: 'Verify your Supabase credentials and JWT token.' 
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Create a consistent session key
+    const sessionKey = `${organizationId || 'default'}-${sessionIdToUse}`;
+    
+    // Check if session exists in database
+    let isExistingSession = false;
+    let sessionData: any = null;
+    let workingDirectory = '/home/sandbox';
+    
+    try {
+      // Attempt to get the session from database
+      const { data: dbData, error: dbError } = await supabase
+        .from('sandbox_sessions')
+        .select('*')
+        .eq('session_key', sessionKey)
+        .single();
+      
+      if (dbError) {
+        console.log(`No existing session found in database: ${dbError.message}`);
+      } else if (dbData) {
+        console.log(`Found existing session data in database: ${JSON.stringify(dbData)}`);
+        isExistingSession = true;
+        sessionData = dbData;
+        workingDirectory = dbData.working_directory || '/home/sandbox';
+        
+        // Check for session timeout
+        const lastUsed = new Date(dbData.last_used).getTime();
+        const now = Date.now();
+        if (now - lastUsed > SESSION_TIMEOUT_MS) {
+          console.log(`Session ${sessionKey} has expired. Creating a new one.`);
+          isExistingSession = false;
+        } else {
+          // Update last used timestamp
+          await supabase
+            .from('sandbox_sessions')
+            .update({ last_used: new Date().toISOString() })
+            .eq('session_key', sessionKey);
+        }
+      }
+    } catch (dbError) {
+      console.error(`Error checking for existing session in database: ${dbError}`);
+    }
+    
+    // Initialize a new E2B sandbox for this command
+    console.log(`Creating E2B sandbox instance for session ${sessionKey}`);
+    const e2b = await importE2B();
+    
+    // Handle different ways to create the sandbox with proper constructor usage
+    let sandbox;
+    try {
+      console.log("Attempting to create sandbox with 'new' constructor");
+      const SandboxClass = e2b.default;
+      // Use 'new' constructor pattern
+      sandbox = new SandboxClass({
+        apiKey: e2bApiKey,
+        id: templateId,
+        metadata: {
+          ORGANIZATION_ID: organizationId || 'default',
+          SESSION_ID: sessionIdToUse,
+        }
+      });
+      console.log("Successfully created sandbox with new constructor");
+    } catch (constructorError) {
+      console.error("Error creating sandbox with new constructor:", constructorError);
+      
+      try {
+        console.log("Falling back to factory function pattern");
+        // Try alternate pattern (factory function)
+        sandbox = await e2b.default({
+          apiKey: e2bApiKey,
+          id: templateId,
+          metadata: {
+            ORGANIZATION_ID: organizationId || 'default',
+            SESSION_ID: sessionIdToUse,
+          }
+        });
+        console.log("Successfully created sandbox with factory function");
+      } catch (factoryError) {
+        console.error("Error creating sandbox with factory function:", factoryError);
+        
+        // Try one more approach if all else fails
+        try {
+          console.log("Trying SDK.createSession approach");
+          // Try another possible SDK pattern
+          sandbox = await e2b.createSession({
+            apiKey: e2bApiKey,
+            template: templateId,
+            metadata: {
+              ORGANIZATION_ID: organizationId || 'default',
+              SESSION_ID: sessionIdToUse,
+            }
+          });
+          console.log("Successfully created sandbox with createSession");
+        } catch (finalError) {
+          console.error("All sandbox creation methods failed:", finalError);
+          throw new Error(`Failed to create sandbox: ${finalError instanceof Error ? finalError.message : String(finalError)}`);
+        }
+      }
+    }
+    
+    console.log("E2B sandbox created successfully");
+    
+    // Create a helper function for executing commands that works with different API structures
+    const executeCommand = async (cmd: string) => {
+      console.log(`Trying to execute command: ${cmd}`);
+      // Log the sandbox object structure to debug
+      console.log(`Sandbox keys: ${Object.keys(sandbox).join(', ')}`);
+      
+      // Try different possible API structures
+      if (sandbox.process?.exec) {
+        console.log("Using sandbox.process.exec method");
+        return await sandbox.process.exec(cmd);
+      } else if (sandbox.process?.run) {
+        console.log("Using sandbox.process.run method");
+        return await sandbox.process.run(cmd);
+      } else if (sandbox.commands?.run) {
+        console.log("Using sandbox.commands.run method");
+        return await sandbox.commands.run(cmd);
+      } else if (sandbox.run) {
+        console.log("Using sandbox.run method");
+        return await sandbox.run(cmd);
+      } else if (typeof sandbox.exec === 'function') {
+        console.log("Using sandbox.exec method");
+        return await sandbox.exec(cmd);
+      } else {
+        console.log("No suitable execution method found in sandbox");
+        console.log(`Available methods: ${JSON.stringify(Object.keys(sandbox))}`);
+        throw new Error("No suitable method found to execute commands in the E2B sandbox");
+      }
+    };
+    
+    // Handle the working directory if it's an existing session 
+    if (isExistingSession && workingDirectory) {
+      // Verify the directory exists and change to it
+      try {
+        // Use our helper function instead of directly calling process.exec
+        await executeCommand(`mkdir -p "${workingDirectory}"`);
+        console.log(`Ensuring working directory exists: ${workingDirectory}`);
+      } catch (dirError) {
+        console.log(`Error ensuring directory exists: ${dirError}`);
+      }
+    }
+    
+    // Now execute the command in the sandbox
+    try {
+      // Add variable declarations for command output
+      let stdout = '';
+      let stderr = '';
+      let exitCode = -1;
+      
+      // Special handling for cd commands which need separate handling
+      const isCdCommand = command.trim().startsWith('cd ');
+      
+      if (isCdCommand) {
+        console.log("CD COMMAND DETECTED - Needs special handling");
+        
+        // Extract the directory from the command
+        let targetDir = command.substring(3).trim();
+        
+        // Handle relative paths
+        if (!targetDir.startsWith('/')) {
+          targetDir = `${workingDirectory}/${targetDir}`;
+        }
+        
+        // Normalize the path
+        // Use our helper function instead of directly calling process.exec
+        const cdCheckCmd = `bash -c 'cd "${targetDir}" 2>/dev/null && pwd || echo "CD_FAILED"'`;
+        const cdResult = await executeCommand(cdCheckCmd);
+        
+        if (cdResult.stdout?.includes("CD_FAILED") || cdResult.exitCode !== 0) {
+          console.log(`Cannot change directory to ${targetDir}`);
+          stdout = '';
+          stderr = `cd: ${targetDir}: No such file or directory`;
+          exitCode = 1;
+        } else {
+          // Update the working directory
+          workingDirectory = cdResult.stdout.trim();
+          console.log(`Changed working directory to: ${workingDirectory}`);
+          stdout = workingDirectory;
+          exitCode = 0;
+          
+          // Update the session working directory in database
+          try {
+            if (isExistingSession) {
+              await supabase
+                .from('sandbox_sessions')
+                .update({ 
+                  working_directory: workingDirectory,
+                  last_used: new Date().toISOString()
+                })
+                .eq('session_key', sessionKey);
+            } else {
+              // Create new session record
+              await supabase
+                .from('sandbox_sessions')
+                .insert({
+                  session_key: sessionKey,
+                  working_directory: workingDirectory,
+                  organization_id: organizationId || 'default',
+                  session_id: sessionIdToUse,
+                  created_at: new Date().toISOString(),
+                  last_used: new Date().toISOString()
+                });
+              
+              // Session now exists
+              isExistingSession = true;
+            }
+          } catch (dbError) {
+            console.error(`Error updating session in database: ${dbError}`);
+          }
+        }
+      } else {
+        // For any other command, execute it in the current working directory
+        const shellCommand = `cd "${workingDirectory}" && ${command}`;
+        console.log(`Executing in working dir: ${shellCommand}`);
+        
+        try {
+          // Use our helper function instead of directly calling process.exec
+          const result = await executeCommand(shellCommand);
+          stdout = result.stdout || '';
+          stderr = result.stderr || '';
+          exitCode = result.exitCode !== undefined ? result.exitCode : 0;
+          
+          // If this is a new session and command succeeded, store it in database
+          if (!isExistingSession && exitCode === 0) {
+            try {
+              await supabase
+                .from('sandbox_sessions')
+                .insert({
+                  session_key: sessionKey,
+                  working_directory: workingDirectory,
+                  organization_id: organizationId || 'default',
+                  session_id: sessionIdToUse,
+                  created_at: new Date().toISOString(),
+                  last_used: new Date().toISOString()
+                });
+              
+              // First command succeeded, now the session exists
+              isExistingSession = true;
+            } catch (dbError) {
+              console.error(`Error creating session in database: ${dbError}`);
+            }
+          } else if (isExistingSession) {
+            // Update last used time for existing session
+            try {
+              await supabase
+                .from('sandbox_sessions')
+                .update({ last_used: new Date().toISOString() })
+                .eq('session_key', sessionKey);
+            } catch (dbError) {
+              console.error(`Error updating session timestamp in database: ${dbError}`);
+            }
+          }
+        } catch (execError: any) {
+          console.error(`Error executing command: ${execError}`);
+          stdout = '';
+          stderr = `Error: ${execError.message || String(execError)}`;
+          exitCode = 1;
+        }
+      }
+      
+      // Don't close the sandbox after each command to maintain session
+      console.log("Keeping sandbox session alive for future commands");
+      
+      // Return the result to the client
+      return new Response(
+        JSON.stringify({
+          success: exitCode === 0,
+          stdout: stdout || '',
+          stderr: stderr || '',
+          exitCode: exitCode,
+          persistentSession: true,
+          isExistingSession: isExistingSession,
+          workingDirectory: workingDirectory
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    } catch (error) {
+      console.error('Command execution error:', error);
+      
+      // Don't close the sandbox on error to allow for session recovery
+      console.log("Keeping sandbox alive even after error for potential recovery");
+      
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Failed to execute command',
+          details: error instanceof Error ? error.message : String(error),
+          stdout: '',
+          stderr: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          exitCode: 1
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+  } catch (error) {
+    console.error('Top-level error:', error);
+    
+    return new Response(
+      JSON.stringify({
+        error: 'Failed to execute command',
+        details: error instanceof Error ? error.message : String(error),
+      }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  } finally {
+    console.log("=== SANDBOX COMMAND EXECUTION COMPLETED ===");
+  }
+}
+
+// Handle the sandbox status endpoint
+async function handleStatusRequest(req: Request) {
+  const e2bApiKey = Deno.env.get('E2B_API_KEY');
+  let isE2bWorking = false;
+  
+  if (e2bApiKey) {
+    try {
+      const e2b = await importE2B();
+      isE2bWorking = true;
+    } catch (error) {
+      console.error("Failed to import E2B:", error);
+    }
+  }
+  
+  // Get active sessions count if we have access to database
+  let sessionCount = 0;
+  let sessionList: Array<any> = [];
+  
+  try {
+    const supabase = getSupabaseClient(req);
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('sandbox_sessions')
+        .select('*')
+        .order('last_used', { ascending: false });
+      
+      if (!error && data) {
+        sessionCount = data.length;
+        sessionList = data.map((s: any) => ({
+          key: s.session_key,
+          lastUsed: s.last_used,
+          workingDir: s.working_directory
+        }));
+      }
+    }
+  } catch (error) {
+    console.error("Error getting session count:", error);
+  }
+  
+  return new Response(
+    JSON.stringify({
+      status: isE2bWorking ? 'operational' : 'degraded',
+      apiKeyConfigured: !!e2bApiKey,
+      apiKeyWorking: isE2bWorking,
+      activeSessionCount: sessionCount,
+      activeSessions: sessionList,
+      version: '0.3.0', // Version bumped to indicate API fix
+    }),
+    { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+  );
+}
+
+// Handle endpoint for explicitly closing a session
+async function handleCloseSession(req: Request) {
+  try {
+    const { sessionId, organizationId } = await req.json();
+    
+    if (!sessionId) {
+      return new Response(
+        JSON.stringify({ error: 'Session ID is required' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    const sessionKey = `${organizationId || 'default'}-${sessionId}`;
+    
+    // Delete the session from database
+    const supabase = getSupabaseClient(req);
+    if (!supabase) {
+      return new Response(
+        JSON.stringify({ error: 'Failed to create Supabase client' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    const { error } = await supabase
+      .from('sandbox_sessions')
+      .delete()
+      .eq('session_key', sessionKey);
+    
+    if (error) {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Failed to delete session', 
+          details: error.message 
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    return new Response(
+      JSON.stringify({ success: true, message: 'Session closed successfully' }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  } catch (error) {
+    return new Response(
+      JSON.stringify({ 
+        error: 'Failed to close session',
+        details: error instanceof Error ? error.message : String(error)
+      }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+}
+
+serve(async (req: Request) => {
+  // Handle CORS preflight requests
+  const corsResponse = handleCors(req);
+  if (corsResponse) return corsResponse;
+  
+  // Debug log request details at a high level
+  console.log(`Request: ${req.method} ${new URL(req.url).pathname}`);
+  
+  const url = new URL(req.url);
+  
+  // Route the request to the appropriate handler
+  if (req.method === 'GET' && url.pathname.endsWith('/status')) {
+    return handleStatusRequest(req);
+  } else if (req.method === 'POST' && url.pathname.endsWith('/run')) {
+    return handleRunCommand(req);
+  } else if (req.method === 'POST' && url.pathname.endsWith('/close-session')) {
+    return handleCloseSession(req);
+  } else {
+    return new Response(
+      JSON.stringify({ error: 'Not Found', path: url.pathname }),
+      { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+});

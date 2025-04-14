@@ -30,6 +30,11 @@ export class ProcessMessageJob<T> {
     req: express.Request;
   }): Promise<any> {
     console.log(`Processing data from connectionId: ${connectionId} and dryRun: ${dryRun}`);
+    
+    // Fix for undefined connectionId - ensure it always has a value
+    connectionId = connectionId || "company";
+    
+    console.log(`Using connectionId: ${connectionId}`);
     console.log(`dataIn: ${dataIn}`);
 
     let organisationId, memberId;
@@ -38,7 +43,7 @@ export class ProcessMessageJob<T> {
       await this.nlpService.initialiseClientOpenAi();
 
       // -----------Step 1: Get organisation's ID, organisation's data and member ID----------- 
-      const inferOrganisationResult = await config.inferOrganisation({ connectionId, dataIn, req, storageService: this.storageService });
+      const inferOrganisationResult = await config.inferOrganisation({ connection: connectionId, dataIn, req, storageService: this.storageService });
       let organisationData;
 
       if (inferOrganisationResult.status != 200) {
@@ -52,8 +57,12 @@ export class ProcessMessageJob<T> {
       }
 
       [organisationId, organisationData] = inferOrganisationResult.data;
-      if (!organisationId || !organisationData || !memberId) {
+      
+      // All apps, including consumer apps, require organizationId
+      if (!organisationId || !organisationData) {
         throw Error(`Couldn't find organisationId (${organisationId}) or organisationData (${organisationData}) or memberId (${memberId}).`);
+      } else if (!memberId) {
+        throw Error(`Member ID is required for all requests. Couldn't find memberId (${memberId}).`);
       }
 
       console.log(`✅ Completed "Step 1: Get organisation's ID and data", with organisationId: ${organisationId} and organisationData: ${JSON.stringify(organisationData)}`);
@@ -192,8 +201,26 @@ export class ProcessMessageJob<T> {
       if (connectionId == "company") {
         // TODO: currently when Athenic, we're not storing references in db. We may well not care about this or even prefer this, but may want to align either way with Slack where we do
         const aiResponseData = dataIn;
-        aiResponseData.companyDataContents = messageReply;        
-        this.messagingService.storeMessage({organisationId, memberId, connectionId, messageThreadId, messageIsFromBot: true, authorId, message: messageReply, storageService: this.storageService, nlpService: this.nlpService}); // Purposely NOT doing await as for efficiency want everything else to proceed. TODO: confirm that this can be done and won't slow the main thread or reduce reliability
+        aiResponseData.companyDataContents = messageReply;
+        
+        // Verify we have content in messageReply before storing
+        if (messageReply && messageReply.trim().length > 0) {
+          console.log(`Storing AI response: ${messageReply}`);
+          // Adding await to ensure this completes before proceeding
+          await this.messagingService.storeMessage({
+            organisationId, 
+            memberId, 
+            connectionId, 
+            messageThreadId, 
+            messageIsFromBot: true, 
+            authorId, 
+            message: messageReply, 
+            storageService: this.storageService, 
+            nlpService: this.nlpService
+          });
+        } else {
+          console.error("AI response is empty, not storing it");
+        }
       }
 
       console.log(`✅ Completed "Step 4: Get the AI's response to the message"`);
