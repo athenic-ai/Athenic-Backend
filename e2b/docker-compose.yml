@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  e2b-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"  # REST API
+      - "4001:4001"  # WebSocket
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - WEBSOCKET_PORT=4001
+      - E2B_API_KEY=${E2B_API_KEY}
+    restart: unless-stopped
+    volumes:
+      - e2b-service-logs:/app/logs
+
+volumes:
+  e2b-service-logs: 
