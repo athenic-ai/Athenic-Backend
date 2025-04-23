@@ -8,10 +8,24 @@ export interface SandboxRunResult {
   [key: string]: any;
 }
 
+// OutputMessage interface for the E2B code-interpreter
+// Matches the actual library implementation
+export interface OutputMessage {
+  // Make 'text' optional to match the library implementation
+  text?: string;
+  // Add 'line' property which is what the library actually sends
+  line?: string;
+  // Flag for error status
+  error?: boolean;
+  // Timestamp field
+  timestamp?: number;
+  [key: string]: any;
+}
+
 export interface RunCodeOptions {
-  timeout?: number;
-  onStdout?: (stdout: string) => void;
-  onStderr?: (stderr: string) => void;
+  timeoutMs?: number;
+  onStdout?: (stdout: OutputMessage) => void;
+  onStderr?: (stderr: OutputMessage) => void;
 }
 
 export interface SandboxOptions {
@@ -20,9 +34,9 @@ export interface SandboxOptions {
 
 // Sandbox interface that matches the e2b library structure
 export interface ISandbox {
-  id: string;
-  runCode(code: string, options?: RunCodeOptions): Promise<SandboxRunResult>;
-  close(): Promise<void>;
+  sandboxId: string;
+  runCode(code: string, options?: RunCodeOptions): Promise<any>;
+  kill(): Promise<void>;
 }
 
 // WebSocket message types
@@ -32,6 +46,7 @@ export interface WSStatusMessage {
   status: string;
   message: string;
   sandboxId?: string;
+  duration?: number; // Add duration field for completion status
 }
 
 export interface WSOutputMessage {
@@ -46,13 +61,24 @@ export interface WSErrorMessage {
   error: string;
 }
 
-export type WSMessage = WSStatusMessage | WSOutputMessage | WSErrorMessage;
+export interface WSResultMessage {
+  type: 'result';
+  executionId: string;
+  data: any;
+  duration: number;
+}
+
+export type WSMessage = WSStatusMessage | WSOutputMessage | WSErrorMessage | WSResultMessage;
 
 // API request/response types
 export interface ExecuteCodeRequest {
   code: string;
   language: string;
   timeout?: number;
+}
+
+export interface ExecuteStreamRequest extends ExecuteCodeRequest {
+  clientId: string; // Additional field for WebSocket client identification
 }
 
 export interface ExecuteCodeResponse {

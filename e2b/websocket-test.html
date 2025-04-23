@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E2B WebSocket Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #output { 
+            border: 1px solid #ccc; 
+            padding: 10px; 
+            height: 400px; 
+            overflow-y: auto;
+            margin-bottom: 10px;
+            font-family: monospace;
+        }
+        .stdout { color: black; }
+        .stderr { color: red; }
+        .status { color: blue; font-weight: bold; }
+        .error { color: red; font-weight: bold; }
+        .result { color: green; }
+        button { padding: 8px 16px; margin-right: 10px; }
+        textarea { width: 100%; height: 100px; margin-bottom: 10px; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <h2>E2B WebSocket Test</h2>
+    <textarea id="codeInput">import time
+print("Hello from WebSocket test")
+time.sleep(1)
+print("After 1 second delay")
+time.sleep(1)
+print("This is the final output")</textarea>
+    <div id="output"></div>
+    <div>
+        <button id="connectBtn">Connect</button>
+        <button id="executeBtn" disabled>Execute Code</button>
+        <button id="disconnectBtn" disabled>Disconnect</button>
+    </div>
+
+    <script>
+        const outputDiv = document.getElementById('output');
+        const connectBtn = document.getElementById('connectBtn');
+        const executeBtn = document.getElementById('executeBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const codeInput = document.getElementById('codeInput');
+        
+        let socket;
+        let clientId;
+
+        function log(message, type = 'normal') {
+            const entry = document.createElement('div');
+            entry.className = type;
+            entry.textContent = message;
+            outputDiv.appendChild(entry);
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+        }
+
+        connectBtn.addEventListener('click', () => {
+            clientId = 'client_' + Date.now();
+            log(`Connecting with clientId: ${clientId}`, 'status');
+            
+            socket = new WebSocket(`ws://localhost:4000?clientId=${clientId}`);
+            
+            socket.onopen = function() {
+                log('WebSocket connection established.', 'status');
+                connectBtn.disabled = true;
+                executeBtn.disabled = false;
+                disconnectBtn.disabled = false;
+            };
+            
+            socket.onmessage = function(event) {
+                try {
+                    const message = JSON.parse(event.data);
+                    let logType = 'normal';
+                    let prefix = '';
+                    
+                    switch (message.type) {
+                        case 'stdout':
+                            logType = 'stdout';
+                            prefix = 'STDOUT: ';
+                            break;
+                        case 'stderr':
+                            logType = 'stderr';
+                            prefix = 'STDERR: ';
+                            break;
+                        case 'status':
+                            logType = 'status';
+                            prefix = 'STATUS: ';
+                            break;
+                        case 'error':
+                            logType = 'error';
+                            prefix = 'ERROR: ';
+                            break;
+                        case 'result':
+                            logType = 'result';
+                            prefix = 'RESULT: ';
+                            break;
+                        default:
+                            prefix = message.type.toUpperCase() + ': ';
+                    }
+                    
+                    let content = message.data || message.message || JSON.stringify(message);
+                    log(prefix + content, logType);
+                } catch (e) {
+                    log('Received: ' + event.data);
+                }
+            };
+            
+            socket.onclose = function() {
+                log('WebSocket connection closed.', 'status');
+                connectBtn.disabled = false;
+                executeBtn.disabled = true;
+                disconnectBtn.disabled = true;
+            };
+            
+            socket.onerror = function(error) {
+                log('WebSocket error: ' + error.message, 'error');
+            };
+        });
+        
+        executeBtn.addEventListener('click', async () => {
+            log('Sending execution request...', 'status');
+            
+            try {
+                const response = await fetch('http://localhost:4000/execute-stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        code: codeInput.value,
+                        clientId: clientId
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    log('Execution initiated: ' + JSON.stringify(data), 'status');
+                } else {
+                    log('Error initiating execution: ' + response.statusText, 'error');
+                }
+            } catch (error) {
+                log('Error: ' + error.message, 'error');
+            }
+        });
+        
+        disconnectBtn.addEventListener('click', () => {
+            if (socket) {
+                socket.close();
+                log('Disconnecting...', 'status');
+            }
+        });
+    </script>
+</body>
+</html> 
