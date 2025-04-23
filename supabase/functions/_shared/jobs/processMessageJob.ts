@@ -2,7 +2,7 @@ import * as config from "../../_shared/configs/index.ts";
 import { StorageService } from "../services/storage/storageService.ts";
 import { NlpService } from "../services/nlp/nlpService.ts";
 import { MessagingService } from "../services/messaging/messagingService.ts";
-import * as uuid from "jsr:@std/uuid";
+import { v4 as uuidv4 } from "https://deno.land/std@0.203.0/uuid/mod.ts";
 
 interface OrganisationData {
   [key: string]: any;
@@ -21,6 +21,42 @@ export class ProcessMessageJob<T> {
     this.storageService = storageService;
     this.nlpService = nlpService;
     this.messagingService = messagingService;
+  }
+
+  /**
+   * Determines if a message requires code execution using the LLM.
+   * @param messageText The text of the message to check
+   * @returns A boolean indicating if code execution is required and the status code/message
+   */
+  async checkIfCodeExecutionRequired(messageText: string): Promise<{ requiresCodeExecution: boolean; status: number; message: string }> {
+    try {
+      console.log("Checking if code execution is required...");
+      const checkPrompt = `Does the following user request require code execution, access to a file system, running terminal commands, or modifying a code repository? Respond only with YES or NO.\n\nRequest: "${messageText}"`;
+      
+      // Use a simple, fast model for this check
+      const checkResult = await this.nlpService.execute({ 
+        promptParts: [{"type": "text", "text": checkPrompt}], 
+        systemInstruction: "You are an assistant that determines if a request needs code execution capabilities.", 
+        functionUsage: "none", 
+        useLiteModels: true 
+      });
+
+      if (checkResult.status === 200) {
+        const requiresExecution = checkResult.message?.toUpperCase().includes('YES');
+        console.log(`Code execution ${requiresExecution ? 'IS' : 'is NOT'} required.`);
+        return { 
+          requiresCodeExecution: requiresExecution, 
+          status: 200, 
+          message: `Code execution ${requiresExecution ? 'is' : 'is not'} required.` 
+        };
+      } else {
+        console.error("Error checking for code execution requirement:", checkResult.message);
+        return { requiresCodeExecution: false, status: checkResult.status, message: checkResult.message };
+      }
+    } catch (error) {
+      console.error("Error checking for code execution requirement:", error.message);
+      return { requiresCodeExecution: false, status: 500, message: `Error checking for code execution: ${error.message}` };
+    }
   }
 
   async start({ connectionId, dryRun, dataIn, req }: {
@@ -110,6 +146,18 @@ export class ProcessMessageJob<T> {
         return result;
       }
 
+      // -----------Step 2.1: Check if code execution is required----------- 
+      // Implement E2B trigger logic to determine if code execution is needed
+      const codeExecutionResult = await this.checkIfCodeExecutionRequired(messageTextPartsStr);
+      const requiresCodeExecution = codeExecutionResult.requiresCodeExecution;
+      
+      // If code execution check failed, log but proceed with normal chat flow
+      if (codeExecutionResult.status !== 200) {
+        console.error(`Error checking if code execution is required: ${codeExecutionResult.message}. Proceeding with standard chat.`);
+      }
+      
+      console.log(`✅ Completed "Step 2.1: Check if code execution is required": ${requiresCodeExecution ? 'Code execution IS required' : 'Code execution is NOT required'}`);
+
       console.log("Starting NLP processing for message:", messageParts);
 
       console.log("Getting chat history");
@@ -127,7 +175,6 @@ export class ProcessMessageJob<T> {
       console.log(`chatHistory retrieved: ${config.stringify(chatHistory)}`);
 
       console.log("Getting model response");
-
 
       // -----------Step 3: Get additional data that may be used within function calls----------- 
       // TODO: Could be optimised so that this code is only called if function calling is used
@@ -155,14 +202,105 @@ export class ProcessMessageJob<T> {
 
       console.log(`✅ Completed "Step 3: Get additional data that may be used within function calls"`);
 
-      // -----------Step 4: Get the AI's response to the message-----------
-      const executeThreadResult = await this.nlpService.executeThread({
-        promptParts: messageParts,
-        chatHistory,
-      });
-      if (executeThreadResult.status != 200) {
-        throw Error(executeThreadResult.message);
+      // -----------Step 4: Get the AI's response to the message----------- 
+      let executeThreadResult;
+      if (requiresCodeExecution) {
+        // Implement E2B service call for code execution
+        console.log("Code execution is required. Calling E2B Service.");
+        
+        // Generate a unique client ID for this session
+        const uniqueClientId = `session_${uuidv4()}`;
+
+        // Determine the appropriate E2B template based on the request
+        // For now using a simple approach - could be enhanced with LLM analysis in the future
+        let e2bTemplate = 'code-interpreter-v1'; // Default template
+        if (messageTextPartsStr.toLowerCase().includes('javascript') || 
+            messageTextPartsStr.toLowerCase().includes('node')) {
+          e2bTemplate = 'nodejs-v1';
+        } else if (messageTextPartsStr.toLowerCase().includes('python')) {
+          e2bTemplate = 'code-interpreter-v1'; // Python-focused
+        }
+
+        // For now, we'll use the message text as the code/instruction
+        // A better approach would be another LLM call to extract actual code
+        const codeToExecute = messageTextPartsStr;
+
+        // Get E2B service URL from environment variables
+        const e2bServiceUrl = Deno.env.get('E2B_SERVICE_URL') || 'http://localhost:4000';
+        const e2bWebsocketUrl = Deno.env.get('E2B_WEBSOCKET_URL') || 'ws://localhost:4000';
+
+        try {
+          console.log(`Calling E2B service at ${e2bServiceUrl}/execute-stream`);
+          
+          const response = await fetch(`${e2bServiceUrl}/execute-stream`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              // TODO: Add authentication header if E2B service requires it
+            },
+            body: JSON.stringify({
+              code: codeToExecute,
+              language: e2bTemplate,
+              clientId: uniqueClientId,
+              timeout: 30000, // 30 seconds timeout
+            }),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Error calling E2B service: ${response.status} ${response.statusText}`, errorText);
+            throw new Error(`E2B service request failed: ${response.statusText}`);
+          }
+
+          // Parse the response
+          const responseData = await response.json();
+          console.log("E2B execution initiated successfully:", responseData);
+          
+          // Return data instructing the frontend to open WebSocket connection
+          executeThreadResult = {
+            status: 200,
+            message: null, // No direct message - output will come via WebSocket
+            data: {
+              requiresE2B: true,
+              e2bWebSocketUrl: e2bWebsocketUrl,
+              clientId: uniqueClientId,
+              executionId: responseData.executionId,
+              initialStatus: 'Initiating E2B execution...'
+            }
+          };
+          
+        } catch (e2bError) {
+          console.error("Failed to call E2B Service:", e2bError);
+          
+          // Fallback to standard chat if E2B fails
+          console.log("E2B execution failed, falling back to standard chat response");
+          executeThreadResult = await this.nlpService.executeThread({
+            promptParts: messageParts,
+            chatHistory,
+          });
+          
+          // Add error information to the response
+          if (executeThreadResult.status === 200) {
+            executeThreadResult.data = {
+              ...executeThreadResult.data,
+              requiresE2B: false,
+              e2bError: `E2B execution failed: ${e2bError instanceof Error ? e2bError.message : String(e2bError)}`
+            };
+          }
+        }
+      } else {
+        // Proceed with standard chat response
+        console.log("Proceeding with standard LLM chat response generation...");
+        executeThreadResult = await this.nlpService.executeThread({
+          promptParts: messageParts,
+          chatHistory,
+        });
+        
+        if (executeThreadResult.status != 200) {
+          throw Error(executeThreadResult.message);
+        }
       }
+      
       console.log(`Message thread result: ${config.stringify(executeThreadResult)}`);
       const messageReply = executeThreadResult.message;
       

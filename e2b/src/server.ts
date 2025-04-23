@@ -1,10 +1,10 @@
 import express from 'express';
-import http from 'http';
-import { WebSocketServer, WebSocket } from 'ws';
+import cors from 'cors';
 import { v4 as uuid } from 'uuid';
+import http, { Server } from 'http';
+import WebSocket, { WebSocketServer } from 'ws';
 import { Sandbox } from '@e2b/code-interpreter';
 import bodyParser from 'body-parser';
-import cors from 'cors';
 import dotenv from 'dotenv';
 import { parse } from 'url';
 import { 
@@ -94,6 +94,37 @@ wss.on('connection', (ws, req) => {
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'healthy' });
+});
+
+// NEW ENDPOINT: Analyze if a message requires code execution
+app.post('/analyze-execution-needs', (req, res) => {
+  const { message } = req.body;
+  
+  if (!message) {
+    return res.status(400).json({
+      error: 'Missing required parameter: message'
+    });
+  }
+  
+  console.log(`Analyzing message for execution needs: ${message.substring(0, 100)}...`);
+  
+  // Simple heuristic check for code execution markers
+  // In production, this would be replaced by the LLM-based check already implemented in the Supabase function
+  const codeKeywords = [
+    'code', 'execute', 'run', 'python', 'javascript', 'node', 'npm', 'script',
+    'terminal', 'command', 'shell', 'bash', 'function', 'algorithm',
+    'compile', 'build', 'dev', 'program', 'repository', 'git', 'commit',
+    'file system', 'read file', 'write file', 'modify file', 
+    'debug', 'modify', 'create', 'help'
+  ];
+  
+  const lowercaseMessage = message.toLowerCase();
+  const requiresExecution = codeKeywords.some(keyword => lowercaseMessage.includes(keyword));
+  
+  res.json({
+    requiresExecution,
+    message: `Analysis complete. ${requiresExecution ? 'Code execution appears to be required.' : 'No code execution needed.'}`
+  });
 });
 
 // Execute code synchronously and return result
@@ -301,6 +332,22 @@ process.on('SIGINT', gracefulShutdown);
 process.on('SIGTERM', gracefulShutdown);
 
 // Start server
-server.listen(PORT, () => {
+const serverInstance = server.listen(PORT, () => {
   console.log(`E2B Sandbox service running on port ${PORT}`);
-}); 
+});
+
+// Export for testing
+export function startServer(): Promise<Server> {
+  return new Promise((resolve) => {
+    if (serverInstance.listening) {
+      resolve(serverInstance);
+    } else {
+      serverInstance.once('listening', () => {
+        resolve(serverInstance);
+      });
+    }
+  });
+}
+
+// Export the server instance for direct use
+export default serverInstance; 
