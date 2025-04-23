@@ -18,6 +18,12 @@ The E2B Service is a critical component of the Athenic architecture, enabling:
 - **Execution Streaming** for stdout/stderr in real-time
 - **Multi-language Support** for running Python, JavaScript, and more
 
+## What's New in 1.1.1
+
+- Enhanced WebSocket testing suite with dedicated test cases
+- Improved multi-line code execution tests
+- Added error handling tests for WebSocket connections
+
 ## What's New in 1.1.0
 
 - Upgraded to use the new `@e2b/code-interpreter` package
@@ -53,6 +59,19 @@ cp .env.example .env
 ```bash
 # Start development server with hot reload
 npm run dev
+```
+
+## Testing
+
+```bash
+# Run all tests
+npm test
+
+# Run specific tests
+npm test -- -t "WebSocket"
+
+# Run tests with coverage
+npm run test:coverage
 ```
 
 ## Building and Running
@@ -120,9 +139,42 @@ Execute code in an E2B sandbox.
 }
 ```
 
+#### `POST /execute-stream`
+
+Execute code with real-time streaming via WebSocket.
+
+**Request body**:
+```json
+{
+  "code": "print('Hello, World!')",
+  "language": "python", 
+  "timeout": 30000,
+  "clientId": "client_123456"
+}
+```
+
+**Parameters**:
+- `code` (required): The code to execute
+- `language` (optional): Programming language to use (default: "python")
+- `timeout` (optional): Execution timeout in milliseconds (default: 30000)
+- `clientId` (required): WebSocket client ID to stream output to
+
+**Response**:
+```json
+{
+  "executionId": "1682412345678", 
+  "status": "streaming",
+  "clientId": "client_123456"
+}
+```
+
 ### WebSocket Events
 
 Connect to the WebSocket server to receive real-time updates during code execution:
+
+```javascript
+const ws = new WebSocket('ws://localhost:4000?clientId=client_123456');
+```
 
 #### Event Types
 
@@ -130,6 +182,37 @@ Connect to the WebSocket server to receive real-time updates during code executi
 - `stdout`: Standard output from the executing code
 - `stderr`: Standard error from the executing code
 - `error`: Execution errors
+- `result`: Final execution result
+
+#### Sample WebSocket Messages
+
+Status Update:
+```json
+{
+  "type": "status",
+  "executionId": "1682412345678",
+  "status": "running",
+  "message": "Executing code..."
+}
+```
+
+Standard Output:
+```json
+{
+  "type": "stdout",
+  "executionId": "1682412345678",
+  "data": "Hello, World!"
+}
+```
+
+Error:
+```json
+{
+  "type": "stderr",
+  "executionId": "1682412345678",
+  "data": "NameError: name 'undefined_variable' is not defined"
+}
+```
 
 ## Integration with Athenic
 

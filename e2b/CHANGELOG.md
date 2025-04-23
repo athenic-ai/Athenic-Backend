@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1] - 2025-04-24
+
+### Added
+- Dedicated WebSocket testing suite with comprehensive test cases
+- Enhanced multi-line code execution tests
+- Error handling tests for WebSocket connections
+
 ## [1.1.0] - 2025-04-22
 
 ### Changed
