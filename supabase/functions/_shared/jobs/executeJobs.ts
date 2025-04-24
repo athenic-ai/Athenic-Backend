@@ -2,8 +2,7 @@ import * as config from "../../_shared/configs/index.ts";
 import { FunctionResult, WhereCondition } from "../../_shared/configs/index.ts";
 import { StorageService } from "../services/storage/storageService.ts";
 import { NlpService } from "../services/nlp/nlpService.ts";
-import { v4 as uuidv4 } from "jsr:@std/uuid";
-// import * as uuid from "jsr:@std/uuid"; // TODO: Replace with Node-compatible uuid if needed
+import { v4 } from "https://deno.land/std@0.81.0/uuid/mod.ts";
 
 interface OrganisationData {
   [key: string]: any;
@@ -202,7 +201,7 @@ export class ExecuteJobs<T> {
 
         // Create and store job run object
         const jobRunObjectData = {
-          id: uuidv4(),
+          id: v4.generate(),
           owner_organisation_id: organisationId,
           related_object_type_id: config.OBJECT_TYPE_ID_JOB_RUN,
           metadata: {

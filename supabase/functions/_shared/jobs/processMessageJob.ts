@@ -3,7 +3,7 @@ import { StorageService } from "../services/storage/storageService.ts";
 import { NlpService } from "../services/nlp/nlpService.ts";
 import { MessagingService } from "../services/messaging/messagingService.ts";
 import { FunctionResult } from "../configs/index.ts";
-import { v4 as uuidv4 } from "jsr:@std/uuid@1.0.7";
+import { v4 } from "https://deno.land/std@0.81.0/uuid/mod.ts";
 
 interface OrganisationData {
   [key: string]: any;
@@ -249,7 +249,7 @@ export class ProcessMessageJob<T> {
         console.log("Code execution is required. Calling E2B Service.");
         
         // Generate a unique client ID for this session
-        const uniqueClientId = `session_${uuidv4()}`;
+        const uniqueClientId = `session_${v4.generate()}`;
 
         // Determine the appropriate E2B template based on the request
         // For now using a simple approach - could be enhanced with LLM analysis in the future
@@ -265,27 +265,12 @@ export class ProcessMessageJob<T> {
         // A better approach would be another LLM call to extract actual code
         const codeToExecute = messageTextPartsStr;
 
-        // Get E2B service URL from environment variables
-        const getEnvVar = (name: string, defaultValue: string) => {
-          try {
-            // Try Deno first
-            if (typeof Deno !== 'undefined' && Deno.env && typeof Deno.env.get === 'function') {
-              return Deno.env.get(name) || defaultValue;
-            }
-            // Then try Node
-            if (typeof process !== 'undefined' && process.env) {
-              return process.env[name] || defaultValue;
-            }
-            // Default fallback
-            return defaultValue;
-          } catch (e) {
-            console.warn(`Error accessing env var ${name}:`, e);
-            return defaultValue;
-          }
-        };
-        
-        const e2bServiceUrl = getEnvVar('E2B_SERVICE_URL', 'http://localhost:4000');
-        const e2bWebsocketUrl = getEnvVar('E2B_WEBSOCKET_URL', 'ws://localhost:4000');
+        // Determine if we're in local development or production
+        // In production, we need a publicly accessible URL for the E2B service
+        // In local dev, we can use ngrok or a similar tool to expose localhost
+        const isDevelopment = Deno.env.get("SUPABASE_ENV") === "development" || !Deno.env.get("SUPABASE_ENV");
+        const e2bServiceUrl = Deno.env.get("E2B_SERVICE_URL") || 
+                              (isDevelopment ? 'http://localhost:4000/execute-stream' : 'https://your-deployed-e2b-service.com/execute-stream');
 
         try {
           console.log(`Calling E2B service at ${e2bServiceUrl}/execute-stream`);
@@ -319,7 +304,7 @@ export class ProcessMessageJob<T> {
             status: 200,
             data: {
               requiresE2B: true,
-              e2bWebSocketUrl: e2bWebsocketUrl,
+              e2bWebSocketUrl: e2bServiceUrl,
               clientId: uniqueClientId,
               executionId: responseData.executionId,
               initialStatus: 'Initiating E2B execution...'

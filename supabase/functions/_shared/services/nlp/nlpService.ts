@@ -162,32 +162,14 @@ export class NlpService {
 
   async initialiseClientCore(apiKey: string): Promise<void> {
     console.log("initialiseClientCore called");
-    try {
-      // Safe environment variable access function
-      const getEnvVar = (name: string, defaultValue: string = '') => {
-        try {
-          // Try Deno first
-          if (typeof Deno !== 'undefined' && Deno.env && typeof Deno.env.get === 'function') {
-            return Deno.env.get(name) || defaultValue;
-          }
-          // Then try Node
-          if (typeof process !== 'undefined' && process.env) {
-            return process.env[name] || defaultValue;
-          }
-          // Default fallback
-          return defaultValue;
-        } catch (e) {
-          console.warn(`Error accessing env var ${name}:`, e);
-          return defaultValue;
-        }
-      };
-      
+    try {      
       this.clientCore = new OpenAI({
-        apiKey: apiKey || getEnvVar('OPENROUTER_API_KEY'),
+        baseURL: 'https://openrouter.ai/api/v1',
+        apiKey: apiKey || Deno.env.get('OPENROUTER_API_KEY'),
       });
-      console.log("OpenAI client core initialised successfully");
+      console.log("Client core initialised successfully");
     } catch (error) {
-      console.error("Error initializing OpenAI client core:", error);
+      console.error("Error initializing client core:", error);
       throw error;
     }
   }
@@ -195,27 +177,8 @@ export class NlpService {
   async initialiseClientOpenAi(apiKey: string): Promise<void> {
     console.log("initialiseClientOpenAi called");
     try {
-      // Safe environment variable access function
-      const getEnvVar = (name: string, defaultValue: string = '') => {
-        try {
-          // Try Deno first
-          if (typeof Deno !== 'undefined' && Deno.env && typeof Deno.env.get === 'function') {
-            return Deno.env.get(name) || defaultValue;
-          }
-          // Then try Node
-          if (typeof process !== 'undefined' && process.env) {
-            return process.env[name] || defaultValue;
-          }
-          // Default fallback
-          return defaultValue;
-        } catch (e) {
-          console.warn(`Error accessing env var ${name}:`, e);
-          return defaultValue;
-        }
-      };
-      
       this.clientOpenAi = new OpenAI({
-        apiKey: apiKey || getEnvVar('OPENAI_API_KEY'),
+        apiKey: apiKey || Deno.env.get('OPENAI_API_KEY'),
       });
       console.log("OpenAI client initialised successfully");
     } catch (error) {
