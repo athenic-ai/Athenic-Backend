@@ -1,7 +1,7 @@
-// import * as config from "../configs/index.ts";
-// import { StorageService } from "../services/storage/storageService.ts";
-// import { NlpService } from "../services/nlp/nlpService.ts";
-// import { UpsertDataJob } from "./upsertDataJob.ts";
+// import * as config from "../configs/index";
+// import { StorageService } from "../services/storage/storageService";
+// import { NlpService } from "../services/nlp/nlpService";
+// import { UpsertDataJob } from "./upsertDataJob";
 
 // export class UpsertSignalJob<T> {
 //   private readonly storageService: StorageService;
@@ -38,7 +38,7 @@
 //         // If type is message, don't want signals created for messages 
 //         const result: FunctionResult = {
 //           status: 200,
-//           message: `🟧 Not executing signal as signal type is: ${sourceObjectTypeId}`,
+//           message: ` Not executing signal as signal type is: ${sourceObjectTypeId}`,
 //         };
 //         return result;
 //       }
@@ -85,10 +85,10 @@
 //       };
 //       return result;
 //     } catch (error) {
-//       console.log(`❌ Failed to upsert signal with error: ${error.message}.`);
+//       console.log(` Failed to upsert signal with error: ${error.message}.`);
 //       const result: FunctionResult = {
 //         status: 500,
-//         message: `❌ Failed to upsert signal with error: ${error.message}.`,
+//         message: ` Failed to upsert signal with error: ${error.message}.`,
 //       };
 //       return result;
 //     }

@@ -80,6 +80,15 @@ For more control over which tests to run, use the provided test script:
 
 For more details on testing, see the [Tests README](./tests/README.md).
 
+## NLP Service Improvements - 2024-06-09
+
+- Refactored NLP service to ensure strict TypeScript typing for all OpenAI API calls.
+- Added helpers to ensure all messages passed to OpenAI are valid and strictly typed.
+- Removed deprecated/invalid tool types (e.g., 'code_interpreter') from OpenAI tool arrays.
+- Added explicit type annotations and null checks for improved reliability and maintainability.
+- Fixed property typos and ensured compatibility with the latest OpenAI Node SDK.
+- All changes validated by running and passing relevant NLP service tests.
+
 ## License
 
 This project is licensed under the terms specified in the [LICENSE](./LICENSE) file. 

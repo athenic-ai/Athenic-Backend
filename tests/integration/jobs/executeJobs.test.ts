@@ -53,10 +53,10 @@ describe('ExecuteJobs Integration', () => {
     jest.clearAllMocks();
 
     // Mock Deno.env.get for environment variables
-    global.Deno = {
+    (global as any).Deno = {
       env: {
-        get: jest.fn().mockImplementation((key) => {
-          const envVars = {
+        get: jest.fn().mockImplementation((key: string) => {
+          const envVars: Record<string, string> = {
             'OPENAI_API_KEY': 'test-api-key',
             'OPENROUTER_API_KEY': 'test-openrouter-key',
             'SUPABASE_URL': 'https://test.supabase.co',

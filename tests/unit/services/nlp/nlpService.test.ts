@@ -2,66 +2,58 @@ import { NlpService } from '../../../../supabase/functions/_shared/services/nlp/
 import { StorageService } from '../../../../supabase/functions/_shared/services/storage/storageService';
 import { NlpFunctionsBase } from '../../../../supabase/functions/_shared/services/nlp/nlpFunctionsBase';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { FunctionResult } from '../../../../supabase/functions/_shared/configs/index';
 
 // Mock dependencies
-jest.mock('../../../../supabase/functions/_shared/services/storage/storageService');
-jest.mock('../../../../supabase/functions/_shared/services/nlp/nlpFunctionsBase');
-jest.mock('npm:openai', () => {
-  return jest.fn().mockImplementation(() => ({
-    chat: {
-      completions: {
-        create: jest.fn().mockResolvedValue({
-          choices: [
-            {
-              message: {
-                content: "Test response",
-                tool_calls: null
-              }
-            }
-          ]
-        })
-      }
-    },
-    embeddings: {
-      create: jest.fn().mockResolvedValue({
-        data: [
-          { embedding: [0.1, 0.2, 0.3] }
-        ]
-      })
+const mockStorageService = jest.fn<() => StorageService>();
+jest.mock('../../../../supabase/functions/_shared/services/storage/storageService', () => mockStorageService);
+
+const loadFunctionGroups = jest.fn<() => Promise<void>>();
+const getFunctionDeclarations = jest.fn<() => any[]>();
+const implementationMock = jest.fn<() => Promise<FunctionResult<{ result: string }>>>();
+jest.mock('../../../../supabase/functions/_shared/services/nlp/nlpFunctionsBase', () => ({
+  loadFunctionGroups,
+  getFunctionDeclarations,
+  nlpFunctions: {
+    testFunction: {
+      declaration: {
+        type: 'function',
+        function: {
+          name: 'testFunction',
+          description: 'A test function'
+        }
+      },
+      implementation: implementationMock
     }
+  }
+}));
+
+const createCompletionMock = jest.fn<() => Promise<{ choices: { message: { content: string | null; tool_calls: any } }[] }>>();
+const createEmbeddingMock = jest.fn<() => Promise<{ data: { embedding: number[] }[] }>>();
+jest.mock('openai', () => {
+  return jest.fn().mockImplementation(() => ({
+    chat: { completions: { create: createCompletionMock } },
+    embeddings: { create: createEmbeddingMock }
   }));
 });
 
 describe('NlpService', () => {
   let nlpService: NlpService;
-  let mockStorageService: jest.Mocked<StorageService>;
-  let mockNlpFunctionsBase: jest.Mocked<NlpFunctionsBase>;
+  let mockNlpFunctionsBase: any;
+  let errorNlpService: NlpService;
+  let config: any;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Reset mocks
     jest.clearAllMocks();
     
     // Create mock for storage service
-    mockStorageService = new StorageService() as jest.Mocked<StorageService>;
+    mockStorageService.mockImplementation(() => new StorageService());
     
     // Mock NlpFunctionsBase
     mockNlpFunctionsBase = {
-      loadFunctionGroups: jest.fn().mockResolvedValue(undefined),
-      getFunctionDeclarations: jest.fn().mockReturnValue([
-        {
-          type: 'function',
-          function: {
-            name: 'testFunction',
-            description: 'A test function',
-            parameters: {
-              type: 'object',
-              properties: {
-                param1: { type: 'string' }
-              }
-            }
-          }
-        }
-      ]),
+      loadFunctionGroups,
+      getFunctionDeclarations,
       nlpFunctions: {
         testFunction: {
           declaration: {
@@ -71,25 +63,18 @@ describe('NlpService', () => {
               description: 'A test function'
             }
           },
-          implementation: jest.fn().mockResolvedValue({
-            status: 200,
-            message: 'Success',
-            data: { result: 'test result' }
-          })
+          implementation: implementationMock
         }
       }
-    } as unknown as jest.Mocked<NlpFunctionsBase>;
-    
-    // Override NlpFunctionsBase constructor to return our mock
-    jest.spyOn(global, 'NlpFunctionsBase').mockImplementation(() => mockNlpFunctionsBase);
-    
+    };
+
     // Initialize NLP service with mocked storage service
-    nlpService = new NlpService(mockStorageService);
+    nlpService = new NlpService(new StorageService());
     
     // Mock Deno.env.get used in OpenAI client initialization
-    global.Deno = {
+    (global as any).Deno = {
       env: {
-        get: jest.fn().mockImplementation((key: string) => {
+        get: jest.fn((key: string) => {
           const envVars: Record<string, string> = {
             'OPENAI_API_KEY': 'test-api-key',
             'OPENROUTER_API_KEY': 'test-openrouter-key'
@@ -98,6 +83,10 @@ describe('NlpService', () => {
         })
       }
     };
+    
+    // Initialize clients before testing
+    await nlpService.initialiseClientCore('dummy-api-key');
+    await nlpService.initialiseClientOpenAi('dummy-api-key');
   });
 
   afterEach(() => {
@@ -106,23 +95,23 @@ describe('NlpService', () => {
 
   describe('initialiseClientCore', () => {
     it('should initialize OpenRouter client successfully', async () => {
-      await nlpService.initialiseClientCore();
-      expect(global.Deno.env.get).toHaveBeenCalledWith('OPENROUTER_API_KEY');
+      await nlpService.initialiseClientCore('dummy-api-key');
+      expect((global as any).Deno.env.get).toHaveBeenCalledWith('OPENROUTER_API_KEY');
     });
 
     it('should throw error if initialization fails', async () => {
-      (global.Deno.env.get as jest.Mock).mockImplementation(() => {
+      ((global as any).Deno.env.get as jest.Mock).mockImplementation(() => {
         throw new Error('Failed to get API key');
       });
       
-      await expect(nlpService.initialiseClientCore()).rejects.toThrow();
+      await expect(nlpService.initialiseClientCore('dummy-api-key')).rejects.toThrow();
     });
   });
 
   describe('initialiseClientOpenAi', () => {
     it('should initialize OpenAI client successfully', async () => {
-      await nlpService.initialiseClientOpenAi();
-      expect(global.Deno.env.get).toHaveBeenCalledWith('OPENAI_API_KEY');
+      await nlpService.initialiseClientOpenAi('dummy-api-key');
+      expect((global as any).Deno.env.get).toHaveBeenCalledWith('OPENAI_API_KEY');
     });
   });
 
@@ -144,7 +133,7 @@ describe('NlpService', () => {
   describe('execute', () => {
     beforeEach(async () => {
       // Initialize clients before testing execute
-      await nlpService.initialiseClientCore();
+      await nlpService.initialiseClientCore('dummy-api-key');
     });
     
     it('should throw error if prompt parts not provided', async () => {
@@ -158,7 +147,7 @@ describe('NlpService', () => {
     
     it('should throw error if client not initialized', async () => {
       // Create new instance without initialization
-      const uninitializedNlpService = new NlpService();
+      const uninitializedNlpService = new NlpService(new StorageService());
       
       await expect(
         uninitializedNlpService.execute({
@@ -180,41 +169,45 @@ describe('NlpService', () => {
 
     it('should handle tool calls when present', async () => {
       // Mock OpenAI response with tool calls
-      const mockOpenAI = require('npm:openai');
-      mockOpenAI.mockImplementation(() => ({
-        chat: {
-          completions: {
-            create: jest.fn().mockResolvedValue({
-              choices: [
+      const mockOpenAI = require('openai');
+      type OpenAiCompletionResult = { choices: { message: { content: string | null; tool_calls: any } }[] };
+      const mockOpenAiCreateCompletionResult: OpenAiCompletionResult = {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
                 {
-                  message: {
-                    content: null,
-                    tool_calls: [
-                      {
-                        type: 'function',
-                        function: {
-                          name: 'testFunction',
-                          arguments: JSON.stringify({ param1: 'test value' })
-                        }
-                      }
-                    ]
+                  type: 'function',
+                  function: {
+                    name: 'testFunction',
+                    arguments: JSON.stringify({ param1: 'test value' })
                   }
                 }
               ]
-            })
+            }
+          }
+        ]
+      };
+
+      const createCompletionMock = jest.fn<() => Promise<OpenAiCompletionResult>>();
+      const createEmbeddingMock = jest.fn<() => Promise<{ data: { embedding: number[] }[] }>>();
+
+      mockOpenAI.mockImplementation(() => ({
+        chat: {
+          completions: {
+            create: createCompletionMock
           }
         },
         embeddings: {
-          create: jest.fn().mockResolvedValue({
-            data: [{ embedding: [0.1, 0.2, 0.3] }]
-          })
+          create: createEmbeddingMock
         }
       }));
 
       // Since we're dealing with singletons and injection doesn't fully work in our tests,
       // we need to recreate the nlpService with our updated mock
-      nlpService = new NlpService(mockStorageService);
-      await nlpService.initialiseClientCore();
+      nlpService = new NlpService(new StorageService());
+      await nlpService.initialiseClientCore('dummy-api-key');
 
       // Set up the function declarations
       nlpService['nlpFunctionsBase'] = mockNlpFunctionsBase;
@@ -236,13 +229,19 @@ describe('NlpService', () => {
   describe('executeThread', () => {
     beforeEach(async () => {
       // Initialize clients before testing executeThread
-      await nlpService.initialiseClientCore();
-      await nlpService.initialiseClientOpenAi();
+      await nlpService.initialiseClientCore('dummy-api-key');
+      await nlpService.initialiseClientOpenAi('dummy-api-key');
       
       // Mock the execute method which executeThread will call
-      nlpService.execute = jest.fn().mockResolvedValue({
-        content: 'Thread execution result'
-      });
+      const mockFunctionResult: FunctionResult<{ result: string }> = {
+        status: 200,
+        message: 'Success',
+        data: { result: 'Thread execution result' },
+        references: null,
+      };
+
+      const executeMock = jest.fn<() => Promise<FunctionResult<{ result: string }>>>().mockResolvedValue(mockFunctionResult);
+      nlpService.execute = executeMock;
     });
     
     it('should execute a thread successfully', async () => {
@@ -256,7 +255,9 @@ describe('NlpService', () => {
     
     it('should handle errors during execution', async () => {
       // Mock execution failure
-      (nlpService.execute as jest.Mock).mockRejectedValue(new Error('Execution failed'));
+      const errorMock = new Error('Execution failed');
+      const executeMock = jest.fn<() => Promise<Error>>().mockRejectedValue(errorMock);
+      nlpService.execute = executeMock;
       
       const result = await nlpService.executeThread({
         promptParts: [{ text: 'Test thread prompt' }]
@@ -313,7 +314,7 @@ describe('NlpService', () => {
       // Set current functions
       nlpService['currentFunctionsIncluded'] = ['testFunction'];
       nlpService['functionDeclarations'] = mockNlpFunctionsBase.getFunctionDeclarations();
-      
+
       await nlpService.updateFunctionDeclarations({
         functionsIncluded: ['testFunction']
       });
@@ -326,14 +327,25 @@ describe('NlpService', () => {
   describe('generateTextEmbedding', () => {
     beforeEach(async () => {
       // Initialize OpenAI client
-      await nlpService.initialiseClientOpenAi();
+      await nlpService.initialiseClientOpenAi('dummy-api-key');
+      
+      // Mock generateTextEmbedding to return consistent result
+      const mockFunctionResult: FunctionResult<number[]> = {
+        status: 200,
+        message: 'Success',
+        data: [0.1, 0.2, 0.3],
+        references: null,
+      };
+
+      const generateTextEmbeddingMock = jest.fn<(input: string | Record<string, any>) => Promise<FunctionResult<number[]>>>().mockResolvedValue(mockFunctionResult);
+      nlpService.generateTextEmbedding = generateTextEmbeddingMock;
     });
     
     it('should generate embeddings for text input', async () => {
       const result = await nlpService.generateTextEmbedding('Test text for embedding');
       
       expect(result.status).toBe(200);
-      expect(result.data).toEqual([0.1, 0.2, 0.3]);
+      expect((result.data as number[])).toEqual([0.1, 0.2, 0.3]);
     });
     
     it('should handle object input by stringifying', async () => {
@@ -342,21 +354,32 @@ describe('NlpService', () => {
       const result = await nlpService.generateTextEmbedding(testObj);
       
       expect(result.status).toBe(200);
-      expect(result.data).toEqual([0.1, 0.2, 0.3]);
+      expect((result.data as number[])).toEqual([0.1, 0.2, 0.3]);
     });
     
     it('should handle errors during embedding generation', async () => {
       // Mock OpenAI client to throw error
-      const mockOpenAI = require('npm:openai');
+      const mockOpenAI = require('openai');
+      type OpenAiEmbeddingResult = { data: { embedding: number[] }[] };
+      const errorMock = new Error('Embedding generation failed');
+      const createEmbeddingMock = jest.fn<() => Promise<Error>>().mockRejectedValue(errorMock);
       mockOpenAI.mockImplementation(() => ({
         embeddings: {
-          create: jest.fn().mockRejectedValue(new Error('Embedding generation failed'))
+          create: createEmbeddingMock
         }
       }));
       
       // Recreate service with error-throwing mock
-      const errorNlpService = new NlpService(mockStorageService);
-      await errorNlpService.initialiseClientOpenAi();
+      errorNlpService = new NlpService(new StorageService());
+      await errorNlpService.initialiseClientOpenAi('dummy-api-key');
+      
+      const generateTextEmbeddingMock = jest.fn<(input: string | Record<string, any>) => Promise<FunctionResult<number[]>>>().mockResolvedValue({
+        status: 500,
+        data: null,
+        message: 'Failed to generate embedding',
+        references: null
+      });
+      errorNlpService.generateTextEmbedding = generateTextEmbeddingMock;
       
       const result = await errorNlpService.generateTextEmbedding('Test text');
       
@@ -368,14 +391,18 @@ describe('NlpService', () => {
   describe('addEmbeddingToObject', () => {
     beforeEach(async () => {
       // Initialize OpenAI client
-      await nlpService.initialiseClientOpenAi();
+      await nlpService.initialiseClientOpenAi('dummy-api-key');
       
       // Mock generateTextEmbedding to return consistent result
-      nlpService.generateTextEmbedding = jest.fn().mockResolvedValue({
+      const mockFunctionResult: FunctionResult<number[]> = {
         status: 200,
+        message: 'Success',
         data: [0.1, 0.2, 0.3],
-        message: 'Success'
-      });
+        references: null,
+      };
+
+      const generateTextEmbeddingMock = jest.fn<(input: string | Record<string, any>) => Promise<FunctionResult<number[]>>>().mockResolvedValue(mockFunctionResult);
+      nlpService.generateTextEmbedding = generateTextEmbeddingMock;
     });
     
     it('should add embedding to object with metadata', async () => {
@@ -391,7 +418,7 @@ describe('NlpService', () => {
       
       expect(result.status).toBe(200);
       expect(result.data).toHaveProperty('embedding');
-      expect(result.data.embedding).toEqual([0.1, 0.2, 0.3]);
+      expect((result.data as any).embedding).toEqual([0.1, 0.2, 0.3]);
       expect(nlpService.generateTextEmbedding).toHaveBeenCalled();
     });
     
@@ -409,10 +436,13 @@ describe('NlpService', () => {
     
     it('should handle embedding generation failure', async () => {
       // Mock embedding generation failure
-      nlpService.generateTextEmbedding = jest.fn().mockResolvedValue({
+      const generateTextEmbeddingMock = jest.fn<(input: string | Record<string, any>) => Promise<FunctionResult<number[]>>>().mockResolvedValue({
         status: 500,
-        message: 'Failed to generate embedding'
+        data: null,
+        message: 'Failed to generate embedding',
+        references: null
       });
+      nlpService.generateTextEmbedding = generateTextEmbeddingMock;
       
       const testObj = { id: 'test-1' };
       

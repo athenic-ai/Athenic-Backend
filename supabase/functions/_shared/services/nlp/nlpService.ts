@@ -1,9 +1,10 @@
-import { NlpFunctionsBase } from "./nlpFunctionsBase.ts";
-import { StorageService } from "../storage/storageService.ts";
+import { NlpFunctionsBase } from "./nlpFunctionsBase";
+import { StorageService } from "../storage/storageService";
 // import TasksPlugin from "../tasks/tasksPlugin";
-import OpenAI from "npm:openai"
-import * as config from "../../configs/index.ts";
-import { FunctionResult } from "../../configs/index.ts";
+import OpenAI from "openai";
+import type { ChatCompletionMessageParam, ChatCompletionTool, ChatCompletionToolChoiceOption } from "openai/resources/chat/completions";
+import * as config from "../../configs/index";
+import { FunctionResult } from "../../configs/index";
 
 export class NlpService {
   private nlpFunctionsBase: NlpFunctionsBase;
@@ -22,13 +23,13 @@ export class NlpService {
   private selectedObjectTypeId: string | null = null;
   private selectedObjectPotentialParentIds: string[] = [];
   private relatedObjectIds: Record<string, unknown> | null = null; // Type ID -> Object ID map of all objects that have been called/created during this run and so related to each other
-  private upsertedObjectIds: Record<string, unknown> | null = null; // Type ID -> Object ID map of all new objects that have been created during this run
+  public upsertedObjectIds: Record<string, unknown> | null = null; // Type ID -> Object ID map of all new objects that have been created during this run
   private objectMetadataFunctionProperties: Record<string, unknown> | null = null;
   private objectMetadataFunctionPropertiesRequiredIds: Record<string, string[]> | null = null;
   private fieldTypes: string[] = [];
   private dictionaryTerms: string[] = [];
   private currentFunctionsIncluded: any[] | null = null;
-  private functionDeclarations: any[] | null = null;
+  private functionDeclarations: ChatCompletionTool[] | null = null;
   private selectedMessageThreadId: string | null = null;
   // private tasksPlugin: TasksPlugin;
   // private tasksService: any | null = null;
@@ -113,13 +114,8 @@ export class NlpService {
     console.log("initialiseClientCore called");
     try {
       this.clientCore = new OpenAI({
-        baseURL: "https://openrouter.ai/api/v1",
-        apiKey: Deno.env.get('OPENROUTER_API_KEY'),
-        // defaultHeaders: {
-        //   "HTTP-Referer": $YOUR_SITE_URL, // Optional, for including your app on openrouter.ai rankings.
-        //   "X-Title": $YOUR_APP_NAME, // Optional. Shows in rankings on openrouter.ai.
-        // }
-      })
+        apiKey: apiKey || process.env.OPENROUTER_API_KEY,
+      });
       console.log("OpenAI client core initialised successfully");
     } catch (error) {
       console.error("Error initializing OpenAI client core:", error);
@@ -130,7 +126,9 @@ export class NlpService {
   async initialiseClientOpenAi(apiKey: string): Promise<void> {
     console.log("initialiseClientOpenAi called");
     try {
-      this.clientOpenAi = new OpenAI({apiKey: Deno.env.get('OPENAI_API_KEY')}); // Use this if calling OpenAI's API directly (needed as OpenRouter doesn't support embeddings or assistants right now)
+      this.clientOpenAi = new OpenAI({
+        apiKey: apiKey || process.env.OPENAI_API_KEY,
+      });
       console.log("OpenAI client initialised successfully");
     } catch (error) {
       console.error("Error initializing OpenAI client:", error);
@@ -156,7 +154,7 @@ export class NlpService {
     functionsIncluded?: any[];
     interpretFuncCalls?: boolean;
     useLiteModels?: boolean;
-  }): Promise<any> {
+  }): Promise<FunctionResult> {
     if (!promptParts) {
       throw new Error("No promptParts provided for NLP analysis");
     }
@@ -175,33 +173,20 @@ export class NlpService {
 
       console.log(`Preparing messages with:\nsystem instruction: ${systemInstruction}\n chatHistory: ${config.stringify(chatHistory)}\n promptParts: ${config.stringify(promptParts)}`);
 
-      const messages = [
-        { role: "developer", content: systemInstruction },
-        ...chatHistory, // Add chat history
-        ...promptParts.map((part) => {
-          // Ensure content is always in the correct format (string or array of content blocks)
-          let content;
-          if (typeof part === 'string') {
-            content = part;
-          } else if (typeof part === 'object' && part.text) {
-            // If it's an object with a text property, use that text
-            content = part.text;
-          } else {
-            // Otherwise stringify it
-            content = JSON.stringify(part);
-          }
-          return { role: "user", content };
-        }),
+      const messages: ChatCompletionMessageParam[] = [
+        { role: "system", content: systemInstruction },
+        ...chatHistory.map(toChatMessage),
+        ...promptParts.map(toChatMessage),
       ];
 
       console.log(`Creating chat with:\nmodels: ${models} \nmessages: ${JSON.stringify(messages)}\ntemperature: ${temperature} \nfunctionUsage: ${functionUsage} \nfunctionsIncluded: ${JSON.stringify(functionsIncluded)}`);
 
       const initialCreateResult = await this.clientCore!.chat.completions.create({
-        models,
+        model: models[0],
         messages,
         temperature,
-        tools: this.functionDeclarations,
-        tool_choice: functionUsage, // NOTE: not supported by a number of models
+        tools: this.functionDeclarations ?? undefined,
+        tool_choice: functionUsage as ChatCompletionToolChoiceOption, // NOTE: not supported by a number of models
         // provider: { // TODO: enable this before going to production
         //   data_collection: "deny"
         // },
@@ -252,9 +237,9 @@ export class NlpService {
           }
 
           const interpretedCreateResult = await this.clientCore!.chat.completions.create({
-            models,
+            model: models[0],
             messages,
-            tools: this.functionDeclarations,
+            tools: this.functionDeclarations ?? undefined,
           });
 
           console.log(`interpretedCreateResult stringified: ${JSON.stringify(interpretedCreateResult)}`);
@@ -273,6 +258,7 @@ export class NlpService {
               status: 200,
               message: interpretedCreateResult.choices[0].message.content,
               data: functionResultsData[0].functionResult.data,
+              references: null
             };
             return result;
           }
@@ -281,6 +267,7 @@ export class NlpService {
             status: functionResultsData[0].functionResult.status,
             message: functionResultsData[0].functionResult.message.content,
             data: functionResultsData[0].functionResult.data,
+            references: functionResultsData[0].functionResult.references
           };
           return result;
         }
@@ -288,7 +275,9 @@ export class NlpService {
         console.log("No tool_calls were requested by the model.");
         const result: FunctionResult = {
           status: 200,
-          message: createResMessage.content
+          message: createResMessage.content,
+          data: null,
+          references: null
         };
         return result;
       }
@@ -296,7 +285,9 @@ export class NlpService {
       console.error("Error during NLP execution:", error);
       const result: FunctionResult = {
         status: 500,
-        message: "Oops! I was unable to get a result. Please try again shortly."
+        message: "Oops! I was unable to get a result. Please try again shortly.",
+        data: null,
+        references: null
       };
       return result;
     }
@@ -316,7 +307,7 @@ export class NlpService {
     try {
       console.log(`executeThread called with prompt: ${config.stringify(promptParts)} and chat history: ${config.stringify(chatHistory)}`);
 
-      let assistantId = null;
+      let assistantId: unknown = null;
       
       // 1. Pull down all assistants from the database that are enabled
       const getAssistantsResult = await this.storageService.getRows('objects', {
@@ -354,7 +345,7 @@ The prompt is: "${promptText}"
 
 Available assistants:
 ${assistants.length > 0 ? 
-  assistants.map(assistant => 
+  assistants.map((assistant: any) => 
     `- ${assistant.metadata.title} (ID: ${assistant.id}): ${assistant.metadata.instructions}`
   ).join('\n') : 
   ''}
@@ -395,7 +386,7 @@ Respond only with "USE_BASIC", "USE_GENERAL", or an assistant ID (as a UUID and 
             }
           } else {
             // Find the assistant with the matching ID
-            const selectedAssistant = assistants.find(a => a.id === triageResponse);
+            const selectedAssistant = assistants.find((a: any) => a.id === triageResponse);
             
             if (selectedAssistant) {
               // 3. Create the assistant dynamically
@@ -434,22 +425,13 @@ Respond only with "USE_BASIC", "USE_GENERAL", or an assistant ID (as a UUID and 
         assistantId = generalAssistantResult.data;
       }
 
-      const messages = [
-        ...chatHistory, // Add chat history
-        ...promptParts.map((part) => {
-          // Ensure content is always in the correct format (string or array of content blocks)
-          let content;
-          if (typeof part === 'string') {
-            content = part;
-          } else if (typeof part === 'object' && part.text) {
-            // If it's an object with a text property, use that text
-            content = part.text;
-          } else {
-            // Otherwise stringify it
-            content = JSON.stringify(part);
-          }
-          return { role: "user", content };
-        }),
+      if (assistantId && typeof assistantId !== 'string') {
+        throw new Error('assistantId must be a string');
+      }
+
+      const messages: { role: "user" | "assistant"; content: string }[] = [
+        ...chatHistory.map(toThreadMessage),
+        ...promptParts.map(toThreadMessage),
       ];
   
       console.log(`messages: ${JSON.stringify(messages)}`);
@@ -559,6 +541,8 @@ Respond only with "USE_BASIC", "USE_GENERAL", or an assistant ID (as a UUID and 
           const result: FunctionResult = {
             status: 200,
             message: textMessages[0].text.value, // This is a message posted by the AI, which typically describes the actions taken and whether the job was successful
+            data: null,
+            references: null
           };
           return result;
         } else if (threadRun.status === "queued" || threadRun.status === "in_progress") {
@@ -575,7 +559,9 @@ Respond only with "USE_BASIC", "USE_GENERAL", or an assistant ID (as a UUID and 
   
           const result: FunctionResult = {
             status: 500,
-            message: `Oops! I was unable to get a result. Please try again shortly.\n\nRun History:${threadRunHistory.join("\n-----\n")}`
+            message: `Oops! I was unable to get a result. Please try again shortly.\n\nRun History:${threadRunHistory.join("\n-----\n")}`,
+            data: null,
+            references: null
           };
           return result;
         }
@@ -592,7 +578,9 @@ Respond only with "USE_BASIC", "USE_GENERAL", or an assistant ID (as a UUID and 
       console.error("Error during NLP execution:", error);
       const result: FunctionResult = {
         status: 500,
-        message: "Oops! I was unable to get a result. Please try again shortly."
+        message: "Oops! I was unable to get a result. Please try again shortly.",
+        data: null,
+        references: null
       };
       return result;
     }
@@ -619,8 +607,7 @@ Respond only with "USE_BASIC", "USE_GENERAL", or an assistant ID (as a UUID and 
         functionGroupsIncluded: ["nlpFunctionsData"],
       }); // Support all functions by default within the groups included by not specifying functionsIncluded
 
-      const generalAssisantTools = [...this.functionDeclarations]; // Shallow copy to avoid affecting this.functionDeclarations
-      generalAssisantTools.push({"type": "code_interpreter"}); // Adding support for code interpreter
+      const generalAssisantTools: ChatCompletionTool[] = [...this.functionDeclarations!]; // Shallow copy to avoid affecting this.functionDeclarations
 
       const assistant = await this.clientOpenAi.beta.assistants.create({
         name: "General Athenic AI Assistant",
@@ -638,13 +625,16 @@ Respond only with "USE_BASIC", "USE_GENERAL", or an assistant ID (as a UUID and 
         status: 200,
         message: `Created assistant successfully`,
         data: assistant.id,
+        references: null
       };
       return result;
     } catch (error) {
       console.log(`Error creating assistant: ${error.message}`);
       const result: FunctionResult = {
         status: 500,
-        message: `Oops! I was unable to get a result (${error.message}). Please try again shortly.`
+        message: `Oops! I was unable to get a result (${error.message}). Please try again shortly.`,
+        data: null,
+        references: null
       };
       return result;
     }
@@ -659,8 +649,7 @@ Respond only with "USE_BASIC", "USE_GENERAL", or an assistant ID (as a UUID and 
         functionGroupsIncluded: ["nlpFunctionsData", "nlpFunctionsEcommerce"],
       });
 
-      const assistantTools = [...this.functionDeclarations]; // Shallow copy to avoid affecting this.functionDeclarations
-      assistantTools.push({"type": "code_interpreter"}); // Adding support for code interpreter
+      const assistantTools: ChatCompletionTool[] = [...this.functionDeclarations!]; // Shallow copy to avoid affecting this.functionDeclarations
 
       // Combine the assistant-specific instructions with the vanilla instructions
       const combinedInstructions = `${config.VANILLA_ASSISTANT_SYSTEM_INSTRUCTION}
@@ -683,6 +672,7 @@ ${assistantObject.metadata.instructions}`;
         status: 200,
         message: `Created assistant successfully`,
         data: assistant.id,
+        references: null
       };
       return result;
     } catch (error) {
@@ -690,6 +680,8 @@ ${assistantObject.metadata.instructions}`;
       const result: FunctionResult = {
         status: 500,
         message: `❌ Error creating dynamic assistant: ${error.message}`,
+        data: null,
+        references: null
       };
       return result;
     }
@@ -817,11 +809,14 @@ async generateTextEmbedding(
             status: 200,
             message: "Embedding generated successfully",
             data: createEmbeddingsResult.data[0].embedding,
+            references: null
         };
-    } catch (error) {
+    } catch (error: any) {
         return {
             status: 500,
             message: `❌ Failed to embed data with error: ${error.message}`,
+            data: null,
+            references: null
         };
     }
 }
@@ -852,11 +847,14 @@ async addEmbeddingToObject(
             status: 200,
             message: "Embedding added successfully",
             data: objectUpdated,
+            references: null
         };
-    } catch (error) {
+    } catch (error: any) {
         return {
             status: 500,
             message: `❌ Failed to embed data with error: ${error.message}.`,
+            data: null,
+            references: null
         };
     }
 }
@@ -864,4 +862,28 @@ async addEmbeddingToObject(
   sleep(time: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, time));
   }
+}
+
+// Helper to ensure all messages are valid
+function toChatMessage(message: any): ChatCompletionMessageParam {
+  if (message.role === "function") {
+    return {
+      role: "function",
+      content: message.content,
+      name: message.name || "function_call"
+    };
+  }
+  // Default to user/assistant/system
+  return {
+    role: ["user", "assistant", "system"].includes(message.role) ? message.role : "user",
+    content: message.content
+  };
+}
+
+// Helper for thread messages (only 'user' and 'assistant' roles, no 'name')
+function toThreadMessage(message: any): { role: "user" | "assistant"; content: string } {
+  return {
+    role: message.role === "assistant" ? "assistant" : "user",
+    content: message.content
+  };
 }

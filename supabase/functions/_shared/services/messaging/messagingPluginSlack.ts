@@ -1,13 +1,16 @@
-import { MessagingInterface } from './messagingInterface.ts';
-import axios from 'npm:axios@1.7.9';
-import * as config from "../../configs/index.ts";
-import { StorageService } from "../storage/storageService.ts";
-import { NlpService } from "../nlp/nlpService.ts";
+import { MessagingInterface } from './messagingInterface';
+import axios from 'axios';
+import * as config from "../../configs/index";
+import { FunctionResult } from "../../_shared/configs/index";
+import { StorageService } from "../storage/storageService";
+import { NlpService } from "../nlp/nlpService";
 
 export class MessagingPluginSlack implements MessagingInterface {
-  async auth(connection: string, connectionMetadata: Map<string, any>) {
+  async auth(connection: string, connectionMetadata: Map<string, any>): Promise<any> {
     console.log(`Auth Slack with connection: ${connection} and connectionMetadata: ${JSON.stringify(connectionMetadata)}`)
-    const stateMap = JSON.parse(connectionMetadata.state);
+    // Convert Map to plain object for compatibility
+    const metadataObj = Object.fromEntries(connectionMetadata.entries());
+    const stateMap = JSON.parse(metadataObj.state);
 
     try {
       const tokenResponse = await axios.post(
@@ -15,9 +18,9 @@ export class MessagingPluginSlack implements MessagingInterface {
         null,
         {
           params: {
-            client_id: Deno.env.get("SLACK_CLIENT_ID"),
-            client_secret: Deno.env.get("SLACK_CLIENT_SECRET"),
-            code: connectionMetadata["code"],
+            client_id: process.env.SLACK_CLIENT_ID,
+            client_secret: process.env.SLACK_CLIENT_SECRET,
+            code: metadataObj["code"],
             redirect_uri: config.SLACK_REDIRECT_URI,
           },
         }
@@ -73,17 +76,29 @@ export class MessagingPluginSlack implements MessagingInterface {
         const result: FunctionResult = {
           status: 200,
           message: "Slack connected successfully!\nYou can close this tab now.",
+          data: null,
+          references: null,
         };
         return result;
       } else {
         return membersUpdateResult;
       }
     } catch (error) {
-      console.error("Auth callback error:", error);
-      const result: FunctionResult = {
-        status: 500,
-        message: `❌ An error occurred while connecting Slack.\nError: ${error.message}`,
-      };
+      const errMsg = error instanceof Error ? error.message : String(error);
+      return { status: 500, message: `❌ Error: ${errMsg}`, data: null, references: null };
     }
+  }
+
+  // TODO: Implement receiveMessage, storeMessage, getChatHistory to match MessagingInterface
+  async receiveMessage(): Promise<any> {
+    // TODO: implement
+  }
+
+  async storeMessage(): Promise<any> {
+    // TODO: implement
+  }
+
+  async getChatHistory(): Promise<any> {
+    // TODO: implement
   }
 }

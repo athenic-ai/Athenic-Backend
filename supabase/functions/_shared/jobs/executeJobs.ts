@@ -1,7 +1,9 @@
-import * as config from "../../_shared/configs/index.ts";
-import { StorageService } from "../services/storage/storageService.ts";
-import { NlpService } from "../services/nlp/nlpService.ts";
-import * as uuid from "jsr:@std/uuid";
+import * as config from "../../_shared/configs/index";
+import { FunctionResult, WhereCondition } from "../../_shared/configs/index";
+import { StorageService } from "../services/storage/storageService";
+import { NlpService } from "../services/nlp/nlpService";
+import { v4 as uuidv4 } from "uuid";
+// import * as uuid from "jsr:@std/uuid"; // TODO: Replace with Node-compatible uuid if needed
 
 interface OrganisationData {
   [key: string]: any;
@@ -33,8 +35,12 @@ export class ExecuteJobs<T> {
     console.log(`Executing jobs with dataIn: ${config.stringify(dataIn)}`);
     let jobObjects;
     try {
-      await this.nlpService.initialiseClientCore();
-      await this.nlpService.initialiseClientOpenAi();
+      // TODO: Replace with actual API key retrieval logic
+      const coreApiKey = process.env.NLP_CORE_API_KEY || "dummy-core-key";
+      const openAiApiKey = process.env.OPENAI_API_KEY || "dummy-openai-key";
+
+      await this.nlpService.initialiseClientCore(coreApiKey);
+      await this.nlpService.initialiseClientOpenAi(openAiApiKey);
       
        // -----------Step 1: Get organisation's ID and data----------- 
       console.log(`⏭️ Starting "Step 1: Get organisation's ID and data"`);
@@ -61,35 +67,43 @@ export class ExecuteJobs<T> {
       // -----------Step 2: Get object types accessible to the organisation----------- 
       console.log(`⏭️ Starting "Step 2: Get object types accessible to the organisation"`);
       if (!objectTypes) {
-        const getOrganisationObjectTypesResult = await config.getOrganisationObjectTypes({storageService: this.storageService, organisationId: organisationId});
+        const getOrganisationObjectTypesResult = await config.getOrganisationObjectTypes({
+          storageService: this.storageService,
+          organisationId: organisationId || "dummy-org-id",
+          memberId: memberId || "dummy-member-id"
+        });
         if (getOrganisationObjectTypesResult.status != 200) {
-          throw Error(getOrganisationObjectTypesResult.message);
+          throw Error(getOrganisationObjectTypesResult.message ?? 'Unknown error');
         }
-        objectTypes = getOrganisationObjectTypesResult.data; // List of maps of object types as in the database  
+        objectTypes = getOrganisationObjectTypesResult.data as any[]; // List of maps of object types as in the database  
       }
 
       if (!objectMetadataTypes) {
-        const getObjectMetadataTypesResult = await config.getObjectMetadataTypes({storageService: this.storageService, organisationId: organisationId});
+        const getObjectMetadataTypesResult = await config.getObjectMetadataTypes({
+          storageService: this.storageService,
+          organisationId: organisationId || "dummy-org-id",
+          memberId: memberId || "dummy-member-id"
+        });
         if (getObjectMetadataTypesResult.status != 200) {
-          throw Error(getObjectMetadataTypesResult.message);
+          throw Error(getObjectMetadataTypesResult.message ?? 'Unknown error');
         }
-        objectMetadataTypes = getObjectMetadataTypesResult.data;
+        objectMetadataTypes = getObjectMetadataTypesResult.data as any[];
       }
 
       if (!fieldTypes) {
         const getFieldTypesResult = await config.getFieldTypes({storageService: this.storageService});
         if (getFieldTypesResult.status != 200) {
-          throw Error(getFieldTypesResult.message);
+          throw Error(getFieldTypesResult.message ?? 'Unknown error');
         }
-        fieldTypes = getFieldTypesResult.data;
+        fieldTypes = getFieldTypesResult.data as any[];
       }
 
       if (!dictionaryTerms) {
         const getDictionaryTermsResult = await config.getDictionaryTerms({storageService: this.storageService});
         if (getDictionaryTermsResult.status != 200) {
-          throw Error(getDictionaryTermsResult.message);
+          throw Error(getDictionaryTermsResult.message ?? 'Unknown error');
         }
-        dictionaryTerms = getDictionaryTermsResult.data;
+        dictionaryTerms = getDictionaryTermsResult.data as any[];
       }
 
       if (!objectTypeDescriptions) {
@@ -125,7 +139,7 @@ export class ExecuteJobs<T> {
 
       // TODO: add support for member-specific jobs
       const getJobObjectsResult = await this.storageService.getRows(config.OBJECT_TABLE_NAME, {
-        whereOrConditions: whereOrConditions,
+        whereOrConditions: (whereOrConditions as WhereCondition[]),
         whereAndConditions: [
           { column: 'owner_organisation_id', operator: 'eq', value: organisationId }, // Include entries created by the org
         ],
@@ -140,7 +154,9 @@ export class ExecuteJobs<T> {
     } catch (error) {
       const result: FunctionResult = {
         status: 500,
-        message: `❌ Failed to prepare to execute jobs with error: ${error.message}. Please review your data and try again.`,
+        data: null,
+        message: `❌ Failed to prepare to execute jobs with error: ${error instanceof Error ? error.message : String(error)}. Please review your data and try again.`,
+        references: null,
       };
       return result;
     }
@@ -178,14 +194,15 @@ export class ExecuteJobs<T> {
         const jobCompletionDate = new Date();
 
         // Remove the job object from the upsertedObjectIds map (as it's not designed to be stored as an output of the job run)
-        const upsertedObjectIdsCleaned = config.removeObjectFromObjectIdMap({objectIdMap: this.nlpService.upsertedObjectIds, objectType: jobObject.related_object_type_id, objectId: jobObject.id});
+        const upsertedObjectIds = (this.nlpService as any).upsertedObjectIds as Record<string, string[]> | null;
+        const upsertedObjectIdsCleaned = upsertedObjectIds ? config.removeObjectFromObjectIdMap({objectIdMap: upsertedObjectIds, objectType: jobObject.related_object_type_id, objectId: jobObject.id}) : {};
         this.nlpService.setMemberVariables({
           upsertedObjectIds: upsertedObjectIdsCleaned,
         });
 
         // Create and store job run object
         const jobRunObjectData = {
-          id: uuid.v1.generate(),
+          id: uuidv4(),
           owner_organisation_id: organisationId,
           related_object_type_id: config.OBJECT_TYPE_ID_JOB_RUN,
           metadata: {
@@ -193,7 +210,7 @@ export class ExecuteJobs<T> {
             [config.OBJECT_METADATA_JOB_RUN_STATUS]: executeThreadResult.status == 200 ? config.OBJECT_DICTIONARY_TERM_JOB_RUN_COMPLETED : config.OBJECT_DICTIONARY_TERM_JOB_RUN_FAILED,
             [config.OBJECT_METADATA_JOB_RUN_OUTCOME]: executeThreadResult.message,
             [config.OBJECT_METADATA_DEFAULT_PARENT_ID]: jobObject.id,
-            [config.OBJECT_METADATA_JOB_RUN_OUTPUT]: this.nlpService.upsertedObjectIds,
+            [config.OBJECT_METADATA_JOB_RUN_OUTPUT]: upsertedObjectIds,
             [config.OBJECT_METADATA_DEFAULT_CREATED_AT]: jobCompletionDate.toISOString(),
           }
         };
@@ -243,7 +260,7 @@ export class ExecuteJobs<T> {
 
       }
       catch (error) {
-        jobFailures.push(`Failed to execute job with error: ${error.message}.\n Data: ${config.stringify(jobObject)}.`);
+        jobFailures.push(`Failed to execute job with error: ${error instanceof Error ? error.message : String(error)}.\n Data: ${config.stringify(jobObject)}.`);
       }
       jobLoopCounter++;
     }
@@ -254,13 +271,17 @@ export class ExecuteJobs<T> {
       console.error(`Failed to execute job:\n\n${jobFailures.join("\n")}`);
       const result: FunctionResult = {
         status: 500,
+        data: null,
         message: "Failed to execute job. The job that failed was:\n\n" + jobFailures.join("\n"),
+        references: null,
       };
       return result;
     } else {
       const result: FunctionResult = {
         status: 200,
+        data: null,
         message: "Successfully executed jobs.",
+        references: null,
       };
       return result;
     }

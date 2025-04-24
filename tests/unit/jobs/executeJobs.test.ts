@@ -27,10 +27,12 @@ jest.mock('../../../supabase/functions/_shared/configs/index', () => {
   };
 });
 
+const mockedConfig = config as jest.Mocked<typeof config>;
+
 describe('ExecuteJobs', () => {
-  let mockNlpService;
-  let mockStorageService;
-  let executeJobs;
+  let mockNlpService: jest.Mocked<NlpService>;
+  let mockStorageService: jest.Mocked<StorageService>;
+  let executeJobs: ExecuteJobs<any>;
 
   beforeEach(() => {
     // Reset mocks
@@ -51,23 +53,31 @@ describe('ExecuteJobs', () => {
     mockNlpService.upsertedObjectIds = {};
     
     // Mock config methods
-    config.getOrganisationObjectTypes.mockResolvedValue({ 
+    mockedConfig.getOrganisationObjectTypes.mockResolvedValue({ 
       status: 200, 
-      data: [{ id: 'job', name: 'Job' }] 
+      data: [{ id: 'job', name: 'Job' }], 
+      message: null, 
+      references: null 
     });
-    config.getObjectMetadataTypes.mockResolvedValue({ 
+    mockedConfig.getObjectMetadataTypes.mockResolvedValue({ 
       status: 200, 
-      data: [{ id: 'title', name: 'Title' }] 
+      data: [{ id: 'title', name: 'Title' }], 
+      message: null, 
+      references: null 
     });
-    config.getFieldTypes.mockResolvedValue({ 
+    mockedConfig.getFieldTypes.mockResolvedValue({ 
       status: 200, 
-      data: [{ id: 'text', name: 'Text' }] 
+      data: [{ id: 'text', name: 'Text' }], 
+      message: null, 
+      references: null 
     });
-    config.getDictionaryTerms.mockResolvedValue({ 
+    mockedConfig.getDictionaryTerms.mockResolvedValue({ 
       status: 200, 
-      data: [{ id: 'done', name: 'Done' }] 
+      data: [{ id: 'done', name: 'Done' }], 
+      message: null, 
+      references: null 
     });
-    config.createObjectTypeDescriptions.mockReturnValue({
+    mockedConfig.createObjectTypeDescriptions.mockReturnValue({
       job: { 
         name: 'Job', 
         description: 'A task to be done', 

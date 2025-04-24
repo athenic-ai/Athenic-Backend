@@ -1,8 +1,9 @@
-import * as config from "../../_shared/configs/index.ts";
-import { StorageService } from "../services/storage/storageService.ts";
-import { NlpService } from "../services/nlp/nlpService.ts";
-import { MessagingService } from "../services/messaging/messagingService.ts";
-import { v4 as uuidv4 } from "https://deno.land/std@0.203.0/uuid/mod.ts";
+import * as config from "../../_shared/configs/index";
+import { StorageService } from "../services/storage/storageService";
+import { NlpService } from "../services/nlp/nlpService";
+import { MessagingService } from "../services/messaging/messagingService";
+import { FunctionResult } from "../configs/index";
+import { v4 as uuidv4 } from "uuid";
 
 interface OrganisationData {
   [key: string]: any;
@@ -45,17 +46,25 @@ export class ProcessMessageJob<T> {
         const requiresExecution = checkResult.message?.toUpperCase().includes('YES');
         console.log(`Code execution ${requiresExecution ? 'IS' : 'is NOT'} required.`);
         return { 
-          requiresCodeExecution: requiresExecution, 
+          requiresCodeExecution: !!requiresExecution, 
           status: 200, 
           message: `Code execution ${requiresExecution ? 'is' : 'is not'} required.` 
         };
       } else {
         console.error("Error checking for code execution requirement:", checkResult.message);
-        return { requiresCodeExecution: false, status: checkResult.status, message: checkResult.message };
+        return { requiresCodeExecution: false, status: checkResult.status, message: checkResult.message || '' };
       }
     } catch (error) {
-      console.error("Error checking for code execution requirement:", error.message);
-      return { requiresCodeExecution: false, status: 500, message: `Error checking for code execution: ${error.message}` };
+      if (error instanceof Error) {
+        console.error("Error checking for code execution requirement:", error.message);
+      } else {
+        console.error("Error checking for code execution requirement:", error);
+      }
+      return {
+        requiresCodeExecution: false,
+        status: 500,
+        message: `Error checking for code execution: ${error instanceof Error ? error.message : String(error)}`
+      };
     }
   }
 
@@ -63,22 +72,22 @@ export class ProcessMessageJob<T> {
     connectionId: any;
     dryRun: boolean;
     dataIn: any;
-    req: express.Request;
+    req: any;
   }): Promise<any> {
     console.log(`Processing data from connectionId: ${connectionId} and dryRun: ${dryRun}`);
     console.log(`dataIn: ${dataIn}`);
 
     let organisationId, memberId;
     try {
-      await this.nlpService.initialiseClientCore();
-      await this.nlpService.initialiseClientOpenAi();
+      await this.nlpService.initialiseClientCore("");
+      await this.nlpService.initialiseClientOpenAi("");
 
       // -----------Step 1: Get organisation's ID, organisation's data and member ID----------- 
-      const inferOrganisationResult = await config.inferOrganisation({ connectionId, dataIn, req, storageService: this.storageService });
+      const inferOrganisationResult = await config.inferOrganisation({ connection: connectionId, dataIn, req, storageService: this.storageService });
       let organisationData;
 
       if (inferOrganisationResult.status != 200) {
-        throw Error(inferOrganisationResult.message);
+        throw Error(inferOrganisationResult.message || "Unknown error");
       }
 
       if (dataIn.companyMetadata) {
@@ -87,7 +96,9 @@ export class ProcessMessageJob<T> {
         // TODO: Add support for retreiving memberID when not passed from connection
       }
 
-      [organisationId, organisationData] = inferOrganisationResult.data;
+      if (Array.isArray(inferOrganisationResult.data)) {
+        [organisationId, organisationData] = inferOrganisationResult.data;
+      }
       if (!organisationId || !organisationData || !memberId) {
         throw Error(`Couldn't find organisationId (${organisationId}) or organisationData (${organisationData}) or memberId (${memberId}).`);
       }
@@ -129,8 +140,8 @@ export class ProcessMessageJob<T> {
       console.log(`✅ Completed "Step 2: Process the incoming message"`);
 
       const messageTextPartsStr = messageParts
-      .filter(item => item.type === "text")
-      .map(item => item.text)
+      .filter((item: any) => item.type === "text")
+      .map((item: any) => item.text)
       .join(" "); // Join the text values into a single string
 
       // Store the message in the database
@@ -141,7 +152,9 @@ export class ProcessMessageJob<T> {
         console.log("Ignoring bot message to prevent infinite loop.");
         const result: FunctionResult = {
           status: 200,
+          data: null,
           message: "Ignoring bot message to prevent infinite loop.",
+          references: null,
         };
         return result;
       }
@@ -181,14 +194,14 @@ export class ProcessMessageJob<T> {
 
       const getOrganisationObjectTypesResult = await config.getOrganisationObjectTypes({storageService: this.storageService, organisationId, memberId});
       if (getOrganisationObjectTypesResult.status != 200) {
-        throw Error(getOrganisationObjectTypesResult.message);
+        throw Error(getOrganisationObjectTypesResult.message || "Unknown error");
       }
       const objectTypes = getOrganisationObjectTypesResult.data; // List of maps of object types as in the database
-      const objectTypesIds = objectTypes.map(item => item.id); // List of strings of the ID of each object type
+      const objectTypesIds = Array.isArray(objectTypes) ? objectTypes.map((item: any) => item.id) : []; // List of strings of the ID of each object type
 
       const getObjectMetadataTypesResult = await config.getObjectMetadataTypes({storageService: this.storageService, organisationId, memberId});
       if (getObjectMetadataTypesResult.status != 200) {
-        throw Error(getObjectMetadataTypesResult.message);
+        throw Error(getObjectMetadataTypesResult.message || "Unknown error");
       }
       const objectMetadataTypes = getObjectMetadataTypesResult.data;
 
@@ -259,14 +272,15 @@ export class ProcessMessageJob<T> {
           // Return data instructing the frontend to open WebSocket connection
           executeThreadResult = {
             status: 200,
-            message: null, // No direct message - output will come via WebSocket
             data: {
               requiresE2B: true,
               e2bWebSocketUrl: e2bWebsocketUrl,
               clientId: uniqueClientId,
               executionId: responseData.executionId,
               initialStatus: 'Initiating E2B execution...'
-            }
+            },
+            message: null, // No direct message - output will come via WebSocket
+            references: null,
           };
           
         } catch (e2bError) {
@@ -338,14 +352,17 @@ export class ProcessMessageJob<T> {
 
       const result: FunctionResult = {
         status: 200,
-        message: "Successfully processed message.",
         data: executeThreadResult,
+        message: "Successfully processed message.",
+        references: null,
       };
       return result;
     } catch (error) {
       const result: FunctionResult = {
         status: 500,
-        message: `❌ Failed to process message with error: ${error.message}. Please review your message and try again.`,
+        data: null,
+        message: `❌ Failed to process message with error: ${error instanceof Error ? error.message : String(error)}. Please review your message and try again.`,
+        references: null,
       };
       return result;
     }

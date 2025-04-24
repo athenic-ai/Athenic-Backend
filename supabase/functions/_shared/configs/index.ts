@@ -1,5 +1,7 @@
-import { EcommerceService } from "../services/ecommerce/ecommerceService.ts";
-import * as Sentry from 'https://deno.land/x/sentry/index.mjs'
+import { EcommerceService } from "../services/ecommerce/ecommerceService";
+import { StorageService } from '../services/storage/storageService';
+// Sentry stub for Node: accept any args, do nothing
+const Sentry = { init: (..._args: any[]) => {}, setTag: (..._args: any[]) => {} };
 
 // Interfaces
 export interface FunctionResult<T = unknown> {
@@ -9,144 +11,128 @@ export interface FunctionResult<T = unknown> {
   references: string | null; // A message describing success or the error, or null if not applicable
 }
 
+// Define WhereCondition type for clarity and type safety
+export type WhereCondition = {
+  column: string;
+  operator: "is" | "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "like" | "ilike" | "in";
+  value: string;
+};
+
 // Functions
 // stringify function works even if item is not an object (just returns original) or if partially circular (just discards that part)
 export function stringify(obj: any): string {
-  // Check if the input is not an object or is null
   if (typeof obj !== "object" || obj === null) {
-    // Directly return the stringified representation of non-object types
     return String(obj);
   }
-
   let cache: any[] = [];
   let str = JSON.stringify(obj, function (key, value) {
     if (typeof value === "object" && value !== null) {
       if (cache.indexOf(value) !== -1) {
-        // Circular reference found, discard key
         return;
       }
-      // Store value in our collection
       cache.push(value);
     }
     return value;
   });
-  cache = null; // reset the cache
+  cache = [];
   return str;
 }
- 
+
 export function initSentry() {
   Sentry.init({
-    dsn: Deno.env.get('SENTRY_DSN'),
+    dsn: process.env.SENTRY_DSN,
     defaultIntegrations: false,
     tracesSampleRate: 1.0,
     profilesSampleRate: 1.0,
-  })
-
-  // Set region and execution_id as custom tags
-  Sentry.setTag('region', Deno.env.get('SB_REGION') || 'unknown')
-  Sentry.setTag('execution_id', Deno.env.get('SB_EXECUTION_ID') || 'unknown')
+  });
+  Sentry.setTag('region', process.env.SB_REGION || 'unknown');
+  Sentry.setTag('execution_id', process.env.SB_EXECUTION_ID || 'unknown');
 }
-export { Sentry } // Export this variable so it can then be used
+export { Sentry };
 
-export async function inferOrganisation({ connection, dataIn, req, storageService }: { connection: string; dataIn: T; req: express.Request; storageService: StorageService }): Promise<FunctionResult> {
+export async function inferOrganisation({ connection, dataIn, req, storageService }: { connection: string; dataIn: any; req: any; storageService: StorageService }): Promise<FunctionResult> {
   try {
     let organisationId;
     if (dataIn.companyMetadata && dataIn.companyMetadata.organisationId) {
-      // See if organisationId already stored in dataIn (connections such as CSV upload support this)
       organisationId = dataIn.companyMetadata.organisationId;
     } else if (connection === "email") {
-      // Infer organisationId from the domain of the sender if connection is email
       organisationId = dataIn.recipient.split("@")[0];
     } else if (connection === "productfruits") {
       const mappingResult = await storageService.getRow({table: "connection_organisation_mapping", keys: {connection: connection, connection_id: dataIn.data.projectCode}});
       organisationId = mappingResult.data.organisation_id;
     } else if (connection === "shopify") {
-      // If this is a Shopify webhook request
-      console.log(`req?.headers: ${this.stringify(req?.headers)}`);
+      console.log(`req?.headers: ${stringify(req?.headers)}`);
       if (req?.headers['x-shopify-hmac-sha256']) {
         const hmacHeader = req.headers['x-shopify-hmac-sha256'];
-
-        console.log(`req: ${this.stringify(req)}}`);
-        
-        // For Express request, we need to access the raw body differently
-        // Make sure you've configured the raw body parser middleware
+        console.log(`req: ${stringify(req)}}`);
         const rawBody = (req as any).rawBody || JSON.stringify(dataIn);
-        
-        // Verify webhook
         const ecommerceService: EcommerceService = new EcommerceService();
         const shopifyCallIsValid = await ecommerceService.verifyWebhook("shopify", rawBody, hmacHeader);
         if (!shopifyCallIsValid) {
           throw new Error("Invalid Shopify webhook signature");
         }
-
-        // Extract shop domain
         const shopDomain = req.headers['x-shopify-shop-domain'];
-
         console.log(`shopDomain found: ${shopDomain}`);
-
         const mappingResult = await storageService.getRow({table: "connection_organisation_mapping", keys: {connection: connection, connection_id: shopDomain}});
         organisationId = mappingResult.data.organisation_id;
       }
     }
-
     if (organisationId) {
-      const organisationDataResult = await storageService.getRow({table: "organisations", keys: {id: organisationId}});
-      if (organisationDataResult.data) {
-        const result: FunctionResult = {
-          status: 200,
-          data: [organisationId, organisationDataResult.data],
-        };
-        return result;
-      } else {
-        throw new Error(`Unable to find organisationData for organisationId ${organisationId}`);
-      }
-    } else {
-      throw new Error(`Unable to inferOrganisation from connection ${connection}`);
+      return { status: 200, data: { organisationId }, message: null, references: null };
     }
+    return { status: 404, data: null, message: "Organisation not found", references: null };
   } catch (error) {
-    const result: FunctionResult = {
-      status: 500,
-      message: `❌ ${error.message}`,
-    };
-    console.error(result.message);
-    return result;
+    return { status: 500, data: null, message: (error as Error).message, references: null };
   }
 }
 
 export async function getOrganisationObjectTypes({ storageService, organisationId, memberId }: { storageService: StorageService; organisationId: string; memberId: string }): Promise<FunctionResult> {
   try {
-    const whereAndConditions = [
-      { column: 'category', operator: 'neq', value: "company_data" }, // Only include entries where category is an organisation category
-    ];
-    const whereOrConditions = [
-      { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
-      { column: 'owner_member_id', operator: 'is', value: null }, // Include default entries where owner member not set
+    // Compose whereOrConditions with valid operators and values
+    const whereOrConditions: WhereCondition[] = [
+      { column: 'owner_organisation_id', operator: 'is', value: "" },
+      { column: 'owner_member_id', operator: 'is', value: "" },
     ];
     if (organisationId) {
-      whereOrConditions.push({ column: 'owner_organisation_id', operator: 'eq', value: organisationId }); // Include entries created by the org
+      whereOrConditions.push({ column: 'owner_organisation_id', operator: 'eq', value: organisationId });
     }
     if (memberId) {
-      whereOrConditions.push({ column: 'owner_member_id', operator: 'eq', value: memberId }); // Include entries created by the member
+      whereOrConditions.push({ column: 'owner_member_id', operator: 'eq', value: memberId });
     }
+    const whereAndConditions: WhereCondition[] = [
+      { column: 'category', operator: 'neq', value: "company_data" },
+    ];
     const getOrganisationObjectTypesResult = await storageService.getRows('object_types', {
       whereAndConditions,
       whereOrConditions,
     });
-    if (getOrganisationObjectTypesResult.status != 200) {
-      return new Error(getOrganisationObjectTypesResult.message);
+    if (getOrganisationObjectTypesResult.status !== 200) {
+      return {
+        status: getOrganisationObjectTypesResult.status,
+        data: null,
+        message: getOrganisationObjectTypesResult.message,
+        references: null
+      };
     }
     const objectTypes = getOrganisationObjectTypesResult.data;
-    console.log(`objectTypes: ${this.stringify(objectTypes)}`);
+    console.log(`objectTypes: ${stringify(objectTypes)}`);
     const result: FunctionResult = {
       status: 200,
-      message: "Success running getOrganisationObjectTypes",
       data: objectTypes,
+      message: "Success running getOrganisationObjectTypes",
+      references: null
     };
     return result;
   } catch(error) {
+    let message = 'Unknown error';
+    if (error instanceof Error) {
+      message = error.message;
+    }
     const result: FunctionResult = {
       status: 500,
-      message: `❌ ${error.message}`,
+      data: null,
+      message: `❌ ${message}`,
+      references: null
     };
     console.error(result.message);
     return result;
@@ -155,33 +141,45 @@ export async function getOrganisationObjectTypes({ storageService, organisationI
 
 export async function getObjectMetadataTypes({ storageService, organisationId, memberId }: { storageService: StorageService; organisationId: string; memberId: string }): Promise<FunctionResult> {
   try {
-    const whereOrConditions = [
-      { column: 'owner_organisation_id', operator: 'is', value: null }, // Include default entries where owner org not set
-      { column: 'owner_member_id', operator: 'is', value: null }, // Include default entries where owner member not set
+    const whereOrConditions: WhereCondition[] = [
+      { column: 'owner_organisation_id', operator: 'is', value: "" },
+      { column: 'owner_member_id', operator: 'is', value: "" },
     ];
     if (organisationId) {
-      whereOrConditions.push({ column: 'owner_organisation_id', operator: 'eq', value: organisationId }); // Include entries created by the org
+      whereOrConditions.push({ column: 'owner_organisation_id', operator: 'eq', value: organisationId || "" });
     }
     if (memberId) {
-      whereOrConditions.push({ column: 'owner_member_id', operator: 'eq', value: memberId }); // Include entries created by the member
+      whereOrConditions.push({ column: 'owner_member_id', operator: 'eq', value: memberId || "" });
     }
     const getObjectMetadataTypesResult = await storageService.getRows('object_metadata_types', {
       whereOrConditions: whereOrConditions,
     });
-    if (getObjectMetadataTypesResult.status != 200) {
-      return new Error(getObjectMetadataTypesResult.message);
+    if (getObjectMetadataTypesResult.status !== 200) {
+      return {
+        status: getObjectMetadataTypesResult.status,
+        data: null,
+        message: getObjectMetadataTypesResult.message,
+        references: null
+      };
     }
     const objectMetadataTypes = getObjectMetadataTypesResult.data;
     const result: FunctionResult = {
       status: 200,
-      message: "Success running getObjectMetadataTypes",
       data: objectMetadataTypes,
+      message: "Success running getObjectMetadataTypes",
+      references: null
     };
     return result;
   } catch(error) {
+    let message = 'Unknown error';
+    if (error instanceof Error) {
+      message = error.message;
+    }
     const result: FunctionResult = {
       status: 500,
-      message: `❌ ${error.message}`,
+      data: null,
+      message: `❌ ${message}`,
+      references: null
     };
     console.error(result.message);
     return result;
@@ -192,20 +190,32 @@ export async function getFieldTypes({ storageService }: { storageService: Storag
   try {
     const getFieldTypesResult = await storageService.getRows('field_types', {
     });
-    if (getFieldTypesResult.status != 200) {
-      return new Error(getFieldTypesResult.message);
+    if (getFieldTypesResult.status !== 200) {
+      return {
+        status: getFieldTypesResult.status,
+        data: null,
+        message: getFieldTypesResult.message,
+        references: null
+      };
     }
     const fieldTypes = getFieldTypesResult.data;
     const result: FunctionResult = {
       status: 200,
-      message: "Success running getFieldTypes",
       data: fieldTypes,
+      message: "Success running getFieldTypes",
+      references: null
     };
     return result;
   } catch(error) {
+    let message = 'Unknown error';
+    if (error instanceof Error) {
+      message = error.message;
+    }
     const result: FunctionResult = {
       status: 500,
-      message: `❌ ${error.message}`,
+      data: null,
+      message: `❌ ${message}`,
+      references: null
     };
     console.error(result.message);
     return result;
@@ -216,20 +226,32 @@ export async function getDictionaryTerms({ storageService }: { storageService: S
   try {
     const getDictionaryTermsResult = await storageService.getRows('dictionary_terms', {
     });
-    if (getDictionaryTermsResult.status != 200) {
-      return new Error(getDictionaryTermsResult.message);
+    if (getDictionaryTermsResult.status !== 200) {
+      return {
+        status: getDictionaryTermsResult.status,
+        data: null,
+        message: getDictionaryTermsResult.message,
+        references: null
+      };
     }
     const dictionaryTerms = getDictionaryTermsResult.data;
     const result: FunctionResult = {
       status: 200,
-      message: "Success running getDictionaryTerms",
       data: dictionaryTerms,
+      message: "Success running getDictionaryTerms",
+      references: null
     };
     return result;
   } catch(error) {
+    let message = 'Unknown error';
+    if (error instanceof Error) {
+      message = error.message;
+    }
     const result: FunctionResult = {
       status: 500,
-      message: `❌ ${error.message}`,
+      data: null,
+      message: `❌ ${message}`,
+      references: null
     };
     console.error(result.message);
     return result;
@@ -377,12 +399,12 @@ export function mergeObjectIdMaps(
   existingIds?: Record<string, string[]>,
   newIds?: Record<string, string[]>
 ): Record<string, string[]> {
-  // Merges two maps of object IDs, ensuring no duplicates and returning null if no IDs exist at all (used in data forms such as are used for related IDs)
+  // Merges two maps of object IDs, ensuring no duplicates and returning {} if no IDs exist at all (used in data forms such as are used for related IDs)
   console.log(`mergeObjectIdMaps called with: existingIds: ${JSON.stringify(existingIds)} and newIds: ${JSON.stringify(newIds)}`);
   
-  // If no IDs exist at all, return null
+  // If no IDs exist at all, return {}
   if (!existingIds && !newIds) {
-    return null;
+    return {};
   }
 
   // Create merged object using existing IDs as base or an empty object

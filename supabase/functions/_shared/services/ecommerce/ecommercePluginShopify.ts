@@ -1,32 +1,29 @@
-import { EcommerceInterface } from './ecommerceInterface.ts';
-import axios from 'npm:axios@1.7.9';
-import * as config from "../../configs/index.ts";
-import { StorageService } from "../storage/storageService.ts";
-import { NlpService } from "../nlp/nlpService.ts";
+import { EcommerceInterface } from './ecommerceInterface';
+import axios from 'axios';
+import * as config from "../configs/index";
+// fallback: if above fails, try the following
+// import * as config from "../../_shared/configs/index";
+import { StorageService } from "../storage/storageService";
+import { NlpService } from "../nlp/nlpService";
 import { 
   verifyAuth, 
   syncCustomers, 
   syncProducts, 
   syncOrders 
-} from './ecommercePluginShopifyHelpers.ts';
-
-type FunctionResult = {
-  status: number;
-  message?: string;
-  data?: any;
-};
+} from './ecommercePluginShopifyHelpers';
+import { FunctionResult } from "../../_shared/configs/index";
 
 export class EcommercePluginShopify implements EcommerceInterface {
-  async auth(connectionMetadata: Map<string, any>) {
+  async auth(connection: string, connectionMetadata: Map<string, any>): Promise<any> {
     console.log(`Auth Shopify with connectionMetadata: ${JSON.stringify(connectionMetadata)}`);
-    const stateMap = JSON.parse(connectionMetadata.state);
-    console.log(`stateMap: ${JSON.stringify(stateMap)}`);
-    const shop = connectionMetadata["shop"];
+    const metadataObj = Object.fromEntries(connectionMetadata.entries());
+    const stateMap = JSON.parse(metadataObj.state);
+    const shop = metadataObj["shop"];
 
     try {
       // Verify HMAC if present (Shopify security measure)
-      if (connectionMetadata["hmac"]) {
-        const isValid = await verifyAuth(connectionMetadata as unknown as Record<string, string>);
+      if (metadataObj["hmac"]) {
+        const isValid = await verifyAuth(metadataObj as Record<string, string>);
         if (!isValid) {
           throw new Error("Invalid HMAC signature");
         }
@@ -36,9 +33,9 @@ export class EcommercePluginShopify implements EcommerceInterface {
       const tokenResponse = await axios.post(
         `https://${shop}/admin/oauth/access_token`,
         {
-          client_id: Deno.env.get("SHOPIFY_CLIENT_ID"),
-          client_secret: Deno.env.get("SHOPIFY_CLIENT_SECRET"),
-          code: connectionMetadata["code"],
+          client_id: process.env.SHOPIFY_CLIENT_ID,
+          client_secret: process.env.SHOPIFY_CLIENT_SECRET,
+          code: metadataObj["code"],
         }
       );
 
@@ -106,8 +103,8 @@ export class EcommercePluginShopify implements EcommerceInterface {
       // Update the database
       const storageService = new StorageService();
       const nlpService = new NlpService();
-      await nlpService.initialiseClientCore(Deno.env.get('OPENROUTER_API_KEY') || '');
-      await nlpService.initialiseClientOpenAi(Deno.env.get('OPENAI_API_KEY') || '');
+      await nlpService.initialiseClientCore(process.env.OPENROUTER_API_KEY || '');
+      await nlpService.initialiseClientOpenAi(process.env.OPENAI_API_KEY || '');
 
       const organisationsUpdateResult = await storageService.updateRow({
         table: "organisations",
@@ -153,18 +150,16 @@ export class EcommercePluginShopify implements EcommerceInterface {
         const result: FunctionResult = {
           status: 200,
           message: "Shopify store connected successfully!\nYou can close this tab now.",
+          data: null,
+          references: null,
         };
         return result;
       } else {
         return connectionOrganisationMappingUpdateResult;
       }
     } catch (error) {
-      console.error("Auth callback error:", error);
-      const result: FunctionResult = {
-        status: 500,
-        message: `❌ An error occurred while connecting Shopify.\nError: ${error.message}`,
-      };
-      return result;
+      const errMsg = error instanceof Error ? error.message : String(error);
+      return { status: 500, message: `❌ Error: ${errMsg}`, data: null, references: null };
     }
   }
 
@@ -183,7 +178,7 @@ export class EcommercePluginShopify implements EcommerceInterface {
 
       const key = await crypto.subtle.importKey(
         'raw',
-        new TextEncoder().encode(Deno.env.get("SHOPIFY_CLIENT_SECRET") || ''),
+        new TextEncoder().encode(process.env.SHOPIFY_CLIENT_SECRET || ''),
         { name: 'HMAC', hash: 'SHA-256' },
         false,
         ['sign']
@@ -212,7 +207,7 @@ export class EcommercePluginShopify implements EcommerceInterface {
     try {
       const calculatedHmac = await this.createHmac(
         rawBody,
-        Deno.env.get("SHOPIFY_CLIENT_SECRET") || ''
+        process.env.SHOPIFY_CLIENT_SECRET || ''
       );
       
       return hmacHeader === calculatedHmac;

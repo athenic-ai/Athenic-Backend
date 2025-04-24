@@ -1,7 +1,7 @@
-import { MessagingInterface } from './messagingInterface.ts';
-import { MessagingPluginCompany } from './messagingPluginCompany.ts';
-import { MessagingPluginSlack } from './messagingPluginSlack.ts';
-import * as config from "../../configs/index.ts";
+import { MessagingInterface } from './messagingInterface';
+import { MessagingPluginCompany } from './messagingPluginCompany';
+import { MessagingPluginSlack } from './messagingPluginSlack';
+import * as config from "../../configs/index";
 import * as uuid from "jsr:@std/uuid";
 
 const connectionPlugins: Record<string, MessagingInterface> = {
