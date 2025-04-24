@@ -155,6 +155,20 @@ Run tests with coverage:
 npm run test:coverage
 ```
 
+### Test Notes
+
+- Integration tests will be skipped automatically if no E2B_API_KEY is provided in the environment variables
+- Tests include proper handling of E2B sandbox creation, execution, and termination
+- End-to-end flow tests have been updated to handle potential timeout issues and include more robust error checking
+
+## E2B SDK Integration
+
+The service uses the E2B JavaScript SDK to interact with E2B sandboxes. Key aspects include:
+
+- **Sandbox Creation**: Sandboxes are created using `Sandbox.create(template, { apiKey })` with appropriate templates for code execution
+- **Sandbox Lifecycle**: Sandboxes are properly terminated using the `kill()` method after each execution
+- **Error Handling**: All errors from the E2B SDK are properly caught and propagated with appropriate context
+
 ## Environment Variables
 
 - `PORT`: HTTP server port (default: 3001)
