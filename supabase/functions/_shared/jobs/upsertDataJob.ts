@@ -1,6 +1,6 @@
-import * as config from "../../_shared/configs/index";
-import { StorageService } from "../services/storage/storageService";
-import { NlpService } from "../services/nlp/nlpService";
+import * as config from "../../_shared/configs/index.ts";
+import { StorageService } from "../services/storage/storageService.ts";
+import { NlpService } from "../services/nlp/nlpService.ts";
 
 interface OrganisationData {
   [key: string]: any;

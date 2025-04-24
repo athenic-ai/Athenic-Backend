@@ -1,7 +1,7 @@
-import { MessagingInterface } from './messagingInterface';
-import { MessagingPluginCompany } from './messagingPluginCompany';
-import { MessagingPluginSlack } from './messagingPluginSlack';
-import * as config from "../../configs/index";
+import { MessagingInterface } from './messagingInterface.ts';
+import { MessagingPluginCompany } from './messagingPluginCompany.ts';
+import { MessagingPluginSlack } from './messagingPluginSlack.ts';
+import * as config from "../../configs/index.ts";
 import * as uuid from "jsr:@std/uuid";
 
 const connectionPlugins: Record<string, MessagingInterface> = {
@@ -10,16 +10,16 @@ const connectionPlugins: Record<string, MessagingInterface> = {
 };
 
 export class MessagingService {
-  async auth(connection: string, connectionMetadata: Map<string, any>) {
+  async auth(connection: string, connectionMetadata: Map<string, any> | any) {
     const plugin = connectionPlugins[connection];
     if (!plugin) throw new Error(`Unsupported connection: ${connection}`);
     return plugin.auth(connection, connectionMetadata);
   }
 
-  async receiveMessage(connection: string, dataIn: Map<string, any>) {
+  async receiveMessage(connection: string, dataIn: Map<string, any> | any) {
     const plugin = connectionPlugins[connection];
     if (!plugin) throw new Error(`Unsupported connection: ${connection}`);
-    return plugin.receiveMessage(dataIn);
+    return plugin.receiveMessage(connection, dataIn);
   }
 
   async getChatHistory({organisationId, memberId, messageThreadId, storageService}) {
@@ -34,15 +34,26 @@ export class MessagingService {
       twelveHoursAgo = twelveHoursAgo.toISOString(); // Required for Supabase to compare with timestamps in the DB
       console.log(`twelveHoursAgo: ${twelveHoursAgo}`);
 
+      // Build conditions, but only include organisationId and memberId if they're valid values
+      const whereAndConditions = [
+        { column: 'related_object_type_id', operator: 'eq', value: config.OBJECT_TYPE_ID_MESSAGE },
+        { column: 'metadata', jsonPath:['parent_id'], operator: 'eq', value: messageThreadId },
+        { column: 'metadata', jsonPath:['created_at'], operator: 'gte', value: twelveHoursAgo },
+      ];
+
+      // Only add the organisation filter if it exists and is not empty
+      if (organisationId) {
+        whereAndConditions.push({ column: 'owner_organisation_id', operator: 'eq', value: organisationId });
+      }
+      
+      // Only add the member filter if it exists and is not empty
+      if (memberId) {
+        whereAndConditions.push({ column: 'owner_member_id', operator: 'eq', value: memberId });
+      }
+
       // Fetch the last 6 messages sent in the last 12 hours, ordered by lastModified ascending
       const getChatHistoryResult = await storageService.getRows(config.OBJECT_TABLE_NAME, {
-        whereAndConditions: [
-          { column: 'owner_organisation_id', operator: 'eq', value: organisationId },
-          { column: 'owner_member_id', operator: 'eq', value: memberId },
-          { column: 'related_object_type_id', operator: 'eq', value: config.OBJECT_TYPE_ID_MESSAGE },
-          { column: 'metadata', jsonPath:['parent_id'], operator: 'eq', value: messageThreadId },
-          { column: 'metadata', jsonPath:['created_at'], operator: 'gte', value: twelveHoursAgo },
-        ],
+        whereAndConditions,
         orderByConditions: [
           { column: 'metadata', jsonPath:['created_at'], ascending: false }, // desc so we get the most recent messages
         ],
@@ -100,10 +111,8 @@ export class MessagingService {
   async storeMessage({organisationId, memberId = null, connectionId, messageThreadId, messageIsFromBot, authorId, message, storageService, nlpService}) {
     try {
       // Step 1: Create and store the message object
-      const messageObjectData = {
+      const messageObjectData: any = {
         id: uuid.v1.generate(),
-        owner_organisation_id: organisationId,
-        owner_member_id: memberId,
         related_object_type_id: config.OBJECT_TYPE_ID_MESSAGE,
         metadata: {
           [config.OBJECT_METADATA_DEFAULT_TITLE]: message,
@@ -112,6 +121,17 @@ export class MessagingService {
           [config.OBJECT_METADATA_DEFAULT_PARENT_ID]: messageThreadId,
         },
       };
+      
+      // Only add owner_organisation_id if it exists and is not empty
+      if (organisationId) {
+        messageObjectData.owner_organisation_id = organisationId;
+      }
+      
+      // Only add owner_member_id if it exists and is not empty
+      if (memberId) {
+        messageObjectData.owner_member_id = memberId;
+      }
+      
       console.log(`Updating object data in DB with messageObjectData: ${JSON.stringify(messageObjectData)}`);
       const messageUpdateResult = await storageService.updateRow({
         table: config.OBJECT_TABLE_NAME,

@@ -1,7 +1,12 @@
-import { EcommerceService } from "../services/ecommerce/ecommerceService";
-import { StorageService } from '../services/storage/storageService';
-// Sentry stub for Node: accept any args, do nothing
-const Sentry = { init: (..._args: any[]) => {}, setTag: (..._args: any[]) => {} };
+// Import Deno types
+import { EcommerceService } from "../services/ecommerce/ecommerceService.ts";
+import { StorageService } from '../services/storage/storageService.ts';
+// Sentry stub: accept any args, do nothing
+const Sentry = { 
+  init: (..._args: any[]) => {}, 
+  setTag: (..._args: any[]) => {},
+  captureException: (..._args: any[]) => {} 
+};
 
 // Interfaces
 export interface FunctionResult<T = unknown> {
@@ -39,14 +44,16 @@ export function stringify(obj: any): string {
 }
 
 export function initSentry() {
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    defaultIntegrations: false,
-    tracesSampleRate: 1.0,
-    profilesSampleRate: 1.0,
-  });
-  Sentry.setTag('region', process.env.SB_REGION || 'unknown');
-  Sentry.setTag('execution_id', process.env.SB_EXECUTION_ID || 'unknown');
+  try {
+    // Simplified Sentry initialization that's safe in any environment
+    // In Edge Functions, we simply skip Sentry initialization
+    // For a complete solution, you would need to implement Sentry properly for Deno
+    
+    // This is a no-op function in Edge Functions
+    console.log("Sentry initialization skipped in Edge Functions environment");
+  } catch (error) {
+    console.error("Error initializing Sentry:", error);
+  }
 }
 export { Sentry };
 

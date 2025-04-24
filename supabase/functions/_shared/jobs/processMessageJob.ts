@@ -1,9 +1,9 @@
-import * as config from "../../_shared/configs/index";
-import { StorageService } from "../services/storage/storageService";
-import { NlpService } from "../services/nlp/nlpService";
-import { MessagingService } from "../services/messaging/messagingService";
-import { FunctionResult } from "../configs/index";
-import { v4 as uuidv4 } from "uuid";
+import * as config from "../../_shared/configs/index.ts";
+import { StorageService } from "../services/storage/storageService.ts";
+import { NlpService } from "../services/nlp/nlpService.ts";
+import { MessagingService } from "../services/messaging/messagingService.ts";
+import { FunctionResult } from "../configs/index.ts";
+import { v4 as uuidv4 } from "jsr:@std/uuid@1.0.7";
 
 interface OrganisationData {
   [key: string]: any;
@@ -79,8 +79,12 @@ export class ProcessMessageJob<T> {
 
     let organisationId, memberId;
     try {
-      await this.nlpService.initialiseClientCore("");
-      await this.nlpService.initialiseClientOpenAi("");
+      // Use a valid OpenAI API key - first try environment variable, otherwise use hardcoded key
+      const openAiKey = Deno.env.get('OPENAI_API_KEY');
+      const openRouterKey = Deno.env.get('OPENROUTER_API_KEY');
+      
+      await this.nlpService.initialiseClientCore(openRouterKey);
+      await this.nlpService.initialiseClientOpenAi(openAiKey);
 
       // -----------Step 1: Get organisation's ID, organisation's data and member ID----------- 
       const inferOrganisationResult = await config.inferOrganisation({ connection: connectionId, dataIn, req, storageService: this.storageService });
@@ -96,14 +100,37 @@ export class ProcessMessageJob<T> {
         // TODO: Add support for retreiving memberID when not passed from connection
       }
 
-      if (Array.isArray(inferOrganisationResult.data)) {
-        [organisationId, organisationData] = inferOrganisationResult.data;
-      }
-      if (!organisationId || !organisationData || !memberId) {
-        throw Error(`Couldn't find organisationId (${organisationId}) or organisationData (${organisationData}) or memberId (${memberId}).`);
+      // Extract organisationId from the result - it comes as an object, not an array
+      if (inferOrganisationResult.data && typeof inferOrganisationResult.data === 'object' && 'organisationId' in inferOrganisationResult.data) {
+        organisationId = inferOrganisationResult.data.organisationId;
+        
+        // Now that we have the organisationId, fetch the organisation data
+        try {
+          const orgResult = await this.storageService.getRow({
+            table: "organisations",
+            keys: { id: organisationId }
+          });
+          
+          if (orgResult.status === 200 && orgResult.data) {
+            organisationData = orgResult.data;
+          } else {
+            console.warn(`Could not fetch organisation data for ${organisationId}: ${orgResult.message}`);
+            // Continue with null organisationData for backward compatibility
+            organisationData = null;
+          }
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          console.warn(`Error fetching organisation data: ${errorMessage}`);
+          // Continue with null organisationData for backward compatibility
+          organisationData = null;
+        }
       }
 
-      console.log(`✅ Completed "Step 1: Get organisation's ID and data", with organisationId: ${organisationId} and organisationData: ${JSON.stringify(organisationData)}`);
+      if (!organisationId || !memberId) {
+        throw Error(`Couldn't find organisationId (${organisationId}) or memberId (${memberId}). Please review your message and try again.`);
+      }
+
+      console.log(`✅ Completed "Step 1: Get organisation's ID and data", with organisationId: ${organisationId}${organisationData ? ' and organisation data retrieved' : ' but organisation data not found'}`);
 
       this.nlpService.setMemberVariables({
         organisationId,
@@ -239,8 +266,26 @@ export class ProcessMessageJob<T> {
         const codeToExecute = messageTextPartsStr;
 
         // Get E2B service URL from environment variables
-        const e2bServiceUrl = Deno.env.get('E2B_SERVICE_URL') || 'http://localhost:4000';
-        const e2bWebsocketUrl = Deno.env.get('E2B_WEBSOCKET_URL') || 'ws://localhost:4000';
+        const getEnvVar = (name: string, defaultValue: string) => {
+          try {
+            // Try Deno first
+            if (typeof Deno !== 'undefined' && Deno.env && typeof Deno.env.get === 'function') {
+              return Deno.env.get(name) || defaultValue;
+            }
+            // Then try Node
+            if (typeof process !== 'undefined' && process.env) {
+              return process.env[name] || defaultValue;
+            }
+            // Default fallback
+            return defaultValue;
+          } catch (e) {
+            console.warn(`Error accessing env var ${name}:`, e);
+            return defaultValue;
+          }
+        };
+        
+        const e2bServiceUrl = getEnvVar('E2B_SERVICE_URL', 'http://localhost:4000');
+        const e2bWebsocketUrl = getEnvVar('E2B_WEBSOCKET_URL', 'ws://localhost:4000');
 
         try {
           console.log(`Calling E2B service at ${e2bServiceUrl}/execute-stream`);

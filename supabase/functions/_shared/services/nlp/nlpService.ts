@@ -1,10 +1,55 @@
-import { NlpFunctionsBase } from "./nlpFunctionsBase";
-import { StorageService } from "../storage/storageService";
+import { NlpFunctionsBase } from "./nlpFunctionsBase.ts";
+import { StorageService } from "../storage/storageService.ts";
 // import TasksPlugin from "../tasks/tasksPlugin";
-import OpenAI from "openai";
-import type { ChatCompletionMessageParam, ChatCompletionTool, ChatCompletionToolChoiceOption } from "openai/resources/chat/completions";
-import * as config from "../../configs/index";
-import { FunctionResult } from "../../configs/index";
+import OpenAI from "npm:openai";
+import type { ChatCompletionMessageParam, ChatCompletionTool, ChatCompletionToolChoiceOption } from "npm:openai/resources/chat/completions";
+import * as config from "../../configs/index.ts";
+import { FunctionResult } from "../../configs/index.ts";
+
+// Helper function to convert message objects to the format required by OpenAI
+function toChatMessage(message: any): ChatCompletionMessageParam {
+  if (typeof message === 'string') {
+    return { role: 'user', content: message };
+  }
+  
+  if (message.role && message.content) {
+    return message as ChatCompletionMessageParam;
+  }
+  
+  if (message.type === 'text') {
+    return { role: 'user', content: message.text };
+  }
+  
+  // Return a default structure for any other format
+  return { 
+    role: message.role || 'user', 
+    content: message.content || (typeof message === 'object' ? JSON.stringify(message) : String(message))
+  };
+}
+
+// Helper function to convert message objects to the format required by OpenAI Threads
+function toThreadMessage(message: any): { role: "user" | "assistant"; content: string } {
+  if (typeof message === 'string') {
+    return { role: 'user', content: message };
+  }
+  
+  if (message.role && message.content) {
+    return { 
+      role: message.role === 'user' ? 'user' : 'assistant', 
+      content: message.content 
+    };
+  }
+  
+  if (message.type === 'text') {
+    return { role: 'user', content: message.text };
+  }
+  
+  // Return a default structure for any other format
+  return { 
+    role: message.role === 'assistant' ? 'assistant' : 'user', 
+    content: message.content || (typeof message === 'object' ? JSON.stringify(message) : String(message))
+  };
+}
 
 export class NlpService {
   private nlpFunctionsBase: NlpFunctionsBase;
@@ -49,6 +94,11 @@ export class NlpService {
     this.nlpFunctionsBase = new NlpFunctionsBase(this);
     this.storageService = storageService;
     // this.tasksPlugin = tasksPlugin;
+  }
+
+  // Helper method to pause execution
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   setMemberVariables({
@@ -113,8 +163,27 @@ export class NlpService {
   async initialiseClientCore(apiKey: string): Promise<void> {
     console.log("initialiseClientCore called");
     try {
+      // Safe environment variable access function
+      const getEnvVar = (name: string, defaultValue: string = '') => {
+        try {
+          // Try Deno first
+          if (typeof Deno !== 'undefined' && Deno.env && typeof Deno.env.get === 'function') {
+            return Deno.env.get(name) || defaultValue;
+          }
+          // Then try Node
+          if (typeof process !== 'undefined' && process.env) {
+            return process.env[name] || defaultValue;
+          }
+          // Default fallback
+          return defaultValue;
+        } catch (e) {
+          console.warn(`Error accessing env var ${name}:`, e);
+          return defaultValue;
+        }
+      };
+      
       this.clientCore = new OpenAI({
-        apiKey: apiKey || process.env.OPENROUTER_API_KEY,
+        apiKey: apiKey || getEnvVar('OPENROUTER_API_KEY'),
       });
       console.log("OpenAI client core initialised successfully");
     } catch (error) {
@@ -126,8 +195,27 @@ export class NlpService {
   async initialiseClientOpenAi(apiKey: string): Promise<void> {
     console.log("initialiseClientOpenAi called");
     try {
+      // Safe environment variable access function
+      const getEnvVar = (name: string, defaultValue: string = '') => {
+        try {
+          // Try Deno first
+          if (typeof Deno !== 'undefined' && Deno.env && typeof Deno.env.get === 'function') {
+            return Deno.env.get(name) || defaultValue;
+          }
+          // Then try Node
+          if (typeof process !== 'undefined' && process.env) {
+            return process.env[name] || defaultValue;
+          }
+          // Default fallback
+          return defaultValue;
+        } catch (e) {
+          console.warn(`Error accessing env var ${name}:`, e);
+          return defaultValue;
+        }
+      };
+      
       this.clientOpenAi = new OpenAI({
-        apiKey: apiKey || process.env.OPENAI_API_KEY,
+        apiKey: apiKey || getEnvVar('OPENAI_API_KEY'),
       });
       console.log("OpenAI client initialised successfully");
     } catch (error) {
@@ -687,203 +775,57 @@ ${assistantObject.metadata.instructions}`;
     }
   }
 
-/**
- * Calculates the maximum length for each value in an object based on the number of keys
- * Includes a buffer for JSON syntax and key names
- * @param obj The input object
- * @returns Maximum allowed length for each value
- */
-calculateMaxValueLength(obj: Record<string, any>): number {
-    // NOTE: any changes made to this function should also be made in client's equivalent function to ensure embeddings made in same way
-    const numberOfKeys = Object.keys(obj).length;
-    const syntaxBuffer = 2 + // Object braces {}
-                        (numberOfKeys - 1) * 1 + // Commas between key-value pairs
-                        numberOfKeys * 4; // Average characters for quotes and colon per key-value pair
-    
-    // Calculate average key length to reserve space for keys
-    const averageKeyLength = Object.keys(obj)
-        .reduce((sum, key) => sum + key.length, 0) / numberOfKeys;
-    const totalKeySpace = averageKeyLength * numberOfKeys;
-    
-    // Total available space for values
-    const availableSpace = config.NLP_EMBEDDING_MAX_CHARS - syntaxBuffer - totalKeySpace;
-    
-    // Divide available space by number of keys, ensuring a minimum reasonable length
-    return Math.max(Math.floor(availableSpace / numberOfKeys), 100);
-}
-
-/**
- * Truncates text with an ellipsis if it exceeds the maximum length
- * @param text Text to truncate
- * @param maxLength Maximum allowed length
- * @returns Truncated text with ellipsis if necessary
- */
-truncateText(text: string, maxLength: number): string {
-    // NOTE: any changes made to this function should also be made in client's equivalent function to ensure embeddings made in same way
-    if (text.length <= maxLength) return text;
-    return text.slice(0, maxLength - 1) + '…';
-}
-
-/**
- * Efficiently truncates object values while maintaining relative proportions
- * @param obj Input object
- * @returns Object with truncated values
- */
-truncateObjectValues(obj: Record<string, any>): Record<string, any> {
-    // NOTE: any changes made to this function should also be made in client's equivalent function to ensure embeddings made in same way
-    const stringified = JSON.stringify(obj);
-    if (stringified.length <= config.NLP_EMBEDDING_MAX_CHARS) return obj;
-
-    const maxValueLength = this.calculateMaxValueLength(obj);
-    
-    // Calculate total length of all string values
-    const valueStats = Object.entries(obj).reduce((acc, [key, value]) => {
-        const valueStr = typeof value === 'string' ? value : JSON.stringify(value);
-        acc.totalLength += valueStr.length;
-        acc.lengths[key] = valueStr.length;
-        return acc;
-    }, { totalLength: 0, lengths: {} as Record<string, number> });
-
-    // If we still need to reduce further, calculate reduction factor
-    const currentTotalLength = Object.values(valueStats.lengths)
-        .reduce((sum, length) => sum + Math.min(length, maxValueLength), 0);
-    const reductionFactor = currentTotalLength > config.NLP_EMBEDDING_MAX_CHARS 
-        ? config.NLP_EMBEDDING_MAX_CHARS / currentTotalLength 
-        : 1;
-
-    // Create new object with truncated values
-    return Object.entries(obj).reduce((acc, [key, value]) => {
-        if (typeof value === 'string') {
-            const adjustedMaxLength = Math.floor(
-                Math.min(maxValueLength, valueStats.lengths[key]) * reductionFactor
-            );
-            acc[key] = this.truncateText(value, adjustedMaxLength);
-        } else {
-            // For non-string values, stringify if they're too long
-            const valueStr = JSON.stringify(value);
-            if (valueStr.length > maxValueLength) {
-                acc[key] = this.truncateText(valueStr, maxValueLength);
-            } else {
-                acc[key] = value;
-            }
-        }
-        return acc;
-    }, {} as Record<string, any>);
-}
-
-async generateTextEmbedding(
-    input: string | Record<string, any>,
-): Promise<FunctionResult> {
-  // NOTE: any changes made to this function should also be made in client's equivalent function to ensure embeddings made in same way
-    try {        
-        if (!input) {
-          throw new Error('No input provided for NLP analysis');
-        }
-        
-        if (!this.clientOpenAi) {
-          throw new Error("clientOpenAi not initialised");
-        }
-
-        // Process input based on type
-        let textToEmbed: string;
-        if (typeof input === 'string') {
-          textToEmbed = this.truncateText(input, config.NLP_EMBEDDING_MAX_CHARS);
-        } else if (typeof input === 'object') {
-          const truncatedObj = this.truncateObjectValues(input);
-          textToEmbed = JSON.stringify(truncatedObj);
-        } else {
-          throw new Error('Input must be either a string or a plain object');
-        }
-        
-        const createEmbeddingsResult = await this.clientOpenAi.embeddings.create({
-          model: config.NLP_EMBEDDING_MODEL,
-          input: textToEmbed,
-          encoding_format: "float",
-        });
-
-        if (!createEmbeddingsResult.data?.[0]?.embedding) {
-          throw new Error('No embedding generated');
-        }
-
-        return {
-            status: 200,
-            message: "Embedding generated successfully",
-            data: createEmbeddingsResult.data[0].embedding,
-            references: null
-        };
-    } catch (error: any) {
-        return {
-            status: 500,
-            message: `❌ Failed to embed data with error: ${error.message}`,
-            data: null,
-            references: null
-        };
-    }
-}
-
-async addEmbeddingToObject(
-    objectIn: Record<string, any>,
-): Promise<FunctionResult> {
-    // NOTE: any changes made to this function should also be made in client's equivalent functiont to ensure embeddings made in same way
+  // Add embedding to an object - used by StorageService when updating rows
+  async addEmbeddingToObject(object: any): Promise<FunctionResult> {
     try {
-        const objectToGenEmbeddingsFor = structuredClone(objectIn); // Create a deep copy
-
-        // Remove the following key we don't want to be a part of the embedding
-        if ('embedding' in objectToGenEmbeddingsFor) {
-          delete objectToGenEmbeddingsFor.embedding;
-        }
-        
-        const embeddingRes = await this.generateTextEmbedding(
-          objectToGenEmbeddingsFor,
-        );
-                
-        if (embeddingRes.status !== 200) {
-            throw new Error(embeddingRes.message || "Error embedding data.");
-        }
-        
-        const objectUpdated = { ...objectIn, embedding: embeddingRes.data };
-        
+      if (!object || !object.metadata || !object.metadata.title) {
         return {
-            status: 200,
-            message: "Embedding added successfully",
-            data: objectUpdated,
-            references: null
+          status: 400,
+          message: "Object must have metadata with a title to generate embedding",
         };
-    } catch (error: any) {
-        return {
-            status: 500,
-            message: `❌ Failed to embed data with error: ${error.message}.`,
-            data: null,
-            references: null
-        };
+      }
+      
+      const embeddingResult = await this.generateTextEmbedding(object.metadata.title);
+      if (embeddingResult.status !== 200) {
+        return embeddingResult;
+      }
+      
+      object.embedding = embeddingResult.data;
+      
+      return {
+        status: 200,
+        data: object,
+        message: "Embedding added to object successfully",
+      };
+    } catch (error) {
+      return {
+        status: 500,
+        message: `Error adding embedding to object: ${error.message}`,
+      };
     }
-}
-
-  sleep(time: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, time));
   }
-}
 
-// Helper to ensure all messages are valid
-function toChatMessage(message: any): ChatCompletionMessageParam {
-  if (message.role === "function") {
-    return {
-      role: "function",
-      content: message.content,
-      name: message.name || "function_call"
-    };
+  async generateTextEmbedding(text: string): Promise<FunctionResult> {
+    try {
+      if (!this.clientOpenAi) {
+        throw new Error("OpenAI client not initialized. Please call initialiseClientOpenAi first.");
+      }
+      
+      const response = await this.clientOpenAi.embeddings.create({
+        model: "text-embedding-ada-002",
+        input: text,
+      });
+      
+      return {
+        status: 200,
+        data: response.data[0].embedding,
+        message: "Embedding generated successfully",
+      };
+    } catch (error) {
+      return {
+        status: 500,
+        message: `Error generating embedding: ${error.message}`,
+      };
+    }
   }
-  // Default to user/assistant/system
-  return {
-    role: ["user", "assistant", "system"].includes(message.role) ? message.role : "user",
-    content: message.content
-  };
-}
-
-// Helper for thread messages (only 'user' and 'assistant' roles, no 'name')
-function toThreadMessage(message: any): { role: "user" | "assistant"; content: string } {
-  return {
-    role: message.role === "assistant" ? "assistant" : "user",
-    content: message.content
-  };
 }

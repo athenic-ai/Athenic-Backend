@@ -1,17 +1,20 @@
 // NOTE: This function has JWT checks disabled in settings (as typically can't ask eg. Slack API to pass a bearer token when sending data to Athenic)
-// import "jsr:@supabase/functions-js/edge-runtime.d.ts" // See if this is really needed
+import "jsr:@supabase/functions-js/edge-runtime.d.ts" // Required for Supabase Edge Functions
 import express from 'npm:express@5.0.1';
 import cors from 'npm:cors';
 import bodyParser from 'npm:body-parser';
 import { ProcessMessageJob } from '../_shared/jobs/processMessageJob.ts';
 import * as config from "../_shared/configs/index.ts";
 
+// Define CORS options if not available in config
+const CORS_OPTIONS = config.CORS_OPTIONS || { origin: '*' };
+
 config.initSentry(); // Initialise Sentry
 
 const app = express();
 const port = 3000;
 
-app.use(cors(config.CORS_OPTIONS));
+app.use(cors(CORS_OPTIONS));
 
 // Custom middleware to handle multiple content types and preserve raw body when needed
 app.use((req, res, next) => {

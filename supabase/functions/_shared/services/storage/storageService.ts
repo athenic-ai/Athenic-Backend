@@ -124,15 +124,31 @@ export class StorageService {
       });
     
       // Apply "OR" conditions
+      // Apply "OR" conditions
       if (whereOrConditions.length > 0) {
-        const orQuery = whereOrConditions
-          .map((condition) => {
+        // First, drop any conditions with no value
+        const validOr = whereOrConditions.filter(({ value }) => value !== "" && value != null);
+
+        if (validOr.length === 1) {
+          // If there's only one condition, apply it directly
+          const condition = validOr[0];
+          const columnPath = formatColumnPath(condition);
+          query = query[condition.operator](columnPath, condition.value);
+        } else if (validOr.length > 1) {
+          // For multiple OR conditions, build a comma-separated filter string
+          const orFilters = validOr.map(condition => {
             const columnPath = formatColumnPath(condition);
+            // e.g. "owner_organisation_id.eq.demo.gameforgifts.com"
             return `${columnPath}.${condition.operator}.${condition.value}`;
-          })
-          .join(',');
-        query = query.or(orQuery);
+          });
+
+          // Join all OR conditions with commas and apply as a single or() call
+          query = query.or(orFilters.join(','));
+        }
+        // if after filtering there's nothing left, we skip .or() altogether
       }
+
+      
     
       // Apply "orderBy" conditions
       orderByConditions.forEach((condition) => {

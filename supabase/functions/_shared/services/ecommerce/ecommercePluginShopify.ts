@@ -1,17 +1,17 @@
-import { EcommerceInterface } from './ecommerceInterface';
-import axios from 'axios';
-import * as config from "../configs/index";
+import { EcommerceInterface } from './ecommerceInterface.ts';
+import axios from 'npm:axios';
+import * as config from "../../configs/index.ts";
 // fallback: if above fails, try the following
-// import * as config from "../../_shared/configs/index";
-import { StorageService } from "../storage/storageService";
-import { NlpService } from "../nlp/nlpService";
+// import * as config from "../../_shared/configs/index.ts";
+import { StorageService } from "../storage/storageService.ts";
+import { NlpService } from "../nlp/nlpService.ts";
 import { 
   verifyAuth, 
   syncCustomers, 
   syncProducts, 
   syncOrders 
-} from './ecommercePluginShopifyHelpers';
-import { FunctionResult } from "../../_shared/configs/index";
+} from './ecommercePluginShopifyHelpers.ts';
+import { FunctionResult } from "../../configs/index.ts";
 
 export class EcommercePluginShopify implements EcommerceInterface {
   async auth(connection: string, connectionMetadata: Map<string, any>): Promise<any> {

@@ -1,7 +1,7 @@
-import axios from 'axios';
-import { StorageService } from "../storage/storageService";
-import { NlpService } from "../nlp/nlpService";
-import { FunctionResult } from "../../_shared/configs/index";
+import axios from 'npm:axios';
+import { StorageService } from "../storage/storageService.ts";
+import { NlpService } from "../nlp/nlpService.ts";
+import { FunctionResult } from "../../configs/index.ts";
 
 // Authentication helper functions
 export async function verifyAuth(params: Record<string, string>): Promise<boolean> {

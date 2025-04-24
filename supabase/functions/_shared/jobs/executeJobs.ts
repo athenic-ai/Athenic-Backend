@@ -1,8 +1,8 @@
-import * as config from "../../_shared/configs/index";
-import { FunctionResult, WhereCondition } from "../../_shared/configs/index";
-import { StorageService } from "../services/storage/storageService";
-import { NlpService } from "../services/nlp/nlpService";
-import { v4 as uuidv4 } from "uuid";
+import * as config from "../../_shared/configs/index.ts";
+import { FunctionResult, WhereCondition } from "../../_shared/configs/index.ts";
+import { StorageService } from "../services/storage/storageService.ts";
+import { NlpService } from "../services/nlp/nlpService.ts";
+import { v4 as uuidv4 } from "jsr:@std/uuid";
 // import * as uuid from "jsr:@std/uuid"; // TODO: Replace with Node-compatible uuid if needed
 
 interface OrganisationData {

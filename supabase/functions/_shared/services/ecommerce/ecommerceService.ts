@@ -1,6 +1,6 @@
-import { EcommerceInterface } from './ecommerceInterface';
-import { EcommercePluginShopify } from './ecommercePluginShopify';
-import * as config from "../../configs/index";
+import { EcommerceInterface } from './ecommerceInterface.ts';
+import { EcommercePluginShopify } from './ecommercePluginShopify.ts';
+import * as config from "../../configs/index.ts";
 
 const connectionPlugins: Record<string, EcommerceInterface> = {
   shopify: new EcommercePluginShopify(),

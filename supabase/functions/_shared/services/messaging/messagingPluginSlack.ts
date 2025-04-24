@@ -1,15 +1,19 @@
-import { MessagingInterface } from './messagingInterface';
-import axios from 'axios';
-import * as config from "../../configs/index";
-import { FunctionResult } from "../../_shared/configs/index";
-import { StorageService } from "../storage/storageService";
-import { NlpService } from "../nlp/nlpService";
+import { MessagingInterface } from './messagingInterface.ts';
+import axios from 'npm:axios';
+import * as config from "../../configs/index.ts";
+import { FunctionResult } from "../../configs/index.ts";
+import { StorageService } from "../storage/storageService.ts";
+import { NlpService } from "../nlp/nlpService.ts";
 
 export class MessagingPluginSlack implements MessagingInterface {
-  async auth(connection: string, connectionMetadata: Map<string, any>): Promise<any> {
+  async auth(connection: string, connectionMetadata: Map<string, any> | any): Promise<any> {
     console.log(`Auth Slack with connection: ${connection} and connectionMetadata: ${JSON.stringify(connectionMetadata)}`)
-    // Convert Map to plain object for compatibility
-    const metadataObj = Object.fromEntries(connectionMetadata.entries());
+    
+    // Handle both Map and plain objects
+    const metadataObj = connectionMetadata instanceof Map 
+      ? Object.fromEntries(connectionMetadata.entries()) 
+      : connectionMetadata;
+      
     const stateMap = JSON.parse(metadataObj.state);
 
     try {
@@ -90,8 +94,9 @@ export class MessagingPluginSlack implements MessagingInterface {
   }
 
   // TODO: Implement receiveMessage, storeMessage, getChatHistory to match MessagingInterface
-  async receiveMessage(): Promise<any> {
+  async receiveMessage(connection: string, dataIn: Map<string, any> | any): Promise<any> {
     // TODO: implement
+    return { status: 501, message: "Not implemented", data: null, references: null };
   }
 
   async storeMessage(): Promise<any> {
