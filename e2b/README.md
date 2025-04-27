@@ -1,6 +1,173 @@
 # Athenic E2B Service
 
-This service provides code execution capabilities using the [E2B](https://e2b.dev/) platform, allowing the Athenic application to execute code in secure sandboxed environments.
+This service provides code execution capabilities to the Athenic platform using E2B sandboxes and real-time visualization through WebSockets.
+
+## Quick Start
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+2. Create a `.env` file with your E2B API key:
+   ```
+   E2B_API_KEY=your_api_key_here
+   PORT=4000
+   ```
+
+3. Start the service:
+   ```bash
+   npm run dev
+   ```
+
+## Problem Solved
+
+This service solves the challenge of executing code in secure sandboxes and streaming real-time results back to the Flutter app. It enables:
+
+1. Secure execution of user code/commands in isolated environments
+2. Real-time streaming of execution progress and output
+3. Interactive terminals for users to see code execution results
+4. Integration with the Athenic chat interface
+
+## Environment Configuration
+
+### Development
+
+When running locally, you can use the following setup:
+
+1. Run the E2B service:
+   ```bash
+   cd Athenic-Backend/e2b
+   npm run dev
+   ```
+
+2. The Flutter app will connect to the service using:
+   - API URL: `http://localhost:4000`
+   - WebSocket URL: `ws://localhost:4000`
+
+### Production
+
+In production, the service should be deployed to a publicly accessible URL, and the following environment variables should be set:
+
+1. In Supabase Edge Functions:
+   ```
+   E2B_SERVICE_URL=https://your-deployed-service.com/execute-stream
+   E2B_WEBSOCKET_URL=wss://your-deployed-service.com
+   ```
+
+2. In the Flutter app (through build environments):
+   ```
+   E2B_API_URL=https://your-deployed-service.com
+   E2B_WEBSOCKET_URL=wss://your-deployed-service.com
+   ```
+
+## Using with the Supabase Edge Function
+
+The Supabase Edge Function running in production cannot directly access `localhost`. There are two ways to handle this:
+
+1. **Development with Forwarding**: Use a service like ngrok to make your local E2B service publicly accessible:
+   ```bash
+   npx ngrok http 4000
+   ```
+   
+   Then, when testing, add two custom headers to your request:
+   ```
+   x-e2b-service-url: https://your-ngrok-url.ngrok.io/execute-stream
+   x-e2b-websocket-url: wss://your-ngrok-url.ngrok.io
+   ```
+
+2. **Production Deployment**: Deploy the E2B service to a public URL and set the environment variables as described above.
+
+## API Reference
+
+### `POST /execute-stream`
+
+Executes code in a sandbox and streams the output via WebSocket.
+
+**Request:**
+```json
+{
+  "code": "print('Hello, World!')",
+  "clientId": "unique_client_id",
+  "language": "code-interpreter-v1",
+  "timeout": 30000
+}
+```
+
+**Response:**
+```json
+{
+  "executionId": "abc123",
+  "status": "streaming",
+  "clientId": "unique_client_id"
+}
+```
+
+### WebSocket Connection
+
+Connect to `ws://localhost:4000?clientId=unique_client_id` (or your production URL) to receive real-time updates.
+
+**WebSocket Messages:**
+
+1. Status updates:
+   ```json
+   {
+     "type": "status",
+     "executionId": "abc123",
+     "status": "running",
+     "message": "Executing code..."
+   }
+   ```
+
+2. Output:
+   ```json
+   {
+     "type": "stdout",
+     "executionId": "abc123",
+     "data": "Hello, World!"
+   }
+   ```
+
+3. Errors:
+   ```json
+   {
+     "type": "stderr",
+     "executionId": "abc123",
+     "data": "Error message..."
+   }
+   ```
+
+4. Results:
+   ```json
+   {
+     "type": "result",
+     "executionId": "abc123",
+     "data": { /* Execution results */ },
+     "duration": 1234
+   }
+   ```
+
+## Troubleshooting
+
+If you're experiencing issues with the E2B terminal integration:
+
+1. Check that the E2B service is running and accessible.
+2. Verify the E2B API key is valid and has permissions.
+3. Ensure WebSocket URLs are correctly formatted and include the protocol (ws:// or wss://).
+4. For Supabase Edge Function connectivity, check the headers or environment variables.
+5. Look at the browser console and server logs for any error messages.
+
+## Running Tests
+
+Run the test suite with:
+```bash
+npm test
+```
+
+To run only the mock tests that don't require an E2B API key:
+```bash
+npm run test:mock
+```
 
 ## Features
 

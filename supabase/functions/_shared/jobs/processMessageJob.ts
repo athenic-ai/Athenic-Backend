@@ -265,36 +265,88 @@ export class ProcessMessageJob<T> {
         // A better approach would be another LLM call to extract actual code
         const codeToExecute = messageTextPartsStr;
 
-        // Determine if we're in local development or production
-        // In production, we need a publicly accessible URL for the E2B service
-        // In local dev, we can use ngrok or a similar tool to expose localhost
-        const isDevelopment = Deno.env.get("SUPABASE_ENV") === "development" || !Deno.env.get("SUPABASE_ENV");
-        const e2bServiceUrl = Deno.env.get("E2B_SERVICE_URL") || 
-                              (isDevelopment ? 'http://localhost:4000/execute-stream' : 'https://your-deployed-e2b-service.com/execute-stream');
+        // Extract the command from the message using regex
+        let extractedCommand = codeToExecute;
+        // Try to extract commands from patterns like "run X in an e2b terminal" or "execute X"
+        const runCommandRegex = /(?:run|execute)\s+`?([^`]+)`?(?:\s+in\s+(?:an\s+)?e2b\s+terminal)?/i;
+        const match = messageTextPartsStr.match(runCommandRegex);
+        
+        if (match && match[1]) {
+          extractedCommand = match[1].trim();
+          console.log(`Extracted command: ${extractedCommand}`);
+        }
+
+        // For local testing: Allow passing the E2B service URL in the request headers
+        // This enables testing the Edge Function locally against a local E2B service
+        let e2bServiceUrl = Deno.env.get("E2B_SERVICE_URL");
+        let e2bWebSocketUrl = Deno.env.get("E2B_WEBSOCKET_URL");
+
+        // Safe header access - works with either Request-style objects or plain objects
+        const getHeader = (headerName: string) => {
+          // Check if req and headers exist
+          if (!req || !req.headers) {
+            console.warn(`Request or headers object is undefined when accessing '${headerName}'`);
+            return null;
+          }
+          
+          // Try the get() method first (standard Request object)
+          if (typeof req.headers.get === 'function') {
+            return req.headers.get(headerName);
+          }
+          
+          // Fallback to direct property access (plain object)
+          return req.headers[headerName] || null;
+        };
+        
+        // Check if we have the URLs in request headers (useful for development/testing)
+        const testE2BServiceUrl = getHeader("x-e2b-service-url");
+        const testE2BWebSocketUrl = getHeader("x-e2b-websocket-url");
+
+        if (testE2BServiceUrl) {
+          console.log(`Using E2B service URL from request header: ${testE2BServiceUrl}`);
+          e2bServiceUrl = testE2BServiceUrl;
+        }
+
+        if (testE2BWebSocketUrl) {
+          console.log(`Using E2B WebSocket URL from request header: ${testE2BWebSocketUrl}`);
+          e2bWebSocketUrl = testE2BWebSocketUrl;
+        }
+
+        // Fallback values for development
+        if (!e2bServiceUrl) {
+          console.log("E2B_SERVICE_URL not found in environment variables, using default");
+          e2bServiceUrl = "http://192.168.68.105:4000/execute-stream";
+        }
+
+        if (!e2bWebSocketUrl) {
+          console.log("E2B_WEBSOCKET_URL not found in environment variables, using default");
+          e2bWebSocketUrl = "ws://192.168.68.105:4000";
+        }
+
+        console.log(`Calling E2B service at ${e2bServiceUrl}`);
 
         try {
-          console.log(`Calling E2B service at ${e2bServiceUrl}/execute-stream`);
-          
-          const response = await fetch(`${e2bServiceUrl}/execute-stream`, {
+          // Make the request to the E2B service
+          const response = await fetch(e2bServiceUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               // TODO: Add authentication header if E2B service requires it
             },
             body: JSON.stringify({
-              code: codeToExecute,
+              code: extractedCommand, // Use the extracted command instead of the full message
               language: e2bTemplate,
               clientId: uniqueClientId,
               timeout: 30000, // 30 seconds timeout
             }),
           });
-
+          
           if (!response.ok) {
             const errorText = await response.text();
             console.error(`Error calling E2B service: ${response.status} ${response.statusText}`, errorText);
             throw new Error(`E2B service request failed: ${response.statusText}`);
           }
-
+          
           // Parse the response
           const responseData = await response.json();
           console.log("E2B execution initiated successfully:", responseData);
@@ -302,35 +354,52 @@ export class ProcessMessageJob<T> {
           // Return data instructing the frontend to open WebSocket connection
           executeThreadResult = {
             status: 200,
+            message: "This request requires code execution. Connect to the WebSocket to see results.",
             data: {
               requiresE2B: true,
-              e2bWebSocketUrl: e2bServiceUrl,
+              e2bWebSocketUrl: e2bWebSocketUrl,
               clientId: uniqueClientId,
               executionId: responseData.executionId,
               initialStatus: 'Initiating E2B execution...'
             },
-            message: null, // No direct message - output will come via WebSocket
             references: null,
           };
           
         } catch (e2bError) {
           console.error("Failed to call E2B Service:", e2bError);
           
-          // Fallback to standard chat if E2B fails
-          console.log("E2B execution failed, falling back to standard chat response");
-          executeThreadResult = await this.nlpService.executeThread({
-            promptParts: messageParts,
-            chatHistory,
-          });
+          // Provide a more helpful response about the command that would have been executed
+          const errorMessage = e2bError instanceof Error ? e2bError.message : String(e2bError);
+          const isConnectionError = errorMessage.includes("sending request") || errorMessage.includes("ECONNREFUSED");
           
-          // Add error information to the response
-          if (executeThreadResult.status === 200) {
-            executeThreadResult.data = {
-              ...executeThreadResult.data,
-              requiresE2B: false,
-              e2bError: `E2B execution failed: ${e2bError instanceof Error ? e2bError.message : String(e2bError)}`
-            };
+          let friendlyMessage;
+          if (isConnectionError) {
+            friendlyMessage = `I detected that you want me to run the command \`${extractedCommand}\`, but I'm currently unable to connect to the terminal execution service. The E2B service may not be running or is unavailable. Here's what running this command would typically do:\n\n`;
+            
+            // Provide information about common commands
+            if (extractedCommand.includes("echo")) {
+              friendlyMessage += `The \`echo\` command would output the text that follows it. For example, \`${extractedCommand}\` would display: ${extractedCommand.replace(/^echo\s+['"]?(.+?)['"]?$/, '$1')}\n\n`;
+            } else if (extractedCommand.includes("ls")) {
+              friendlyMessage += `The \`ls\` command would list files and directories in the current directory.\n\n`;
+            } else {
+              friendlyMessage += `This command would be executed in a terminal environment.\n\n`;
+            }
+            
+            friendlyMessage += "To execute this command, please ensure the E2B service is running. If you're a developer, start the service with `cd Athenic-Backend/e2b && npm run dev` or check for port conflicts if the service is already running.";
+          } else {
+            friendlyMessage = `I tried to execute the command \`${extractedCommand}\` but encountered an error: ${errorMessage}`;
           }
+          
+          // Return a helpful response
+          executeThreadResult = {
+            status: 200,
+            message: friendlyMessage,
+            data: {
+              requiresE2B: false,
+              e2bError: `E2B execution failed: ${errorMessage}`
+            },
+            references: null,
+          };
         }
       } else {
         // Proceed with standard chat response

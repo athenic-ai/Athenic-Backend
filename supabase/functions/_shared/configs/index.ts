@@ -69,8 +69,30 @@ export async function inferOrganisation({ connection, dataIn, req, storageServic
       organisationId = mappingResult.data.organisation_id;
     } else if (connection === "shopify") {
       console.log(`req?.headers: ${stringify(req?.headers)}`);
-      if (req?.headers['x-shopify-hmac-sha256']) {
-        const hmacHeader = req.headers['x-shopify-hmac-sha256'];
+
+      // Safely access headers using either get() method or direct property access
+      const getHeader = (headerName: string) => {
+        // Check if req and headers exist
+        if (!req || !req.headers) {
+          console.warn(`Request or headers object is undefined when accessing '${headerName}'`);
+          return null;
+        }
+        
+        // Try the get() method first (standard Request object)
+        if (typeof req.headers.get === 'function') {
+          return req.headers.get(headerName);
+        }
+        
+        // Fallback to direct property access (plain object)
+        return req.headers[headerName] || null;
+      };
+
+      const hmacHeader = getHeader('x-shopify-hmac-sha256');
+      const shopDomain = getHeader('x-shopify-shop-domain');
+
+      console.log(`Shopify connection: HMAC Header: ${hmacHeader}, Shop Domain Header: ${shopDomain}`);
+
+      if (hmacHeader && shopDomain) {
         console.log(`req: ${stringify(req)}}`);
         const rawBody = (req as any).rawBody || JSON.stringify(dataIn);
         const ecommerceService: EcommerceService = new EcommerceService();
@@ -78,10 +100,16 @@ export async function inferOrganisation({ connection, dataIn, req, storageServic
         if (!shopifyCallIsValid) {
           throw new Error("Invalid Shopify webhook signature");
         }
-        const shopDomain = req.headers['x-shopify-shop-domain'];
+        
         console.log(`shopDomain found: ${shopDomain}`);
         const mappingResult = await storageService.getRow({table: "connection_organisation_mapping", keys: {connection: connection, connection_id: shopDomain}});
         organisationId = mappingResult.data.organisation_id;
+      } else if (dataIn?.companyMetadata?.organisationId) {
+        // Fallback to organisationId from dataIn for non-webhook scenarios
+        organisationId = dataIn.companyMetadata.organisationId;
+        console.log(`Falling back to organisationId from dataIn: ${organisationId}`);
+      } else {
+        console.warn("Could not determine organisationId for Shopify connection: missing headers and no fallback in dataIn");
       }
     }
     if (organisationId) {

@@ -1,0 +1,10 @@
+{
+  "tasks": {
+    "dev": "deno run --watch --allow-net --allow-env index.ts"
+  },
+  "compilerOptions": {
+    "lib": ["deno.ns", "dom"],
+    "strict": false,
+    "noImplicitAny": false
+  }
+} 

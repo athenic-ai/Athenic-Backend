@@ -42,6 +42,8 @@ let activeSandboxes: { [key: string]: Sandbox } = {};
 const clients = new Map<string, WebSocket>();
 // Track active code executions by executionId
 const activeExecutions = new Map<string, { sandboxId: string, clientId: string }>();
+// Track pending messages for clients that are not connected
+const pendingMessages = new Map<string, string[]>();
 
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {
@@ -59,6 +61,16 @@ wss.on('connection', (ws, req) => {
     message: `Connected as client ${clientId}`
   };
   ws.send(JSON.stringify(welcomeMsg));
+  
+  // Send any pending messages for this client
+  if (pendingMessages.has(clientId)) {
+    console.log(`Sending ${pendingMessages.get(clientId)?.length || 0} pending messages to client ${clientId}`);
+    const messages = pendingMessages.get(clientId) || [];
+    messages.forEach((message) => {
+      ws.send(message as string | Buffer | ArrayBuffer | Buffer[]);
+    });
+    pendingMessages.delete(clientId);
+  }
   
   // Handle messages from clients
   ws.on('message', (message) => {
@@ -185,10 +197,21 @@ app.post('/execute-stream', async (req, res) => {
   
   // Check if client is connected
   if (!clients.has(clientId)) {
-    return res.status(400).json({
-      error: `Client ${clientId} is not connected via WebSocket`,
-      executionId
-    });
+    console.log(`Client ${clientId} is not connected via WebSocket, creating placeholder client`);
+    // For supabase edge functions that can't establish WebSocket connections first,
+    // create a placeholder client that will buffer messages until the real client connects
+    const placeholderClient = {
+      send: (message: string | Buffer | ArrayBuffer | Buffer[]) => {
+        const messageStr = typeof message === 'string' ? message : message.toString();
+        console.log(`[BUFFERED for ${clientId}]: ${messageStr.substring(0, 100)}...`);
+        // Store these messages in memory so they can be sent when the real client connects
+        if (!pendingMessages.has(clientId)) {
+          pendingMessages.set(clientId, []);
+        }
+        pendingMessages.get(clientId)!.push(messageStr);
+      }
+    };
+    clients.set(clientId, placeholderClient as any);
   }
 
   const clientWs = clients.get(clientId)!;
@@ -332,8 +355,8 @@ process.on('SIGINT', gracefulShutdown);
 process.on('SIGTERM', gracefulShutdown);
 
 // Start server
-const serverInstance = server.listen(PORT, () => {
-  console.log(`E2B Sandbox service running on port ${PORT}`);
+const serverInstance = server.listen(PORT, '0.0.0.0', () => {
+  console.log(`E2B Sandbox service running on port ${PORT} (all interfaces)`);
 });
 
 // Export for testing
