@@ -16,13 +16,17 @@
     "body-parser": "^1.20.3",
     "cors": "^2.8.5",
     "express": "^5.0.1",
+    "inngest": "^3.27.0",
     "morgan": "^1.10.0",
     "nodemon": "^3.1.7"
   },
   "scripts": {
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "test:inngest": "npx ts-node src/inngest/test-inngest.ts",
+    "start:inngest": "npx ts-node src/inngest/server.ts",
+    "dev:inngest": "npx nodemon --exec ts-node src/inngest/server.ts"
   },
   "jest": {
     "preset": "ts-jest",
