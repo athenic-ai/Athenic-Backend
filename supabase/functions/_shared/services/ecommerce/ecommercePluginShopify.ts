@@ -103,7 +103,8 @@ export class EcommercePluginShopify implements EcommerceInterface {
       // Update the database
       const storageService = new StorageService();
       const nlpService = new NlpService();
-      await nlpService.initialiseClientCore(process.env.OPENROUTER_API_KEY || '');
+      // await nlpService.initialiseClientCore(process.env.OPENROUTER_API_KEY || '');
+      await nlpService.initialiseClientCore(process.env.OPENAI_API_KEY || ''); // Temp using OpenAI API key for now as cheaper
       await nlpService.initialiseClientOpenAi(process.env.OPENAI_API_KEY || '');
 
       const organisationsUpdateResult = await storageService.updateRow({

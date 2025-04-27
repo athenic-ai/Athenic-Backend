@@ -17,9 +17,9 @@ Deno.serve(async (req) => {
 
   try {
     const params = await req.json();
-    const userMessage = params.message || "Hello! Please tell me about yourself.";
+    const userCommand = params.command || "echo 'hello world'";
     
-    console.log(`Received message: ${userMessage}`);
+    console.log(`Received command to execute: ${userCommand}`);
     console.log("Testing E2B SDK with API key");
     
     // Get the E2B API key from environment variable
@@ -41,37 +41,36 @@ Deno.serve(async (req) => {
       console.log("Creating E2B Sandbox...");
       const sandbox = await Sandbox.create({
         apiKey: e2bApiKey,
+        timeoutMs: 30000, // 30 seconds timeout
       });
       
       console.log("E2B Sandbox created successfully");
       
-      // Run the code interpreter
-      const result = await sandbox.chat.completions.create({
-        messages: [
-          { role: "system", content: "You are a helpful AI assistant running in a sandbox environment." },
-          { role: "user", content: userMessage }
-        ],
-        stream: false,
-      });
+      // Get sandbox info
+      const sandboxInfo = await sandbox.getInfo();
+      console.log(`Sandbox info: ${JSON.stringify(sandboxInfo)}`);
       
-      // Extract the assistant's response
-      const assistantResponse = result.choices[0]?.message?.content || "I encountered an issue while processing your request.";
+      // Run command directly
+      console.log(`Executing command: ${userCommand}`);
+      const execution = await sandbox.runCode(userCommand);
       
       // Clean up the sandbox when done
-      await sandbox.close();
+      await sandbox.kill();
       
       console.log("E2B code execution completed successfully");
       
       return new Response(JSON.stringify({
-        response: assistantResponse,
-        success: true
+        result: execution.text || execution.logs || "No output",
+        exitCode: execution.exitCode,
+        success: true,
+        sandboxInfo
       }), {
         headers: CORS_HEADERS,
       });
     } catch (e2bError) {
       console.error("Error using E2B SDK:", e2bError);
       return new Response(JSON.stringify({
-        response: `Error using E2B SDK: ${e2bError.message || e2bError}`,
+        error: `Error using E2B SDK: ${e2bError.message || e2bError}`,
         debug: {
           keyFormat,
           keyLength,
@@ -86,7 +85,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error(`Error parsing request: ${error}`);
     return new Response(JSON.stringify({
-      response: `Error parsing request: ${error.message || error}`,
+      error: `Error parsing request: ${error.message || error}`,
       success: false
     }), {
       headers: CORS_HEADERS,

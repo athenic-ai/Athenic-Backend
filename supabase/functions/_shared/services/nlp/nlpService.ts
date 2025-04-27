@@ -164,7 +164,7 @@ export class NlpService {
     console.log("initialiseClientCore called");
     try {      
       this.clientCore = new OpenAI({
-        apiKey: apiKey || Deno.env.get('OPENAI_API_KEY'), // USING OPENAI API KEY FOR NOW AS CHEAPER
+        apiKey: apiKey || Deno.env.get('OPENAI_API_KEY'), // TEMP USING OPENAI API KEY FOR NOW AS CHEAPER
         // baseURL: 'https://openrouter.ai/api/v1',
         // apiKey: apiKey || Deno.env.get('OPENROUTER_API_KEY'),
       });
