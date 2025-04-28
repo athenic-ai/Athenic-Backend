@@ -3,7 +3,7 @@ import { describe, test, expect, beforeAll } from '@jest/globals';
 import { retry } from './utils';
 
 // Configure the base URL for testing
-const E2B_SERVICE_URL = process.env.E2B_SERVICE_URL || 'http://localhost:3001';
+const E2B_SERVICE_URL = process.env.E2B_SERVICE_URL || 'http://localhost:8002';
 const E2B_API_KEY = process.env.E2B_API_KEY;
 
 describe('E2B Service API Error Handling', () => {

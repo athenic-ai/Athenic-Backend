@@ -19,12 +19,13 @@ import {
   OutputMessage,
   RunCodeOptions 
 } from './types';
+import * as e2bService from './e2b-service';
 
 // Load environment variables
 dotenv.config();
 
 // Constants
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 8002;
 const E2B_API_KEY = process.env.E2B_API_KEY;
 
 // Setup Express app with CORS and JSON body parser
@@ -44,6 +45,9 @@ const clients = new Map<string, WebSocket>();
 const activeExecutions = new Map<string, { sandboxId: string, clientId: string }>();
 // Track pending messages for clients that are not connected
 const pendingMessages = new Map<string, string[]>();
+
+// Register clients map with e2b service
+e2bService.registerClientsMap(clients);
 
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {
@@ -188,189 +192,90 @@ app.post('/execute', async (req, res) => {
   }
 });
 
-// Execute code with streaming output via WebSocket
+// DEPRECATED - Use e2b-service.runCodeAndStream instead
+// This endpoint will be removed in a future version
 app.post('/execute-stream', async (req, res) => {
+  console.warn('DEPRECATED: /execute-stream endpoint is deprecated and will be removed. Use the e2b-service module instead.');
+  
   const { code, language, timeout = 30000, clientId } = req.body as ExecuteStreamRequest;
-  const executionId = uuid();
   
-  console.log(`Executing code with streaming (${executionId}) for client ${clientId}: ${code.substring(0, 100)}...`);
-  
-  // Check if client is connected
-  if (!clients.has(clientId)) {
-    console.log(`Client ${clientId} is not connected via WebSocket, creating placeholder client`);
-    // For supabase edge functions that can't establish WebSocket connections first,
-    // create a placeholder client that will buffer messages until the real client connects
-    const placeholderClient = {
-      send: (message: string | Buffer | ArrayBuffer | Buffer[]) => {
-        const messageStr = typeof message === 'string' ? message : message.toString();
-        console.log(`[BUFFERED for ${clientId}]: ${messageStr.substring(0, 100)}...`);
-        // Store these messages in memory so they can be sent when the real client connects
-        if (!pendingMessages.has(clientId)) {
-          pendingMessages.set(clientId, []);
-        }
-        pendingMessages.get(clientId)!.push(messageStr);
-      }
-    };
-    clients.set(clientId, placeholderClient as any);
+  if (!clientId) {
+    return res.status(400).json({
+      error: 'Missing required parameter: clientId'
+    });
   }
-
-  const clientWs = clients.get(clientId)!;
-  
-  // Broadcast status update
-  const broadcastStatus = (status: string, message: string, sandboxId?: string, duration?: number) => {
-    const statusMsg: WSStatusMessage = {
-      type: 'status',
-      executionId,
-      status,
-      message,
-      sandboxId,
-      duration
-    };
-    clientWs.send(JSON.stringify(statusMsg));
-  };
   
   try {
-    const startTime = Date.now();
-    broadcastStatus('starting', 'Initializing sandbox...');
+    let sandboxId: string;
     
-    // Create sandbox using default template if language is not specified
-    const sandbox = language 
-      ? await Sandbox.create(language, { apiKey: E2B_API_KEY })
-      : await Sandbox.create({ apiKey: E2B_API_KEY });
+    // Create sandbox
+    sandboxId = await e2bService.createSandbox(language || 'code-interpreter-v1');
     
-    const sandboxId = sandbox.sandboxId;
-    activeSandboxes[sandboxId] = sandbox;
-    activeExecutions.set(executionId, { sandboxId, clientId });
-    
-    broadcastStatus('running', 'Executing code...', sandboxId);
-    
-    // Execute code with streaming output
-    const execution = await sandbox.runCode(code, { 
-      timeoutMs: timeout,
-      onStdout: (output: OutputMessage) => {
-        const outputMsg: WSOutputMessage = {
-          type: 'stdout',
-          executionId,
-          data: output.line || output.text || String(output)
-        };
-        clientWs.send(JSON.stringify(outputMsg));
-      },
-      onStderr: (output: OutputMessage) => {
-        const errorOutputMsg: WSOutputMessage = {
-          type: 'stderr',
-          executionId,
-          data: output.line || output.text || String(output)
-        };
-        clientWs.send(JSON.stringify(errorOutputMsg));
-      }
+    // Send processing status to client
+    res.status(202).json({
+      message: 'Code execution started. Output is being streamed via WebSocket.',
+      sandboxId
     });
     
-    const duration = Date.now() - startTime;
+    // Run code and stream output
+    await e2bService.runCodeAndStream(sandboxId, code, clientId, timeout);
     
-    // Send final result
-    const resultMsg: WSResultMessage = {
-      type: 'result',
-      executionId,
-      data: execution,
-      duration
-    };
-    clientWs.send(JSON.stringify(resultMsg));
-    
-    // Send status completion
-    broadcastStatus(
-      execution.error ? 'error' : 'complete', 
-      execution.error ? `Error: ${execution.error}` : 'Execution completed successfully', 
-      sandboxId, 
-      duration
-    );
-    
-    // Clean up
-    await sandbox.kill();
-    delete activeSandboxes[sandboxId];
-    activeExecutions.delete(executionId);
-    
-    // Send response to HTTP request
-    res.json({
-      executionId,
-      status: 'streaming',
-      clientId
-    });
+    // Clean up the sandbox after execution
+    await e2bService.closeSandbox(sandboxId);
   } catch (error: any) {
-    console.error(`Error executing streaming code (${executionId}):`, error);
-    
-    // Send error message via WebSocket
-    const errorMsg: WSErrorMessage = {
-      type: 'error',
-      executionId,
-      error: error.message
-    };
-    clientWs.send(JSON.stringify(errorMsg));
-    
-    // Clean up any active resources
-    const execution = activeExecutions.get(executionId);
-    if (execution) {
-      const sandboxId = execution.sandboxId;
-      if (activeSandboxes[sandboxId]) {
-        await activeSandboxes[sandboxId].kill();
-        delete activeSandboxes[sandboxId];
-      }
-      activeExecutions.delete(executionId);
-    }
-    
+    console.error('Error in /execute-stream:', error);
     res.status(500).json({
-      executionId,
-      error: error.message,
-      clientId
+      error: error.message
     });
   }
 });
 
-// Graceful shutdown to clean up sandboxes
+// Graceful shutdown handler
 const gracefulShutdown = async () => {
-  console.log('Shutting down server and cleaning up resources...');
+  console.log('Shutting down server...');
   
   // Close all active sandboxes
-  const closingPromises = Object.values(activeSandboxes).map(sandbox => {
-    console.log(`Closing sandbox ${sandbox.sandboxId}...`);
-    return sandbox.kill().catch((err: Error) => {
-      console.error(`Error closing sandbox ${sandbox.sandboxId}:`, err);
-    });
-  });
+  await e2bService.cleanupAllSandboxes();
   
-  try {
-    await Promise.all(closingPromises);
-    console.log('All sandboxes closed successfully');
-  } catch (err) {
-    console.error('Error during sandbox cleanup:', err);
-  }
-  
+  // Close the HTTP server
   server.close(() => {
-    console.log('Server closed');
+    console.log('HTTP server closed');
     process.exit(0);
   });
+  
+  // Force exit after timeout
+  setTimeout(() => {
+    console.log('Forcing exit after timeout');
+    process.exit(1);
+  }, 10000);
 };
 
-// Handle termination signals
-process.on('SIGINT', gracefulShutdown);
+// Handle signals for graceful shutdown
 process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
 
-// Start server
-const serverInstance = server.listen(PORT, '0.0.0.0', () => {
-  console.log(`E2B Sandbox service running on port ${PORT} (all interfaces)`);
-});
-
-// Export for testing
-export function startServer(): Promise<Server> {
-  return new Promise((resolve) => {
-    if (serverInstance.listening) {
-      resolve(serverInstance);
-    } else {
-      serverInstance.once('listening', () => {
-        resolve(serverInstance);
-      });
-    }
+// Start the server if this file is run directly
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`E2B Service running on port ${PORT}`);
   });
 }
 
-// Export the server instance for direct use
-export default serverInstance; 
+// Export server for testing and programmatic use
+export function startServer(): Promise<Server> {
+  return new Promise((resolve) => {
+    server.listen(PORT, () => {
+      console.log(`E2B Service running on port ${PORT}`);
+      resolve(server);
+    });
+  });
+}
+
+// Export e2b service functions to expose them to AgentKit tools
+export {
+  createSandbox,
+  runCodeAndStream,
+  closeSandbox,
+  getActiveSandboxCount,
+  cleanupAllSandboxes
+} from './e2b-service'; 

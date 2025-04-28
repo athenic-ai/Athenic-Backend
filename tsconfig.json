@@ -12,11 +12,12 @@
     "rootDir": ".",
     "baseUrl": ".",
     "paths": {
-      "*": ["node_modules/*"]
+      "*": ["node_modules/*"],
+      "@e2b/*": ["e2b/src/*"]
     },
-    "typeRoots": ["./node_modules/@types"],
+    "typeRoots": ["./node_modules/@types", "./src/types"],
     "types": ["jest", "node"]
   },
-  "include": ["supabase/**/*.ts", "tests/**/*.ts"],
+  "include": ["supabase/**/*.ts", "tests/**/*.ts", "src/**/*.ts", "src/types/*.d.ts", "e2b/src/**/*.ts"],
   "exclude": ["node_modules"]
 }

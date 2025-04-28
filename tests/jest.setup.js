@@ -8,13 +8,15 @@ process.env.SENTRY_DSN = 'test-sentry-dsn';
 process.env.SB_REGION = 'test-region';
 process.env.SB_EXECUTION_ID = 'test-execution-id';
 
-// Global test setup
+// Set up any global test configuration here
+process.env.NODE_ENV = 'test';
+
+// Mock the console methods to reduce noise during tests
 global.console = {
   ...console,
-  // Uncomment to disable specific console methods during tests
-  // log: jest.fn(),
-  // info: jest.fn(),
-  // debug: jest.fn(),
+  // Comment out these lines to see the console output during tests
+  log: jest.fn(),
+  info: jest.fn(),
   warn: jest.fn(),
   error: jest.fn(),
 };

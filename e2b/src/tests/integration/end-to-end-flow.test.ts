@@ -22,7 +22,7 @@ conditionalDescribe('End-to-End Flow Tests', () => {
   let wsClient: WebSocket;
   let clientId: string;
   let wsMessages: any[] = [];
-  const wsUrl = process.env.TEST_WS_URL || 'ws://localhost:3001';
+  const wsUrl = process.env.TEST_WS_URL || 'ws://localhost:8002';
   
   beforeEach(() => {
     // Clear message array before each test

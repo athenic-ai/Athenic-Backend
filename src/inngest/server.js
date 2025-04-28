@@ -1,13 +1,14 @@
-// Add type declaration for express
-declare module 'express';
-
-import { serve } from 'inngest/express';
-import express from 'express';
-import { inngest } from './client';
-import { testFunction, chatMessageHandler } from './functions';
+const { serve } = require('inngest/express');
+const express = require('express');
+const bodyParser = require('body-parser');
+const { inngest } = require('./client');
+const { testFunction, chatMessageHandler } = require('./functions');
 
 // Create express app for Inngest server
 const app = express();
+
+// Add middleware for parsing request body
+app.use(bodyParser.json());
 
 // Register all Inngest functions
 const inngestFunctions = [
@@ -26,13 +27,12 @@ const inngestHandler = serve({
 app.use('/api/inngest', inngestHandler);
 
 // Add a health check endpoint
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-app.get('/health', (req: any, res: any) => {
+app.get('/health', (req, res) => {
   res.json({ status: 'healthy', service: 'inngest-server' });
 });
 
 // Export server start function
-export function startInngestServer(port: number = 8001): void {
+function startInngestServer(port = 8001) {
   app.listen(port, () => {
     console.log(`Inngest server listening on port ${port}`);
     console.log(`Health check: http://localhost:${port}/health`);
@@ -44,4 +44,6 @@ export function startInngestServer(port: number = 8001): void {
 if (require.main === module) {
   const port = parseInt(process.env.INNGEST_SERVER_PORT || '8001', 10);
   startInngestServer(port);
-} 
+}
+
+module.exports = { startInngestServer }; 
