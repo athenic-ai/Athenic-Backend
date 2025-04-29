@@ -15,6 +15,7 @@ Athenic-Backend is the backend component of the Athenic platform, containing Sup
     - `/data`: Data processing functions
   - `/migrations`: Database migration scripts
 
+
 ## Setup and Development
 
 ### Prerequisites
@@ -34,6 +35,20 @@ npm install
 ```
 
 ### Local Development
+
+To start the Inngest server, use one of the following commands in your terminal:
+# For TypeScript version with ts-node
+npm run start:inngest`
+
+# For development with auto-reload
+npm run dev:inngest
+
+# For JavaScript version (if you have built the TS files)
+npm run start:inngest:js
+
+Or to start both the Inngest server and the API server together:
+# Start both servers in development mode
+npm run dev:all
 
 ```bash
 # Start Supabase locally

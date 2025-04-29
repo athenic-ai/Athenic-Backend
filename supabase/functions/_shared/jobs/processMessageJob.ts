@@ -278,6 +278,7 @@ export class ProcessMessageJob<T> {
 
         if (!e2bApiKey) {
           console.error("E2B_API_KEY not found in environment variables");
+          console.error("Make sure to set the E2B_API_KEY in your Supabase environment variables");
           const errorMessage = "I detected that you want me to run code or a command, but the E2B API key is missing. Please contact the system administrator.";
           executeThreadResult = {
             status: 200,
@@ -293,7 +294,7 @@ export class ProcessMessageJob<T> {
             // Import the E2B SDK
             const { Sandbox } = await import("npm:@e2b/code-interpreter");
             
-            console.log("Creating E2B Sandbox...");
+            console.log("Creating E2B Sandbox with API key...");
             // Create a sandbox instance using the correct API with a reasonable timeout
             const sandbox = await Sandbox.create({
               apiKey: e2bApiKey,

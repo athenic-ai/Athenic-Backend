@@ -1,42 +1,70 @@
-// Add type declaration for express
-declare module 'express';
+// Using any types to avoid TypeScript issues
 
 import { serve } from 'inngest/express';
 import express from 'express';
 import { inngest } from './client';
-import { testFunction, chatMessageHandler } from './functions';
+import { testFunction, handleChatMessage, processChat, complexTaskHandler } from './functions';
+import Logger from '../utils/logger';
+import ensureLogDirectories from '../utils/ensure-log-dirs';
+
+// Ensure log directories exist
+ensureLogDirectories();
+
+// Create a logger specifically for the Inngest server
+const logger = Logger.getLogger({
+  component: 'InngestServer'
+});
 
 // Create express app for Inngest server
 const app = express();
 
-// Register all Inngest functions
+// Add middleware to parse JSON bodies
+app.use(express.json());
+
+// Register the Inngest functions
 const inngestFunctions = [
   testFunction,
-  chatMessageHandler,
+  handleChatMessage,
+  processChat,
+  complexTaskHandler,
   // Add more functions here as they are created
 ];
+
+// Log function registrations more clearly
+for (const fn of inngestFunctions) {
+  if (fn) {
+    logger.info(`Registering Inngest function: ${fn.id}`, { 
+      functionId: fn.id,
+      triggerEvent: fn.id || 'unknown'
+    });
+  } else {
+    logger.warn('Found undefined function in registration list');
+  }
+}
+
+logger.info(`Registering ${inngestFunctions.length} Inngest functions`);
 
 // Create Inngest handler
 const inngestHandler = serve({
   client: inngest,
-  functions: inngestFunctions,
+  functions: inngestFunctions.filter(Boolean),
 });
 
 // Add Inngest handler to Express app
 app.use('/api/inngest', inngestHandler);
 
 // Add a health check endpoint
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-app.get('/health', (req: any, res: any) => {
+app.get('/health', (req, res) => {
+  logger.debug('Health check endpoint called');
   res.json({ status: 'healthy', service: 'inngest-server' });
 });
 
 // Export server start function
 export function startInngestServer(port: number = 8001): void {
   app.listen(port, () => {
-    console.log(`Inngest server listening on port ${port}`);
-    console.log(`Health check: http://localhost:${port}/health`);
-    console.log(`Inngest webhook URL: http://localhost:${port}/api/inngest`);
+    logger.info(`Inngest server listening on port ${port}`);
+    logger.info(`Health check: http://localhost:${port}/health`);
+    logger.info(`Inngest webhook URL: http://localhost:${port}/api/inngest`);
   });
 }
 

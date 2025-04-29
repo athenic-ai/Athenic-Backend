@@ -5,50 +5,73 @@ import morgan from 'morgan';
 import { v4 as uuid } from 'uuid';
 import { inngest } from '../inngest/client';
 import { createSupabaseClient } from './supabase';
+import Logger from '../utils/logger';
+import ensureLogDirectories from '../utils/ensure-log-dirs';
+import fs from 'fs';
+import path from 'path';
 
-console.log('Server module is being loaded');
+// Ensure log directories exist
+ensureLogDirectories();
+
+// Create a logger specifically for the API server
+const logger = Logger.getLogger({
+  component: 'ApiServer'
+});
+
+logger.info('Server module is being loaded');
 
 // Load environment variables
 import dotenv from 'dotenv';
 dotenv.config();
-console.log('Environment variables loaded');
+logger.info('Environment variables loaded');
 
 // Create Express app
 const app = express();
-console.log('Express app created');
+logger.info('Express app created');
+
+// Set up API access log file
+const logsDir = path.join(process.cwd(), 'logs');
+const accessLogStream = fs.createWriteStream(
+  path.join(logsDir, `api-access-${new Date().toISOString().split('T')[0]}.log`), 
+  { flags: 'a' }
+);
+
+// Use morgan for request logging to our file
+app.use(morgan('combined', { 
+  stream: accessLogStream
+}));
 
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
-app.use(morgan('dev')); // Logging
-console.log('Middleware configured');
+app.use(morgan('dev')); // Console logging
+logger.info('Middleware configured');
 
 // Store active client sessions
 const clientSessions = new Map();
 
 // Health check endpoint
 app.get('/api/health', (req: any, res: any) => {
-  console.log('Health check endpoint called');
+  logger.debug('Health check endpoint called');
   res.json({ status: 'healthy', service: 'backend-api' });
-  console.log('Health check response sent');
 });
 
 // Chat endpoint - handles messages from the Flutter app
 app.post('/api/chat', async (req: any, res: any) => {
-  console.log('Chat endpoint called');
+  logger.info('Chat endpoint called');
   try {
     const { message, userId, organisationId } = req.body;
     
     // Validate required parameters
     if (!message) {
-      console.log('Missing message parameter');
+      logger.warn('Missing message parameter');
       return res.status(400).json({ error: 'Missing required parameter: message' });
     }
     
     // Validate auth token if provided
     const authHeader = req.headers.authorization;
     if (authHeader) {
-      console.log('Auth header found, validating token');
+      logger.debug('Auth header found, validating token');
       // Extract the token
       const token = authHeader.split(' ')[1];
       
@@ -56,15 +79,15 @@ app.post('/api/chat', async (req: any, res: any) => {
       const supabase = createSupabaseClient();
       
       // Verify the token
-      console.log('Verifying token with Supabase');
+      logger.debug('Verifying token with Supabase');
       const { data, error } = await supabase.auth.getUser(token);
       
       if (error) {
-        console.error('Auth error:', error);
+        logger.warn(`Auth error: ${error.message}`);
         return res.status(401).json({ error: 'Invalid authentication token' });
       }
       
-      console.log('Authenticated user:', data.user);
+      logger.info(`Authenticated user: ${data.user.id}`);
     }
     
     // Generate a unique client ID for this session
@@ -78,10 +101,10 @@ app.post('/api/chat', async (req: any, res: any) => {
     });
     
     // Log the incoming message
-    console.log(`Received chat message from client ${clientId}:`, message.substring(0, 100) + (message.length > 100 ? '...' : ''));
+    logger.info(`Received chat message from client ${clientId}: ${message.substring(0, 100) + (message.length > 100 ? '...' : '')}`);
     
     // Send the event to Inngest for processing
-    console.log('Sending event to Inngest');
+    logger.debug('Sending event to Inngest');
     await inngest.send({
       name: 'athenic/chat.message.received',
       data: {
@@ -92,17 +115,17 @@ app.post('/api/chat', async (req: any, res: any) => {
         timestamp: new Date().toISOString(),
       },
     });
-    console.log('Inngest event sent successfully');
+    logger.info('Inngest event sent successfully');
     
     // Immediately return 202 Accepted, indicating the request is being processed
-    console.log('Returning 202 response');
+    logger.debug('Returning 202 response');
     return res.status(202).json({
       status: 'processing',
       message: 'Message received and is being processed',
       clientId, // Return the clientId to the client for later use
     });
   } catch (error: any) {
-    console.error('Error processing chat message:', error);
+    logger.error(`Error processing chat message: ${error.message}`, error);
     return res.status(500).json({
       error: 'Internal server error',
       message: error.message,
@@ -112,11 +135,11 @@ app.post('/api/chat', async (req: any, res: any) => {
 
 // Endpoint for Inngest to send responses back to the client (will be handled via WebSocket)
 app.post('/api/chat/response', (req: any, res: any) => {
-  console.log('Chat response endpoint called');
+  logger.info('Chat response endpoint called');
   const { clientId, response, requiresE2B, e2bResult } = req.body;
   
   if (!clientId || !response) {
-    console.log('Missing required parameters');
+    logger.warn('Missing required parameters');
     return res.status(400).json({ error: 'Missing required parameters: clientId, response' });
   }
   
@@ -141,22 +164,22 @@ app.post('/api/chat/response', (req: any, res: any) => {
   
   // Normally in a WebSocket setup, we would push this response directly to the connected client
   // For now, we'll just log it and return a success response
-  console.log(`Response for client ${clientId}:`, response.substring(0, 100) + (response.length > 100 ? '...' : ''));
-  console.log(`Requires E2B execution: ${requiresE2B ? 'Yes' : 'No'}`);
+  logger.info(`Response for client ${clientId}: ${response.substring(0, 100) + (response.length > 100 ? '...' : '')}`);
+  logger.debug(`Requires E2B execution: ${requiresE2B ? 'Yes' : 'No'}`);
   
   // In the future, this endpoint would trigger a WebSocket message to the client
   // or store the response for retrieval by a polling mechanism
-  console.log('Returning success response');
+  logger.debug('Returning success response');
   res.json({ status: 'success', message: 'Response received' });
 });
 
 // Endpoint for notifying that E2B code execution has started
 app.post('/api/chat/execution-started', (req: any, res: any) => {
-  console.log('E2B execution started endpoint called');
+  logger.info('E2B execution started endpoint called');
   const { clientId, sandboxId } = req.body;
   
   if (!clientId || !sandboxId) {
-    console.log('Missing required parameters');
+    logger.warn('Missing required parameters');
     return res.status(400).json({ error: 'Missing required parameters: clientId, sandboxId' });
   }
   
@@ -175,7 +198,7 @@ app.post('/api/chat/execution-started', (req: any, res: any) => {
     });
   }
   
-  console.log(`E2B execution started for client ${clientId} with sandbox ${sandboxId}`);
+  logger.info(`E2B execution started for client ${clientId} with sandbox ${sandboxId}`);
   
   // In a WebSocket setup, we would push this notification to the client
   // to trigger the terminal view
@@ -192,28 +215,49 @@ app.get('/api/chat/session/:clientId', (req: any, res: any) => {
   const { clientId } = req.params;
   
   if (clientSessions.has(clientId)) {
+    logger.debug(`Session state requested for client ${clientId}`);
     res.json(clientSessions.get(clientId));
   } else {
+    logger.warn(`No session found for client ID: ${clientId}`);
     res.status(404).json({ error: 'No session found for this client ID' });
   }
 });
 
 // Export function to start the server
 export function startApiServer(port: number = 3000): ReturnType<typeof app.listen> {
-  console.log(`Starting API server on port ${port}`);
+  logger.info(`Starting API server on port ${port}`);
   const server = app.listen(port, () => {
-    console.log(`Backend API server listening on port ${port}`);
-    console.log(`Health check: http://localhost:${port}/api/health`);
+    logger.info(`Backend API server listening on port ${port}`);
+    logger.info(`Health check: http://localhost:${port}/api/health`);
   });
+  
+  // Setup graceful shutdown
+  process.on('SIGINT', () => {
+    logger.info('SIGINT received, gracefully shutting down API server');
+    accessLogStream.end();
+    server.close(() => {
+      logger.info('Server closed');
+      process.exit(0);
+    });
+  });
+  
+  process.on('SIGTERM', () => {
+    logger.info('SIGTERM received, gracefully shutting down API server');
+    accessLogStream.end();
+    server.close(() => {
+      logger.info('Server closed');
+      process.exit(0);
+    });
+  });
+  
   return server;
 }
 
-// Start server if this file is run directly
+// If this file is executed directly, start the server
 if (require.main === module) {
-  console.log('Running server directly');
   const port = parseInt(process.env.API_SERVER_PORT || '3000', 10);
   startApiServer(port);
 }
 
-console.log('Server module fully loaded and exported');
+logger.info('Server module fully loaded and exported');
 export default app; 

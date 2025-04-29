@@ -2,7 +2,8 @@ const { serve } = require('inngest/express');
 const express = require('express');
 const bodyParser = require('body-parser');
 const { inngest } = require('./client');
-const { testFunction, chatMessageHandler } = require('./functions');
+// Import the functions from TypeScript file (transpiled at runtime)
+const functions = require('./functions');
 
 // Create express app for Inngest server
 const app = express();
@@ -11,11 +12,13 @@ const app = express();
 app.use(bodyParser.json());
 
 // Register all Inngest functions
+// Filter out any undefined functions to prevent errors
 const inngestFunctions = [
-  testFunction,
-  chatMessageHandler,
+  functions.testFunction,
+  functions.chatMessageHandler,
+  functions.complexTaskHandler,
   // Add more functions here as they are created
-];
+].filter(Boolean);
 
 // Create Inngest handler
 const inngestHandler = serve({

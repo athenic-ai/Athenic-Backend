@@ -14,32 +14,41 @@ if (!E2B_API_KEY) {
   console.error('E2B_API_KEY environment variable is not set.');
 }
 
-// Map to store active sandboxes
+// Active sandboxes map to track all created sandboxes
 const activeSandboxes = new Map<string, Sandbox>();
 
-// Reference to WebSocket clients map from server.ts
-// Will be set when the server initializes
-let clientsMap: Map<string, WebSocket>;
+// Track template types for active sandboxes
+const activeSandboxTemplates = new Map<string, string>();
+
+// Map of WebSocket clients by client ID
+let clientsMap: Map<string, WebSocket> | null = null;
 
 /**
- * Register the WebSocket clients map from server.ts
- * @param clients Map of client IDs to WebSocket connections
+ * Register the WebSocket clients map
+ * @param clients Map of WebSocket clients by client ID
  */
 export function registerClientsMap(clients: Map<string, WebSocket>) {
   clientsMap = clients;
 }
 
 /**
- * Create a new E2B sandbox
- * @param template The E2B template to use (default: 'code-interpreter-v1')
- * @returns The sandbox ID
+ * Create a new sandbox with the specified template
+ * @param template The sandbox template to use
+ * @returns A promise that resolves to the sandbox ID
  */
 export async function createSandbox(template = 'code-interpreter-v1'): Promise<string> {
   try {
+    if (!E2B_API_KEY) {
+      throw new Error('E2B API key is not set - set the E2B_API_KEY environment variable');
+    }
+    
     const sandbox = await Sandbox.create(template, { apiKey: E2B_API_KEY });
     const sandboxId = sandbox.sandboxId;
     
     activeSandboxes.set(sandboxId, sandbox);
+    // Store the template type for later reference
+    activeSandboxTemplates.set(sandboxId, template);
+    
     console.log(`Created sandbox ${sandboxId} with template ${template}`);
     
     return sandboxId;
@@ -83,6 +92,11 @@ export async function runCodeAndStream(
   
   // Helper to send messages to client
   const send = (message: any) => {
+    if (!clientsMap) {
+      console.warn('No WebSocket clients map registered');
+      return;
+    }
+    
     const clientWs = clientsMap.get(clientId);
     if (clientWs && clientWs.readyState === WebSocket.OPEN) {
       clientWs.send(JSON.stringify(message));
@@ -101,6 +115,80 @@ export async function runCodeAndStream(
       sandboxId
     });
   };
+  
+  // Check if this is a shell command (starts with $, or contains common shell patterns)
+  const shellCommandRegex = /^\s*\$?\s*(ls|cd|mkdir|rm|cp|mv|cat|grep|find|echo|curl|wget|git)\s/;
+  const isShellCommand = /^\s*\$\s/.test(code) || 
+                         shellCommandRegex.test(code) || 
+                         /run\s+(the\s+)?command\s+[`'"'](.+?)[`'"']/i.test(code);
+  
+  // Extract the actual command (remove the $ if present)
+  const actualCommand = code.replace(/^\s*\$\s/, '').trim();
+  
+  if (isShellCommand) {
+    // Get template type from sandboxId or use default
+    // The sandbox might not have a template property directly accessible
+    const templateInfo = activeSandboxTemplates.get(sandboxId) || 'code-interpreter-v1';
+    
+    // For Python-based templates
+    if (templateInfo.includes('python') || templateInfo === 'code-interpreter-v1') {
+      // Format as Python subprocess call
+      code = `
+import subprocess
+import sys
+
+try:
+    # Execute the shell command
+    result = subprocess.run(${JSON.stringify(actualCommand)}, shell=True, capture_output=True, text=True)
+    
+    # Print stdout
+    if result.stdout:
+        print(result.stdout)
+    
+    # Print stderr if any
+    if result.stderr:
+        print("Error output:", file=sys.stderr)
+        print(result.stderr, file=sys.stderr)
+    
+    # Print return code
+    print(f"Command completed with exit code: {result.returncode}")
+except Exception as e:
+    print(f"Failed to execute command: {str(e)}", file=sys.stderr)
+`;
+    } 
+    // For Node.js based templates
+    else if (templateInfo.includes('node') || templateInfo === 'nodejs-v1') {
+      // Format as Node.js child_process call
+      code = `
+const { execSync } = require('child_process');
+
+try {
+  const command = ${JSON.stringify(actualCommand)};
+  console.log(\`Executing command: \${command}\`);
+  
+  const output = execSync(command, { 
+    encoding: 'utf8',
+    shell: true,
+    stdio: 'pipe'
+  });
+  
+  console.log(output);
+  console.log('Command completed successfully');
+} catch (error) {
+  console.error('Error output:');
+  if (error.stderr) console.error(error.stderr);
+  console.error(\`Command failed with exit code: \${error.status || 'unknown'}\`);
+  console.error(error.message);
+}
+`;
+    } else {
+      // For other templates, use a minimal shell wrapper appropriate for the environment
+      // This is a fallback that might not work in all templates
+      code = actualCommand;
+    }
+    
+    sendStatus('preparing', 'Formatting shell command for execution...');
+  }
   
   // Notify about execution start
   sendStatus('starting', 'Running code...');
@@ -136,8 +224,7 @@ export async function runCodeAndStream(
     send({
       type: 'result',
       executionId,
-      data: 'Execution completed successfully',
-      duration
+      data: { message: 'Execution completed successfully', duration },
     });
     
     sendStatus('completed', `Execution completed in ${duration}ms`);
@@ -168,6 +255,8 @@ export async function closeSandbox(sandboxId: string): Promise<void> {
     try {
       await sandbox.kill();
       activeSandboxes.delete(sandboxId);
+      // Also remove from templates tracking
+      activeSandboxTemplates.delete(sandboxId);
       console.log(`Closed sandbox ${sandboxId}`);
     } catch (error: any) {
       console.error(`Error closing sandbox ${sandboxId}:`, error);
@@ -199,6 +288,8 @@ export async function cleanupAllSandboxes(): Promise<void> {
   
   await Promise.all(promises);
   activeSandboxes.clear();
+  // Also clear templates tracking
+  activeSandboxTemplates.clear();
   
   console.log('All sandboxes cleaned up');
 } 

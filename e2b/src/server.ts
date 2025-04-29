@@ -230,6 +230,94 @@ app.post('/execute-stream', async (req, res) => {
   }
 });
 
+// Create sandbox endpoint
+app.post('/create-sandbox', async (req, res) => {
+  const { template = 'code-interpreter-v1' } = req.body;
+  
+  try {
+    console.log(`Creating sandbox with template: ${template}`);
+    const sandboxId = await e2bService.createSandbox(template);
+    
+    res.json({
+      success: true,
+      sandboxId,
+      message: `Sandbox created with ID: ${sandboxId}`
+    });
+  } catch (error: any) {
+    console.error('Error creating sandbox:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to create sandbox'
+    });
+  }
+});
+
+// Close sandbox endpoint
+app.post('/close-sandbox', async (req, res) => {
+  const { sandboxId } = req.body;
+  
+  if (!sandboxId) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required parameter: sandboxId'
+    });
+  }
+  
+  try {
+    console.log(`Closing sandbox: ${sandboxId}`);
+    await e2bService.closeSandbox(sandboxId);
+    
+    res.json({
+      success: true,
+      message: `Sandbox ${sandboxId} closed successfully`
+    });
+  } catch (error: any) {
+    console.error(`Error closing sandbox ${sandboxId}:`, error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to close sandbox'
+    });
+  }
+});
+
+// Get active sandboxes count endpoint
+app.get('/active-sandboxes', (req, res) => {
+  try {
+    const count = e2bService.getActiveSandboxCount();
+    
+    res.json({
+      success: true,
+      count,
+      message: `There are currently ${count} active sandbox instances`
+    });
+  } catch (error: any) {
+    console.error('Error getting active sandboxes count:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to get active sandboxes count'
+    });
+  }
+});
+
+// Cleanup all sandboxes endpoint
+app.post('/cleanup-all-sandboxes', async (req, res) => {
+  try {
+    console.log('Cleaning up all sandbox instances');
+    await e2bService.cleanupAllSandboxes();
+    
+    res.json({
+      success: true,
+      message: 'All sandbox instances have been cleaned up'
+    });
+  } catch (error: any) {
+    console.error('Error cleaning up all sandboxes:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to clean up all sandboxes'
+    });
+  }
+});
+
 // Graceful shutdown handler
 const gracefulShutdown = async () => {
   console.log('Shutting down server...');

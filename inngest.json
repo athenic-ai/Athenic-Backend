@@ -1,0 +1,5 @@
+{
+  "sdk-url": ["http://localhost:8001/api/inngest"],
+  "no-discovery": false,
+  "dev-server-port": 8288
+} 
