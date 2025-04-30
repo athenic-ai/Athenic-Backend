@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>E2B WebSocket Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        #output {
+            border: 1px solid #ddd;
+            padding: 10px;
+            min-height: 200px;
+            margin-top: 10px;
+            background-color: #f5f5f5;
+            white-space: pre-wrap;
+        }
+        button {
+            padding: 5px 10px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>E2B WebSocket Test</h1>
+    <div>
+        <label for="wsUrl">WebSocket URL:</label>
+        <input type="text" id="wsUrl" value="ws://localhost:8002/ws?clientId=test-client-1" style="width: 300px;">
+    </div>
+    <button id="connectButton">Connect</button>
+    <button id="disconnectButton" disabled>Disconnect</button>
+    <button id="sendPingButton" disabled>Send Ping</button>
+    <button id="executeCodeButton" disabled>Execute 'echo "hello"'</button>
+    <button id="testDirectExecutionButton">Test Direct Execution</button>
+    <div>Status: <span id="status">Disconnected</span></div>
+    <div>
+        <h3>Output:</h3>
+        <div id="output"></div>
+    </div>
+
+    <script>
+        let socket;
+        const connectButton = document.getElementById('connectButton');
+        const disconnectButton = document.getElementById('disconnectButton');
+        const sendPingButton = document.getElementById('sendPingButton');
+        const executeCodeButton = document.getElementById('executeCodeButton');
+        const testDirectExecutionButton = document.getElementById('testDirectExecutionButton');
+        const status = document.getElementById('status');
+        const output = document.getElementById('output');
+        const wsUrlInput = document.getElementById('wsUrl');
+
+        function appendToOutput(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const formattedMessage = `[${timestamp}] [${type}] ${message}`;
+            output.innerHTML += formattedMessage + '\n';
+            output.scrollTop = output.scrollHeight;
+        }
+
+        connectButton.addEventListener('click', () => {
+            try {
+                const wsUrl = wsUrlInput.value;
+                appendToOutput(`Connecting to ${wsUrl}...`);
+                
+                socket = new WebSocket(wsUrl);
+                
+                socket.onopen = () => {
+                    appendToOutput('WebSocket connection established!', 'success');
+                    status.textContent = 'Connected';
+                    connectButton.disabled = true;
+                    disconnectButton.disabled = false;
+                    sendPingButton.disabled = false;
+                    executeCodeButton.disabled = false;
+                };
+                
+                socket.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        appendToOutput(`Received: ${JSON.stringify(data, null, 2)}`, 'received');
+                    } catch (e) {
+                        appendToOutput(`Received raw data: ${event.data}`, 'received');
+                    }
+                };
+                
+                socket.onclose = () => {
+                    appendToOutput('WebSocket connection closed', 'warning');
+                    status.textContent = 'Disconnected';
+                    connectButton.disabled = false;
+                    disconnectButton.disabled = true;
+                    sendPingButton.disabled = true;
+                    executeCodeButton.disabled = true;
+                };
+                
+                socket.onerror = (error) => {
+                    appendToOutput(`WebSocket error: ${error}`, 'error');
+                    status.textContent = 'Error';
+                };
+            } catch (error) {
+                appendToOutput(`Error creating WebSocket: ${error}`, 'error');
+            }
+        });
+
+        disconnectButton.addEventListener('click', () => {
+            if (socket) {
+                socket.close();
+                appendToOutput('Disconnecting...', 'warning');
+            }
+        });
+
+        sendPingButton.addEventListener('click', () => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const ping = {
+                    type: 'ping',
+                    content: 'Ping from test client',
+                    timestamp: new Date().toISOString()
+                };
+                socket.send(JSON.stringify(ping));
+                appendToOutput(`Sent: ${JSON.stringify(ping)}`, 'sent');
+            } else {
+                appendToOutput('WebSocket not connected!', 'error');
+            }
+        });
+
+        executeCodeButton.addEventListener('click', () => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                // We're not actually executing code here - just simulating
+                // The actual execution happens via the API endpoint
+                appendToOutput('Requesting code execution via API...', 'info');
+                
+                const clientId = new URL(wsUrlInput.value).searchParams.get('clientId') || 'test-client-1';
+                
+                // Make API call to execute code
+                fetch('http://localhost:8002/execute-stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        code: 'echo "hello from test page"',
+                        clientId: clientId
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    appendToOutput(`API Response: ${JSON.stringify(data)}`, 'success');
+                })
+                .catch(error => {
+                    appendToOutput(`API Error: ${error}`, 'error');
+                });
+            } else {
+                appendToOutput('WebSocket not connected!', 'error');
+            }
+        });
+
+        testDirectExecutionButton.addEventListener('click', () => {
+            appendToOutput('Testing direct code execution...', 'info');
+            
+            fetch('http://localhost:8002/test-execute', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({})
+            })
+            .then(response => response.json())
+            .then(data => {
+                appendToOutput(`Direct execution response: ${JSON.stringify(data, null, 2)}`, 'success');
+                
+                if (data.stdout && data.stdout.length > 0) {
+                    appendToOutput(`Stdout: ${data.stdout.join('\n')}`, 'info');
+                }
+                
+                if (data.stderr && data.stderr.length > 0) {
+                    appendToOutput(`Stderr: ${data.stderr.join('\n')}`, 'warning');
+                }
+            })
+            .catch(error => {
+                appendToOutput(`Direct execution error: ${error}`, 'error');
+            });
+        });
+    </script>
+</body>
+</html> 

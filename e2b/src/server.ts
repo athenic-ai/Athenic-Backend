@@ -51,11 +51,34 @@ e2bService.registerClientsMap(clients);
 
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {
-  const { query } = parse(req.url || '', true);
-  const clientId = (query.clientId as string) || uuid();
+  const { pathname, query } = parse(req.url || '', true);
   
-  console.log(`WebSocket connected: ${clientId}`);
+  // Check for clientId in different formats:
+  // 1. From query parameter (new approach): /ws?clientId=123
+  // 2. From path segment (old approach): /ws/123
+  let clientId = query.clientId as string;
+  
+  if (!clientId && pathname) {
+    // Try to extract from path
+    const pathSegments = pathname.split('/').filter(segment => segment);
+    if (pathSegments.length > 1) {
+      // Assume the last segment is the clientId in case of /ws/{clientId} format
+      clientId = pathSegments[pathSegments.length - 1];
+    }
+  }
+  
+  // If still no clientId, generate a new one
+  if (!clientId) {
+    clientId = uuid();
+    console.log(`No clientId provided, generated new ID: ${clientId}`);
+  }
+  
+  console.log(`WebSocket connected: ${clientId}, URL: ${req.url}`);
+  console.log(`Current active clients before adding: ${Array.from(clients.keys()).join(', ')}`);
+  
   clients.set(clientId, ws);
+  
+  console.log(`Updated clients map, new size: ${clients.size}`);
   
   // Send welcome message
   const welcomeMsg: WSStatusMessage = {
@@ -64,7 +87,13 @@ wss.on('connection', (ws, req) => {
     status: 'connected',
     message: `Connected as client ${clientId}`
   };
-  ws.send(JSON.stringify(welcomeMsg));
+  
+  try {
+    ws.send(JSON.stringify(welcomeMsg));
+    console.log(`Sent welcome message to client ${clientId}`);
+  } catch (error) {
+    console.error(`Error sending welcome message to client ${clientId}:`, error);
+  }
   
   // Send any pending messages for this client
   if (pendingMessages.has(clientId)) {
@@ -314,6 +343,75 @@ app.post('/cleanup-all-sandboxes', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to clean up all sandboxes'
+    });
+  }
+});
+
+// Test endpoint for direct code execution (for debugging)
+app.post('/test-execute', async (req, res) => {
+  try {
+    console.log('Received test execute request');
+    
+    // Create sandbox
+    const sandbox = await Sandbox.create('code-interpreter-v1', { apiKey: E2B_API_KEY });
+    console.log(`Created test sandbox: ${sandbox.sandboxId}`);
+    
+    // Run simple echo command
+    const stdoutOutput: string[] = [];
+    const stderrOutput: string[] = [];
+    
+    console.log('Running test code: echo "hello"');
+    
+    const execResult = await sandbox.runCode(`
+import subprocess
+import sys
+
+try:
+    result = subprocess.run("echo hello", shell=True, capture_output=True, text=True)
+    
+    # Print stdout
+    if result.stdout:
+        print(result.stdout)
+    
+    # Print stderr if any
+    if result.stderr:
+        print("Error output:", file=sys.stderr)
+        print(result.stderr, file=sys.stderr)
+    
+    # Print return code
+    print(f"Command completed with exit code: {result.returncode}")
+except Exception as e:
+    print(f"Failed to execute command: {str(e)}", file=sys.stderr)
+`, {
+      onStdout: (output) => {
+        const text = typeof output === 'string' ? output : output.line || String(output);
+        stdoutOutput.push(text);
+        console.log(`Test stdout: ${text}`);
+      },
+      onStderr: (output) => {
+        const text = typeof output === 'string' ? output : output.line || String(output);
+        stderrOutput.push(text);
+        console.log(`Test stderr: ${text}`);
+      }
+    });
+    
+    console.log('Test execution complete');
+    
+    // Close sandbox
+    await sandbox.kill();
+    
+    // Send response
+    res.json({
+      success: true,
+      stdout: stdoutOutput,
+      stderr: stderrOutput,
+      result: execResult
+    });
+  } catch (error: any) {
+    console.error('Error in test endpoint:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });

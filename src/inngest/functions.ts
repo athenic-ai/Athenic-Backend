@@ -457,6 +457,7 @@ export const processChat = inngest.createFunction(
       
       // Generate response based on the analysis
       let response = '';
+      let sandboxId: string | null = null;
       
       if (analysisResult.requiresE2B) {
         if (analysisResult.type === 'shell-command' && 'command' in analysisResult) {
@@ -490,22 +491,70 @@ except Exception as e:
 `;
             
             try {
-              // Execute the code directly
-              const result = await executeCodeDirectly(code, 'code-interpreter-v1', clientId, step);
+              logger.info('Calling executeCodeDirectly', { codeLength: code.length, clientId });
               
-              if (result.error) {
-                throw new Error(result.error);
-              }
-              
+              // IMPORTANT: Create a completely separate step for executeCodeDirectly to avoid nesting
               return `I've executed your command \`${command}\`. The output is being streamed to your terminal.`;
             } catch (error: any) {
               logger.error('Error executing command in sandbox', { 
-                error: error instanceof Error ? error.message : String(error)
+                error: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined
               });
               return `I tried to run the command \`${command}\` but encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}`;
             }
           });
-        } else if (analysisResult.type === 'code-execution') {
+          
+          // Now in a separate step, execute the command
+          const e2bResult = await step.run('execute-e2b-command', async () => {
+            const command = analysisResult.command;
+            logger.info('Executing E2B command in separate step', { command });
+            
+            // Format the command as code to run in sandbox
+            const code = `
+import subprocess
+import sys
+
+try:
+    # Execute the shell command
+    result = subprocess.run("${command.replace(/"/g, '\\"')}", shell=True, capture_output=True, text=True)
+    
+    # Print stdout
+    if result.stdout:
+        print(result.stdout)
+    
+    # Print stderr if any
+    if result.stderr:
+        print("Error output:", file=sys.stderr)
+        print(result.stderr, file=sys.stderr)
+    
+    # Print return code
+    print(f"Command completed with exit code: {result.returncode}")
+except Exception as e:
+    print(f"Failed to execute command: {str(e)}", file=sys.stderr)
+`;
+            
+            try {
+              // Execute the code directly
+              const result = await executeCodeDirectly(code, 'code-interpreter-v1', clientId, step);
+              
+              logger.info('E2B command execution result', {
+                success: !!result.success,
+                error: result.error,
+                sandboxId: result.sandboxId
+              });
+              
+              return result;
+            } catch (e) {
+              logger.error('Failed to execute E2B command', { error: String(e) });
+              return { error: String(e) };
+            }
+          });
+          
+          // Store the sandbox ID for the response
+          if (e2bResult && typeof e2bResult === 'object' && 'sandboxId' in e2bResult) {
+            sandboxId = e2bResult.sandboxId as string;
+          }
+        } else {
           // Generate and execute code based on message
           response = await step.run('generate-and-execute-code', async () => {
             logger.info('Generating code based on message');
@@ -516,6 +565,11 @@ except Exception as e:
             try {
               // Execute the code directly
               const result = await executeCodeDirectly(code, 'code-interpreter-v1', clientId, step);
+              
+              // Store the sandbox ID for the response 
+              if (result && typeof result === 'object' && 'sandboxId' in result) {
+                sandboxId = result.sandboxId as string;
+              }
               
               if (result.error) {
                 throw new Error(result.error);
@@ -550,6 +604,7 @@ except Exception as e:
       await step.run('send-response-to-api', async () => {
         logger.info('Sending response to API server', { 
           clientId,
+          sandboxId, // Include the sandbox ID in the log
           responseLength: response.length,
           requiresE2B: analysisResult.requiresE2B
         });
@@ -560,17 +615,27 @@ except Exception as e:
           
           // Call the API server's response endpoint
           const port = process.env.API_SERVER_PORT || '3000';
-          await axios.post(`http://localhost:${port}/api/chat/response`, {
+          const apiUrl = `http://localhost:${port}/api/chat/response`;
+          logger.debug(`Sending response to API at ${apiUrl}`);
+          
+          const responsePayload = {
             clientId,
             response,
-            requiresE2B: analysisResult.requiresE2B
-          });
+            requiresE2B: analysisResult.requiresE2B,
+            sandboxId, // IMPORTANT: Include the sandbox ID in the response payload
+          };
           
-          logger.info('Response sent to API server successfully');
+          const apiResponse = await axios.post(apiUrl, responsePayload);
+          
+          logger.info('Response sent to API server successfully', {
+            status: apiResponse.status,
+            data: apiResponse.data
+          });
           return { success: true };
         } catch (error: any) {
           logger.error('Failed to send response to API server', {
-            error: error instanceof Error ? error.message : String(error)
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined
           });
           // Continue execution even if sending response fails
           return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
@@ -582,17 +647,15 @@ except Exception as e:
       return {
         status: 'success',
         response,
-        processingTimeMs: Date.now() - startTime
+        processingTimeMs: Date.now() - startTime,
+        sandboxId, // Include the sandbox ID in the return value
       };
     } catch (error: any) {
-      // Log the error
-      logger.error('Error processing chat message', {
+      logger.error('Unhandled error in processChat', {
         error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        eventId: event.id
+        stack: error instanceof Error ? error.stack : undefined
       });
       
-      // Return an error response
       return {
         status: 'error',
         error: error instanceof Error ? error.message : 'Unknown error',

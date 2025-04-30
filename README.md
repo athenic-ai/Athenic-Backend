@@ -36,19 +36,16 @@ npm install
 
 ### Local Development
 
-To start the Inngest server, use one of the following commands in your terminal:
-# For TypeScript version with ts-node
-npm run start:inngest`
+To start the Inngest server, run:
+`npm run dev:all`
 
-# For development with auto-reload
-npm run dev:inngest
+Also run the E2B rnvironment within the `e2b` folder with:
+`npm run dev`
 
-# For JavaScript version (if you have built the TS files)
-npm run start:inngest:js
+You run the flutter business app via: `flutter run -d chrome --web-port 8000`
 
-Or to start both the Inngest server and the API server together:
-# Start both servers in development mode
-npm run dev:all
+
+
 
 ```bash
 # Start Supabase locally

@@ -82,10 +82,29 @@ export async function runCodeAndStream(
     throw new Error('WebSocket clients map not registered - call registerClientsMap first');
   }
   
-  const client = clientsMap.get(clientId);
+  // IMPORTANT: Check for both the provided clientId and the sandboxId itself as client ids
+  // Since we're now using sandboxId as clientId in some places for consistency
+  const client = clientsMap.get(clientId) || (clientId !== sandboxId ? clientsMap.get(sandboxId) : undefined);
+  
+  console.log(`[DEBUG] runCodeAndStream for client ${clientId}, found client connection: ${!!client}, readyState: ${client?.readyState}`);
+  console.log(`[DEBUG] Also checked for sandboxId ${sandboxId} as clientId: ${!!clientsMap.get(sandboxId)}`);
+  console.log(`[DEBUG] WebSocket.OPEN=${WebSocket.OPEN}, clients map size: ${clientsMap.size}`);
+  console.log(`[DEBUG] All connected clients: ${Array.from(clientsMap.keys()).join(', ')}`);
   
   if (!client || client.readyState !== WebSocket.OPEN) {
-    console.warn(`Client ${clientId} not connected or ready, output will be lost`);
+    console.warn(`Client ${clientId} not connected or ready, checking alternative connections...`);
+    
+    // If the specific client is not available, try to find any client that might be waiting
+    if (clientsMap.size > 0) {
+      // Find the most recent connection that is OPEN
+      for (const [id, ws] of clientsMap.entries()) {
+        if (ws.readyState === WebSocket.OPEN) {
+          console.log(`[INFO] Found alternative open connection with client ID: ${id}. Using this instead.`);
+          clientId = id;
+          break;
+        }
+      }
+    }
   }
   
   const executionId = uuid();
@@ -97,11 +116,37 @@ export async function runCodeAndStream(
       return;
     }
     
-    const clientWs = clientsMap.get(clientId);
+    // IMPORTANT: Try both the provided clientId and the sandboxId as client IDs
+    let clientWs = clientsMap.get(clientId);
+    if (!clientWs || clientWs.readyState !== WebSocket.OPEN) {
+      // Try the sandboxId as an alternate clientId if different
+      if (clientId !== sandboxId) {
+        clientWs = clientsMap.get(sandboxId);
+        if (clientWs && clientWs.readyState === WebSocket.OPEN) {
+          console.log(`[INFO] Using sandboxId ${sandboxId} as clientId for WebSocket communication`);
+        }
+      }
+    }
+    
+    console.log(`[DEBUG] send(): Client ${clientId} connection: ${!!clientWs}, readyState: ${clientWs?.readyState}`);
+    
     if (clientWs && clientWs.readyState === WebSocket.OPEN) {
-      clientWs.send(JSON.stringify(message));
+      const messageStr = JSON.stringify(message);
+      console.log(`[DEBUG] Sending message type ${message.type} to client ${clientId}`);
+      clientWs.send(messageStr);
     } else {
-      console.warn(`Cannot send message to client ${clientId}, WebSocket not open`);
+      console.warn(`Cannot send message to client ${clientId} or sandbox ${sandboxId}, WebSocket not open (readyState: ${clientWs?.readyState})`);
+      
+      // Last resort - try to find ANY open connection
+      if (clientsMap.size > 0) {
+        for (const [connId, conn] of clientsMap.entries()) {
+          if (conn.readyState === WebSocket.OPEN) {
+            console.log(`[INFO] Sending message to alternative client ${connId} as fallback`);
+            conn.send(JSON.stringify(message));
+            return;
+          }
+        }
+      }
     }
   };
   
@@ -196,11 +241,14 @@ try {
   try {
     const startTime = Date.now();
     
+    console.log(`[DEBUG] Running code in sandbox ${sandboxId} for client ${clientId}`);
+    
     await sandbox.runCode(code, {
       timeoutMs,
       onStdout: (output: OutputMessage) => {
         // Extract text from output object - prefer line over text if available
         const text = typeof output === 'string' ? output : output.line || String(output);
+        console.log(`[DEBUG] Stdout from sandbox: ${text.substring(0, 50)}${text.length > 50 ? '...' : ''}`);
         send({
           type: 'stdout',
           executionId,
@@ -210,6 +258,7 @@ try {
       onStderr: (output: OutputMessage) => {
         // Extract text from output object - prefer line over text if available
         const text = typeof output === 'string' ? output : output.line || String(output);
+        console.log(`[DEBUG] Stderr from sandbox: ${text.substring(0, 50)}${text.length > 50 ? '...' : ''}`);
         send({
           type: 'stderr',
           executionId,
@@ -219,6 +268,7 @@ try {
     });
     
     const duration = Date.now() - startTime;
+    console.log(`[DEBUG] Code execution complete for client ${clientId}, duration: ${duration}ms`);
     
     // Notify about successful completion
     send({

@@ -227,51 +227,44 @@ export const executeCodeDirectly = async (
   let sandboxId: string | null = null;
   
   try {
-    // Create a new sandbox instance
-    sandboxId = await step.run('create-e2b-sandbox', async () => {
-      console.log(`Creating E2B sandbox with template: ${template} for client: ${clientId}`);
-      
-      // Call the E2B service to create a sandbox
-      const e2bServiceUrl = process.env.E2B_SERVICE_URL || 'http://localhost:8002';
-      const response = await axios.post(`${e2bServiceUrl}/create-sandbox`, {
-        template
-      });
-      
-      return response.data.sandboxId;
+    // Create a new sandbox instance - DIRECTLY, not via step.run
+    console.log(`Creating E2B sandbox with template: ${template} for client: ${clientId}`);
+    
+    // Call the E2B service to create a sandbox
+    const e2bServiceUrl = process.env.E2B_SERVICE_URL || 'http://localhost:8002';
+    const createResponse = await axios.post(`${e2bServiceUrl}/create-sandbox`, {
+      template
     });
+    
+    sandboxId = createResponse.data.sandboxId;
 
     if (!sandboxId) {
       throw new Error('Failed to create sandbox');
     }
 
-    // Execute the code and stream output to the client
-    await step.run('run-e2b-code', async () => {
-      console.log(`Running code in sandbox ${sandboxId} for client ${clientId}`);
-      
-      // Notify the API server that code execution has started
-      try {
-        const port = process.env.API_SERVER_PORT || '3000';
-        await axios.post(`http://localhost:${port}/api/chat/execution-started`, {
-          clientId,
-          sandboxId,
-        });
-      } catch (error: any) {
-        console.warn(`Failed to notify API server about execution start: ${error.message}`);
-        // Continue execution even if notification fails
-      }
-
-      // Call the E2B service to execute code and stream output
-      const e2bServiceUrl = process.env.E2B_SERVICE_URL || 'http://localhost:8002';
-      await axios.post(`${e2bServiceUrl}/execute-stream`, {
-        sandboxId,
-        code,
+    console.log(`Running code in sandbox ${sandboxId} for client ${clientId}`);
+    
+    // Notify the API server that code execution has started
+    try {
+      const port = process.env.API_SERVER_PORT || '3000';
+      await axios.post(`http://localhost:${port}/api/chat/execution-started`, {
         clientId,
-        timeout: 30000 // 30 seconds timeout
+        sandboxId,
       });
-      
-      return { success: true };
-    });
+    } catch (notifyError: any) {
+      console.warn(`Failed to notify API server about execution start: ${notifyError.message}`);
+      // Continue execution even if notification fails
+    }
 
+    // IMPORTANT: We'll use sandboxId as the clientId for WebSocket connections
+    // This ensures the frontend connects to the same ID the backend is streaming to
+    await axios.post(`${e2bServiceUrl}/execute-stream`, {
+      sandboxId,
+      code,
+      clientId: sandboxId, // Use sandboxId as clientId to ensure consistent websocket connection
+      timeout: 30000 // 30 seconds timeout
+    });
+    
     return { 
       success: true, 
       message: 'Code execution completed successfully. Output has been streamed to your terminal.',
@@ -286,22 +279,18 @@ export const executeCodeDirectly = async (
   } finally {
     // Always clean up sandbox resources even if execution fails
     if (sandboxId) {
-      await step.run('close-e2b-sandbox', async () => {
-        console.log(`Closing sandbox ${sandboxId}`);
-        
-        // Call the E2B service to close the sandbox
-        const e2bServiceUrl = process.env.E2B_SERVICE_URL || 'http://localhost:8002';
-        try {
-          await axios.post(`${e2bServiceUrl}/close-sandbox`, {
-            sandboxId
-          });
-        } catch (closeError: any) {
-          console.warn(`Failed to close sandbox ${sandboxId}: ${closeError.message}`);
-          // Don't throw here, as we're in a finally block
-        }
-        
-        return { closed: true };
-      });
+      console.log(`Closing sandbox ${sandboxId}`);
+      
+      // Call the E2B service to close the sandbox
+      const e2bServiceUrl = process.env.E2B_SERVICE_URL || 'http://localhost:8002';
+      try {
+        await axios.post(`${e2bServiceUrl}/close-sandbox`, {
+          sandboxId
+        });
+      } catch (closeError: any) {
+        console.warn(`Failed to close sandbox ${sandboxId}: ${closeError.message}`);
+        // Don't throw here, as we're in a finally block
+      }
     }
   }
 };
