@@ -238,6 +238,13 @@ try {
   // Notify about execution start
   sendStatus('starting', 'Running code...');
   
+  // Send the command prompt and command as a stdout message first
+  send({
+    type: 'stdout',
+    executionId,
+    data: `ubuntu@sandbox:~ $ ${actualCommand}`
+  });
+  
   try {
     const startTime = Date.now();
     
