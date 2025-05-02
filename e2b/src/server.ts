@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { v4 as uuid } from 'uuid';
-import http, { Server } from 'http';
+import http, { Server, IncomingMessage } from 'http';
 import WebSocket, { WebSocketServer } from 'ws';
 import { Sandbox } from '@e2b/code-interpreter';
 import bodyParser from 'body-parser';
@@ -49,89 +49,95 @@ const pendingMessages = new Map<string, string[]>();
 // Register clients map with e2b service
 e2bService.registerClientsMap(clients);
 
-// Handle WebSocket connections
-server.on('upgrade', (request, socket, head) => {
+// Handle WebSocket connections using the 'connection' event
+wss.on('connection', (ws: WebSocket, request: IncomingMessage) => {
+  // Extract clientId from the request URL
   const url = new URL(request.url || '', `http://${request.headers.host}`);
   const clientId = url.searchParams.get('clientId');
-  
+
   if (!clientId) {
-    socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
-    socket.destroy();
+    console.log('WebSocket connection attempt without clientId. Closing connection.');
+    ws.close(1008, 'Client ID is required'); // Close with a policy violation code
     return;
   }
-  
-  wss.handleUpgrade(request, socket, head, (ws) => {
-    console.log(`WebSocket connected: ${clientId}, URL: ${request.url}`);
-    
-    // Check if this client is already connected
-    const existingClient = clients.get(clientId);
-    console.log(`Current active clients before adding: ${Array.from(clients.keys()).join(', ')}`);
-    
-    // Close existing connection if it exists
-    if (existingClient) {
-      console.log(`Closing existing connection for client ${clientId}`);
-      try {
-        existingClient.close();
-      } catch (err) {
-        console.warn(`Error closing existing connection: ${err}`);
-      }
-    }
-    
-    // Store new client connection
-    clients.set(clientId, ws);
-    console.log(`Updated clients map, new size: ${clients.size}`);
-    
-    // Send welcome message to confirm connection is established
-    const welcomeMsg = JSON.stringify({
-      type: 'status',
-      status: 'connected',
-      message: `Connected as client ${clientId}`,
-      timestamp: new Date().toISOString(),
-      id: uuid()
-    });
-    
+
+  console.log(`WebSocket connected: ${clientId}, URL: ${request.url}`);
+
+  // Check if this client is already connected
+  const existingClient = clients.get(clientId);
+  console.log(`Current active clients before adding: ${Array.from(clients.keys()).join(', ')}`);
+
+  // Close existing connection if it exists
+  if (existingClient) {
+    console.log(`Closing existing connection for client ${clientId}`);
     try {
-      ws.send(welcomeMsg);
-      console.log(`Sent welcome message to client ${clientId}`);
+      existingClient.terminate(); // Use terminate for forceful close if needed
     } catch (err) {
-      console.error(`Error sending welcome message to ${clientId}:`, err);
+      console.warn(`Error terminating existing connection: ${err}`);
     }
-    
-    // Handle incoming messages
-    ws.on('message', (message) => {
-      try {
-        const parsedMessage = JSON.parse(message.toString());
-        console.log('Received message:', parsedMessage);
-        
-        // Add special handling for message types if needed
-      } catch (error) {
-        console.warn(`Invalid message format: ${message}`);
-      }
-    });
-    
-    // Handle connection close
-    ws.on('close', () => {
-      console.log(`WebSocket disconnected: ${clientId}`);
-      
-      // Only remove the client if this specific socket is still the one in the map
-      if (clients.get(clientId) === ws) {
-        clients.delete(clientId);
-        console.log(`Removed client ${clientId} from map, new size: ${clients.size}`);
-      } else {
-        console.log(`Connection closed for ${clientId} but a newer connection exists in the map`);
-      }
-    });
-    
-    // Handle errors
-    ws.on('error', (error) => {
-      console.error(`WebSocket error for client ${clientId}:`, error);
-      
-      // Clean up on error
-      if (clients.get(clientId) === ws) {
-        clients.delete(clientId);
-        console.log(`Removed client ${clientId} from map due to error`);
-      }
-    });
+  }
+
+  // Store new client connection
+  clients.set(clientId, ws);
+  console.log(`Updated clients map, new size: ${clients.size}`);
+
+  // Send welcome message to confirm connection is established
+  const welcomeMsg = JSON.stringify({
+    type: 'status',
+    status: 'connected',
+    message: `Connected as client ${clientId}`,
+    timestamp: new Date().toISOString(),
+    id: uuid()
+  });
+
+  try {
+    ws.send(welcomeMsg);
+    console.log(`Sent welcome message to client ${clientId}`);
+  } catch (err) {
+    console.error(`Error sending welcome message to ${clientId}:`, err);
+    // Consider closing the connection if the welcome message fails
+    clients.delete(clientId);
+    ws.close();
+  }
+
+  // Handle incoming messages
+  ws.on('message', (message) => {
+    try {
+      const parsedMessage = JSON.parse(message.toString());
+      console.log(`Received message from ${clientId}:`, parsedMessage);
+
+      // Add special handling for message types if needed
+    } catch (error) {
+      console.warn(`Invalid message format from ${clientId}: ${message}`);
+    }
+  });
+
+  // Handle connection close
+  ws.on('close', (code, reason) => {
+    console.log(`WebSocket disconnected: ${clientId} (Code: ${code}, Reason: ${reason || 'N/A'})`);
+
+    // Only remove the client if this specific socket is still the one in the map
+    if (clients.get(clientId) === ws) {
+      clients.delete(clientId);
+      console.log(`Removed client ${clientId} from map, new size: ${clients.size}`);
+    } else {
+      console.log(`Connection closed for ${clientId} but a newer connection exists in the map`);
+    }
+  });
+
+  // Handle errors
+  ws.on('error', (error) => {
+    console.error(`WebSocket error for client ${clientId}:`, error);
+
+    // Clean up on error
+    if (clients.get(clientId) === ws) {
+      clients.delete(clientId);
+      console.log(`Removed client ${clientId} from map due to error`);
+    }
+    // Ensure the socket is closed on error
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+       ws.close(1011, 'Internal Server Error'); // Close with an appropriate code
+    }
   });
 });
 
