@@ -1,5 +1,5 @@
-import { inngest } from './client';
-import Logger from '../utils/logger';
+import { inngest } from '../../src/inngest/client';
+import Logger from '../../src/utils/logger';
 
 // Create a logger for this test script
 const logger = Logger.getLogger({
@@ -8,7 +8,7 @@ const logger = Logger.getLogger({
 
 /**
  * Simple script to test sending a chat message event
- * Run with: npx ts-node src/inngest/test-chat-message.ts
+ * Run with: npx ts-node tests/inngest/test-chat-message.ts
  */
 async function main() {
   console.log('Sending test chat message event...');

@@ -1,8 +1,8 @@
-import { testInngestConnection } from './client';
+import { testInngestConnection } from '../../src/inngest/client';
 
 /**
  * Simple script to test Inngest connection
- * Run with: npx ts-node src/inngest/test-inngest.ts
+ * Run with: npx ts-node tests/inngest/test-inngest.ts
  */
 async function main() {
   console.log('Testing Inngest connection...');

@@ -37,31 +37,35 @@
     "zod": "^3.24.3"
   },
   "scripts": {
+    "# Testing": "",
     "test": "jest --config=jest.config.js",
     "test:watch": "jest --watch --config=jest.config.js",
     "test:coverage": "jest --coverage --config=jest.config.js",
-    "test:inngest": "npx ts-node src/inngest/test-inngest.ts",
-    "test:logs": "npx ts-node src/tests/log-test.ts",
-    "test:chat": "npx ts-node src/inngest/test-chat-message.ts",
+    "test:inngest": "npx ts-node tests/inngest/test-inngest.ts",
+    "test:logs": "npx ts-node tests/log-test.ts",
+    "test:chat": "npx ts-node tests/inngest/test-chat-message.ts",
+    "test:direct": "npx ts-node tests/inngest/test-direct-call.ts",
+    
+    "# Inngest Server": "",
     "start:inngest": "npx ts-node --project tsconfig-override.json src/inngest/server.ts",
-    "start:inngest:js": "node src/inngest/server.js",
     "dev:inngest": "npx nodemon --exec \"ts-node --project tsconfig-override.json src/inngest/server.ts\"",
-    "dev:inngest:js": "npx nodemon src/inngest/server.js",
-    "start:api": "npx ts-node --project tsconfig-override.json src/api/server.ts",
-    "start:api:js": "node src/api/server.js",
-    "dev:api": "npx nodemon --exec \"ts-node --project tsconfig-override.json src/api/server.ts\"",
-    "dev:api:js": "npx nodemon src/api/server.js",
     "dev:inngest-cli": "npx inngest-cli@latest dev -u http://localhost:8001/api/inngest",
+    
+    "# API Server": "",
+    "start:api": "npx ts-node --project tsconfig-override.json src/api/server.ts",
+    "dev:api": "npx nodemon --exec \"ts-node --project tsconfig-override.json src/api/server.ts\"",
+    
+    "# Combined Commands": "",
+    "start:all": "npx concurrently \"npm run start:inngest\" \"npm run start:api\"",
+    "dev:all": "npx concurrently --kill-others --prefix \"[{name}]\" --prefix-colors \"blue.bold,green.bold,yellow.bold\" --names \"INNGEST,API,DEV-CLI\" --timestamp-format \"HH:mm:ss\" \"npm run dev:inngest\" \"npm run dev:api\" \"npm run dev:inngest-cli\"",
+    
+    "# Logs": "",
     "dev:logs": "tail -f logs/*.log",
     "logs": "src/scripts/view-logs.sh",
     "logs:follow": "src/scripts/view-logs.sh --follow",
     "logs:errors": "src/scripts/view-logs.sh --grep ERROR",
     "logs:inngest": "src/scripts/view-logs.sh --log inngest --follow",
-    "logs:api": "src/scripts/view-logs.sh --log api --follow",
-    "start:all": "npx concurrently \"npm run start:inngest\" \"npm run start:api\"",
-    "start:all:js": "npx concurrently -n \"INNGEST,API\" \"node src/inngest/server.js\" \"node src/api/server.js\"",
-    "dev:all": "npx concurrently --kill-others --prefix \"[{name}]\" --prefix-colors \"blue.bold,green.bold,yellow.bold\" --names \"INNGEST,API,DEV-CLI\" --timestamp-format \"HH:mm:ss\" \"npm run dev:inngest\" \"npm run dev:api\" \"npm run dev:inngest-cli\"",
-    "dev:all:js": "npx concurrently \"npm run dev:inngest:js\" \"npm run dev:api:js\""
+    "logs:api": "src/scripts/view-logs.sh --log api --follow"
   },
   "jest": {
     "preset": "ts-jest",
