@@ -321,5 +321,6 @@ if (require.main === module) {
   startApiServer(port);
 }
 
-logger.info('Server module fully loaded and exported');
+// Remove the logger shutdown calls that might be causing premature exit
+// Just end with exporting the app
 export default app; 

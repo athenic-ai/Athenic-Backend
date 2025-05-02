@@ -50,87 +50,86 @@ const pendingMessages = new Map<string, string[]>();
 e2bService.registerClientsMap(clients);
 
 // Handle WebSocket connections
-wss.on('connection', (ws, req) => {
-  const { pathname, query } = parse(req.url || '', true);
+server.on('upgrade', (request, socket, head) => {
+  const url = new URL(request.url || '', `http://${request.headers.host}`);
+  const clientId = url.searchParams.get('clientId');
   
-  // Check for clientId in different formats:
-  // 1. From query parameter (new approach): /ws?clientId=123
-  // 2. From path segment (old approach): /ws/123
-  let clientId = query.clientId as string;
-  
-  if (!clientId && pathname) {
-    // Try to extract from path
-    const pathSegments = pathname.split('/').filter(segment => segment);
-    if (pathSegments.length > 1) {
-      // Assume the last segment is the clientId in case of /ws/{clientId} format
-      clientId = pathSegments[pathSegments.length - 1];
-    }
-  }
-  
-  // If still no clientId, generate a new one
   if (!clientId) {
-    clientId = uuid();
-    console.log(`No clientId provided, generated new ID: ${clientId}`);
+    socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+    socket.destroy();
+    return;
   }
   
-  console.log(`WebSocket connected: ${clientId}, URL: ${req.url}`);
-  console.log(`Current active clients before adding: ${Array.from(clients.keys()).join(', ')}`);
-  
-  clients.set(clientId, ws);
-  
-  console.log(`Updated clients map, new size: ${clients.size}`);
-  
-  // Send welcome message
-  const welcomeMsg: WSStatusMessage = {
-    type: 'status',
-    executionId: 'system',
-    status: 'connected',
-    message: `Connected as client ${clientId}`
-  };
-  
-  try {
-    ws.send(JSON.stringify(welcomeMsg));
-    console.log(`Sent welcome message to client ${clientId}`);
-  } catch (error) {
-    console.error(`Error sending welcome message to client ${clientId}:`, error);
-  }
-  
-  // Send any pending messages for this client
-  if (pendingMessages.has(clientId)) {
-    console.log(`Sending ${pendingMessages.get(clientId)?.length || 0} pending messages to client ${clientId}`);
-    const messages = pendingMessages.get(clientId) || [];
-    messages.forEach((message) => {
-      ws.send(message as string | Buffer | ArrayBuffer | Buffer[]);
-    });
-    pendingMessages.delete(clientId);
-  }
-  
-  // Handle messages from clients
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message.toString());
-      console.log('Received message:', data);
-      // Handle client messages here if needed
-    } catch (err) {
-      console.error('Error parsing WebSocket message:', err);
-    }
-  });
-  
-  // Handle disconnection
-  ws.on('close', () => {
-    console.log(`WebSocket disconnected: ${clientId}`);
-    clients.delete(clientId);
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    console.log(`WebSocket connected: ${clientId}, URL: ${request.url}`);
     
-    // Cleanup any sandboxes associated with this client
-    Object.entries(activeExecutions).forEach(([executionId, execution]) => {
-      if (execution.clientId === clientId) {
-        const sandboxId = execution.sandboxId;
-        if (activeSandboxes[sandboxId]) {
-          console.log(`Closing sandbox ${sandboxId} for disconnected client ${clientId}`);
-          activeSandboxes[sandboxId].kill();
-          delete activeSandboxes[sandboxId];
-        }
-        activeExecutions.delete(executionId);
+    // Check if this client is already connected
+    const existingClient = clients.get(clientId);
+    console.log(`Current active clients before adding: ${Array.from(clients.keys()).join(', ')}`);
+    
+    // Close existing connection if it exists
+    if (existingClient) {
+      console.log(`Closing existing connection for client ${clientId}`);
+      try {
+        existingClient.close();
+      } catch (err) {
+        console.warn(`Error closing existing connection: ${err}`);
+      }
+    }
+    
+    // Store new client connection
+    clients.set(clientId, ws);
+    console.log(`Updated clients map, new size: ${clients.size}`);
+    
+    // Send welcome message to confirm connection is established
+    const welcomeMsg = JSON.stringify({
+      type: 'status',
+      status: 'connected',
+      message: `Connected as client ${clientId}`,
+      timestamp: new Date().toISOString(),
+      id: uuid()
+    });
+    
+    try {
+      ws.send(welcomeMsg);
+      console.log(`Sent welcome message to client ${clientId}`);
+    } catch (err) {
+      console.error(`Error sending welcome message to ${clientId}:`, err);
+    }
+    
+    // Handle incoming messages
+    ws.on('message', (message) => {
+      try {
+        const parsedMessage = JSON.parse(message.toString());
+        console.log('Received message:', parsedMessage);
+        
+        // Add special handling for message types if needed
+      } catch (error) {
+        console.warn(`Invalid message format: ${message}`);
+      }
+    });
+    
+    // Handle connection close
+    ws.on('close', () => {
+      console.log(`WebSocket disconnected: ${clientId}`);
+      
+      // Only remove the client if this specific socket is still the one in the map
+      if (clients.get(clientId) === ws) {
+        clients.delete(clientId);
+        console.log(`Removed client ${clientId} from map, new size: ${clients.size}`);
+      } else {
+        console.log(`Connection closed for ${clientId} but a newer connection exists in the map`);
+      }
+    });
+    
+    // Handle errors
+    ws.on('error', (error) => {
+      console.error(`WebSocket error for client ${clientId}:`, error);
+      
+      // Clean up on error
+      if (clients.get(clientId) === ws) {
+        clients.delete(clientId);
+        console.log(`Removed client ${clientId} from map due to error`);
       }
     });
   });

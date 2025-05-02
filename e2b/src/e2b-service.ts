@@ -82,32 +82,67 @@ export async function runCodeAndStream(
     throw new Error('WebSocket clients map not registered - call registerClientsMap first');
   }
   
-  // IMPORTANT: Check for both the provided clientId and the sandboxId itself as client ids
-  // Since we're now using sandboxId as clientId in some places for consistency
-  const client = clientsMap.get(clientId) || (clientId !== sandboxId ? clientsMap.get(sandboxId) : undefined);
+  const executionId = uuid();
   
-  console.log(`[DEBUG] runCodeAndStream for client ${clientId}, found client connection: ${!!client}, readyState: ${client?.readyState}`);
-  console.log(`[DEBUG] Also checked for sandboxId ${sandboxId} as clientId: ${!!clientsMap.get(sandboxId)}`);
-  console.log(`[DEBUG] WebSocket.OPEN=${WebSocket.OPEN}, clients map size: ${clientsMap.size}`);
-  console.log(`[DEBUG] All connected clients: ${Array.from(clientsMap.keys()).join(', ')}`);
+  // Ensure client is connected before proceeding
+  let waitAttempts = 0;
+  const maxWaitAttempts = 10;
+  const waitInterval = 300; // ms
+  
+  // Function to check if client is connected
+  const isClientConnected = () => {
+    // Check both clientId and sandboxId as potential client IDs
+    const client = clientsMap?.get(clientId);
+    const sandboxClient = clientId !== sandboxId ? clientsMap?.get(sandboxId) : undefined;
+    
+    return (client && client.readyState === WebSocket.OPEN) || 
+           (sandboxClient && sandboxClient.readyState === WebSocket.OPEN);
+  };
+  
+  console.log(`Waiting for client ${clientId} or sandbox ${sandboxId} to connect...`);
+  
+  // Wait for client to connect before proceeding
+  while (!isClientConnected() && waitAttempts < maxWaitAttempts) {
+    waitAttempts++;
+    console.log(`Waiting for WebSocket connection... attempt ${waitAttempts}/${maxWaitAttempts}`);
+    await new Promise(resolve => setTimeout(resolve, waitInterval));
+  }
+  
+  // Get the actual client (either by clientId or sandboxId)
+  let actualClientId = clientId;
+  let client = clientsMap.get(clientId);
   
   if (!client || client.readyState !== WebSocket.OPEN) {
-    console.warn(`Client ${clientId} not connected or ready, checking alternative connections...`);
+    // Try sandboxId as an alternative
+    if (clientId !== sandboxId) {
+      client = clientsMap.get(sandboxId);
+      if (client && client.readyState === WebSocket.OPEN) {
+        actualClientId = sandboxId;
+        console.log(`Using sandboxId ${sandboxId} as clientId for WebSocket communication`);
+      }
+    }
+  }
+  
+  if (!client || client.readyState !== WebSocket.OPEN) {
+    console.warn(`Client ${clientId} and sandbox ${sandboxId} not connected after ${waitAttempts} attempts`);
     
-    // If the specific client is not available, try to find any client that might be waiting
+    // If specific client is not available, try to find any client that might be waiting
     if (clientsMap.size > 0) {
       // Find the most recent connection that is OPEN
       for (const [id, ws] of clientsMap.entries()) {
         if (ws.readyState === WebSocket.OPEN) {
-          console.log(`[INFO] Found alternative open connection with client ID: ${id}. Using this instead.`);
-          clientId = id;
+          actualClientId = id;
+          client = ws;
+          console.log(`Using alternative open connection with client ID: ${actualClientId}`);
           break;
         }
       }
     }
   }
   
-  const executionId = uuid();
+  console.log(`[DEBUG] runCodeAndStream for client ${clientId}, actual client used: ${actualClientId}, connection status: ${!!client && client.readyState === WebSocket.OPEN}`);
+  console.log(`[DEBUG] WebSocket.OPEN=${WebSocket.OPEN}, clients map size: ${clientsMap.size}`);
+  console.log(`[DEBUG] All connected clients: ${Array.from(clientsMap.keys()).join(', ')}`);
   
   // Helper to send messages to client
   const send = (message: any) => {
@@ -116,26 +151,31 @@ export async function runCodeAndStream(
       return;
     }
     
-    // IMPORTANT: Try both the provided clientId and the sandboxId as client IDs
-    let clientWs = clientsMap.get(clientId);
+    // Try to use the determined actual client ID
+    let clientWs = clientsMap.get(actualClientId);
+    
     if (!clientWs || clientWs.readyState !== WebSocket.OPEN) {
-      // Try the sandboxId as an alternate clientId if different
-      if (clientId !== sandboxId) {
+      console.warn(`Client ${actualClientId} disconnected, trying other options...`);
+      
+      // Try original client id
+      if (actualClientId !== clientId) {
+        clientWs = clientsMap.get(clientId);
+      }
+      
+      // Try sandbox id
+      if ((!clientWs || clientWs.readyState !== WebSocket.OPEN) && actualClientId !== sandboxId) {
         clientWs = clientsMap.get(sandboxId);
-        if (clientWs && clientWs.readyState === WebSocket.OPEN) {
-          console.log(`[INFO] Using sandboxId ${sandboxId} as clientId for WebSocket communication`);
-        }
       }
     }
     
-    console.log(`[DEBUG] send(): Client ${clientId} connection: ${!!clientWs}, readyState: ${clientWs?.readyState}`);
+    console.log(`[DEBUG] send(): Client ${actualClientId} connection: ${!!clientWs}, readyState: ${clientWs?.readyState}`);
     
     if (clientWs && clientWs.readyState === WebSocket.OPEN) {
       const messageStr = JSON.stringify(message);
-      console.log(`[DEBUG] Sending message type ${message.type} to client ${clientId}`);
+      console.log(`[DEBUG] Sending message type ${message.type} to client ${actualClientId}`);
       clientWs.send(messageStr);
     } else {
-      console.warn(`Cannot send message to client ${clientId} or sandbox ${sandboxId}, WebSocket not open (readyState: ${clientWs?.readyState})`);
+      console.warn(`Cannot send message, WebSocket not open (readyState: ${clientWs?.readyState})`);
       
       // Last resort - try to find ANY open connection
       if (clientsMap.size > 0) {
@@ -162,13 +202,27 @@ export async function runCodeAndStream(
   };
   
   // Check if this is a shell command (starts with $, or contains common shell patterns)
-  const shellCommandRegex = /^\s*\$?\s*(ls|cd|mkdir|rm|cp|mv|cat|grep|find|echo|curl|wget|git)\s/;
-  const isShellCommand = /^\s*\$\s/.test(code) || 
-                         shellCommandRegex.test(code) || 
-                         /run\s+(the\s+)?command\s+[`'"'](.+?)[`'"']/i.test(code);
+  const shellCommandRegex = /^\s*\$?\s*(ls|cd|mkdir|rm|cp|mv|cat|grep|find|echo|curl|wget|git|for)\s/;
+  let isShellCommand = /^\s*\$\s/.test(code) || 
+                       shellCommandRegex.test(code) || 
+                       /run\s+(the\s+)?command\s+[`'"'](.+?)[`'"']/i.test(code);
   
   // Extract the actual command (remove the $ if present)
-  const actualCommand = code.replace(/^\s*\$\s/, '').trim();
+  let actualCommand = code.replace(/^\s*\$\s/, '').trim();
+  
+  // If it's a 'run command' format, extract the actual command
+  const runCommandMatch = code.match(/run\s+(the\s+)?command\s+[`'"'](.+?)[`'"']/i);
+  if (runCommandMatch && runCommandMatch[2]) {
+    actualCommand = runCommandMatch[2].trim();
+    isShellCommand = true;
+  }
+  
+  // First send the command prompt and command as a stdout message
+  send({
+    type: 'stdout',
+    executionId,
+    data: `ubuntu@sandbox:~$ ${actualCommand}\n`
+  });
   
   if (isShellCommand) {
     // Get template type from sandboxId or use default
@@ -188,12 +242,12 @@ try:
     
     # Print stdout
     if result.stdout:
-        print(result.stdout)
+        print(result.stdout, end='')
     
     # Print stderr if any
     if result.stderr:
         print("Error output:", file=sys.stderr)
-        print(result.stderr, file=sys.stderr)
+        print(result.stderr, file=sys.stderr, end='')
     
     # Print return code
     print(f"Command completed with exit code: {result.returncode}")
@@ -209,7 +263,6 @@ const { execSync } = require('child_process');
 
 try {
   const command = ${JSON.stringify(actualCommand)};
-  console.log(\`Executing command: \${command}\`);
   
   const output = execSync(command, { 
     encoding: 'utf8',
@@ -232,23 +285,16 @@ try {
       code = actualCommand;
     }
     
-    sendStatus('preparing', 'Formatting shell command for execution...');
+    sendStatus('preparing', 'Executing shell command...');
   }
   
   // Notify about execution start
-  sendStatus('starting', 'Running code...');
-  
-  // Send the command prompt and command as a stdout message first
-  send({
-    type: 'stdout',
-    executionId,
-    data: `ubuntu@sandbox:~ $ ${actualCommand}`
-  });
+  sendStatus('starting', 'Running command...');
   
   try {
     const startTime = Date.now();
     
-    console.log(`[DEBUG] Running code in sandbox ${sandboxId} for client ${clientId}`);
+    console.log(`[DEBUG] Running code in sandbox ${sandboxId} for client ${actualClientId}`);
     
     await sandbox.runCode(code, {
       timeoutMs,
@@ -275,7 +321,7 @@ try {
     });
     
     const duration = Date.now() - startTime;
-    console.log(`[DEBUG] Code execution complete for client ${clientId}, duration: ${duration}ms`);
+    console.log(`[DEBUG] Code execution complete for client ${actualClientId}, duration: ${duration}ms`);
     
     // Notify about successful completion
     send({
