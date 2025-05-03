@@ -1,1 +1,0 @@
-import { Sandbox } from '@e2b/code-interpreter'; async function test() { const s = await Sandbox.create(); console.log('Sandbox methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(s))); } test();

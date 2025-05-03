@@ -545,8 +545,29 @@ except Exception as e:
           }
         }
       } else {
-        // Handle regular text responses
-        response = `I'm here to help you run commands or code in the E2B sandbox. Try asking something like "Run the command echo 'Hello World'" or share a code block with me.`;
+        // Handle regular text responses by using the NLP service
+        const { default: axios } = await import('axios');
+        const nlpServiceUrl = process.env.API_SERVER_URL || 'http://localhost:3000';
+
+        try {
+          logger.info('Using NLP service for standard text response');
+          
+          const nlpResponse = await step.run('generate-text-response', async () => {
+            const result = await axios.post(`${nlpServiceUrl}/api/nlp/chat`, {
+              message,
+              userId,
+              organisationId
+            });
+            return result.data;
+          });
+          
+          response = nlpResponse.message || "I processed your request, but couldn't generate a response. Please try again.";
+          logger.info(`NLP service generated response: ${response.substring(0, 100)}${response.length > 100 ? '...' : ''}`);
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          logger.error(`Error getting NLP response: ${errorMessage}`);
+          response = "I'm sorry, I couldn't generate a response at this time. Please try again later.";
+        }
       }
       
       // Send response to the client
