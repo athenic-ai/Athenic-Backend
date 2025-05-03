@@ -6,7 +6,6 @@ import { Inngest } from 'inngest';
 import { setTimeout } from 'timers/promises';
 // Using dynamic import for AgentKit to avoid CommonJS/ESM issues
 import { getInitializedTools } from './tools/e2b-tools';
-import { executeCodeDirectly } from './tools/e2b-tools';
 // Using dynamic import for axios to avoid CommonJS/ESM compatibility issues
 // We'll use dynamic import instead of static import
 
@@ -24,7 +23,8 @@ logger.info('Functions module is being loaded');
 // Import and setup AgentKit
 let createNetwork: any;
 let createAgent: any;
-let e2bTools: any;
+let e2bTools: any; // Keep this as it might be used by handleNewChatMessage later
+let openai: any; // Placeholder for LLM adapter
 
 async function loadModules() {
   try {
@@ -32,9 +32,11 @@ async function loadModules() {
     const agentKit = await import('@inngest/agent-kit');
     createNetwork = agentKit.createNetwork;
     createAgent = agentKit.createAgent;
+    // Dynamically import the specific LLM adapter needed
+    openai = agentKit.openai; // Example: Load OpenAI adapter
     logger.info('AgentKit loaded successfully');
-    
-    // Get initialized e2b tools
+
+    // Get initialized e2b tools (keep this, might be used in Phase 2)
     e2bTools = await getInitializedTools();
     logger.info('E2B tools loaded successfully');
   } catch (error) {
@@ -69,274 +71,6 @@ export const testFunction = inngest.createFunction(
     };
   }
 );
-
-// Define the chat message handler function
-export const handleChatMessage = inngest.createFunction(
-  { id: "handle-chat-message", name: "Handle Chat Message" },
-  { event: "chat/message.sent" },
-  async ({ event, step, logger }) => {
-    const startTime = Date.now();
-    logger.info(`[handleChatMessage] Starting process for message sent by ${event.data.userId}`);
-
-    try {
-      // Destructure from event data
-      const { userId, sessionId, message, clientId } = event.data;
-      
-      // Skip if any required fields are missing
-      if (!userId || !sessionId || !message || !clientId) {
-        logger.error("[handleChatMessage] Required fields missing", { userId, sessionId, message, clientId });
-        return { 
-          error: "Required fields missing", 
-          processingTimeMs: Date.now() - startTime 
-        };
-      }
-
-      logger.info(`[handleChatMessage] Analyzing message from user: ${userId}, session: ${sessionId}`);
-      
-      // Analyze message to determine action
-      const analysis = await step.run("analyze-message", async () => {
-        const messageTextLower = message.toLowerCase();
-        
-        // Check if message contains code execution command
-        const isExecuteCommand = 
-          messageTextLower.includes("execute") || 
-          messageTextLower.includes("run") || 
-          messageTextLower.includes("e2b");
-        
-        // Check if message is asking for coding help or examples
-        const isCodingQuestion = 
-          messageTextLower.includes("code") ||
-          messageTextLower.includes("script") ||
-          messageTextLower.includes("program") ||
-          messageTextLower.includes("example") ||
-          messageTextLower.includes("javascript") ||
-          messageTextLower.includes("python") ||
-          messageTextLower.includes("typescript");
-        
-        return {
-          requiresE2B: isExecuteCommand || isCodingQuestion,
-          type: isExecuteCommand ? "code-execution" : (isCodingQuestion ? "code-generation" : "text-response"),
-          messageTextLower
-        };
-      });
-      
-      logger.info(`[handleChatMessage] Analysis result:`, analysis);
-      
-      // Handle different types of messages
-      let response;
-      
-      if (analysis.type === "code-execution") {
-        // Extract code from message for execution
-        const codeMatch = message.match(/```(?:\w+)?\s*([\s\S]*?)```/) ||
-                         message.match(/execute\s+([\s\S]*)/i) || 
-                         message.match(/run\s+([\s\S]*)/i);
-        
-        // Get the code to execute
-        const code = codeMatch?.[1]?.trim() || "";
-        
-        if (!code) {
-          response = { 
-            text: "I don't see any code to execute. Please provide code using triple backticks (```code here```) or by directly stating 'execute [command]'."
-          };
-        } else {
-          logger.info(`[handleChatMessage] Executing code`, { codeLength: code.length });
-          
-          // Execute the code directly
-          const result = await step.run("execute-e2b-code", async () => {
-            try {
-              return await executeCodeDirectly(code, 'code-interpreter-v1', clientId, step);
-            } catch (error: any) {
-              logger.error(`[handleChatMessage] Error executing code:`, error);
-              return { error: `Failed to execute code: ${error.message}` };
-            }
-          });
-          
-          if (result.error) {
-            response = { text: `Error: ${result.error}` };
-          } else {
-            response = { 
-              text: "Code executed successfully. Output has been streamed to your terminal.",
-              sandboxId: result.sandboxId 
-            };
-          }
-        }
-      } else if (analysis.type === "code-generation") {
-        // Generate code example based on query
-        logger.info(`[handleChatMessage] Generating code example`);
-        
-        // Generate the code example
-        const codeExample = await step.run("generate-code-example", async () => {
-          let codeExample = "```javascript\n";
-          
-          // Simple examples for demonstration
-          if (analysis.messageTextLower.includes("hello world")) {
-            codeExample += `console.log("Hello, World!");\n`;
-          } else if (analysis.messageTextLower.includes("loop")) {
-            codeExample += `// Example of a for loop\nfor (let i = 0; i < 5; i++) {\n  console.log(\`Iteration \${i}\`);\n}\n`;
-          } else if (analysis.messageTextLower.includes("array")) {
-            codeExample += `// Example of array operations\nconst fruits = ["apple", "banana", "orange"];\nconsole.log(fruits);\n\n// Add an item\nfruits.push("grape");\nconsole.log(fruits);\n\n// Remove last item\nconst lastFruit = fruits.pop();\nconsole.log(\`Removed: \${lastFruit}\`);\nconsole.log(fruits);\n`;
-          } else {
-            codeExample += `// Here's a basic JavaScript example\nfunction greet(name) {\n  return \`Hello, \${name}!\`;\n}\n\nconst result = greet("User");\nconsole.log(result);\n`;
-          }
-          
-          codeExample += "```";
-          return codeExample;
-        });
-        
-        response = { 
-          text: `Here's an example that might help:\n\n${codeExample}\n\nYou can execute this code by sending it back with "Run this code" at the beginning of your message.` 
-        };
-      } else {
-        // Regular text response
-        logger.info(`[handleChatMessage] Generating text response`);
-        
-        response = { 
-          text: "I can help you with coding tasks! Ask me to generate code examples or execute code for you." 
-        };
-      }
-      
-      // Try to notify API server of response
-      try {
-        const port = process.env.API_SERVER_PORT || '3000';
-        // Dynamically import axios
-        const { default: axios } = await import('axios');
-        await axios.post(`http://localhost:${port}/api/chat/response`, {
-          userId,
-          sessionId,
-          clientId,
-          response: response.text,
-          metadata: response.sandboxId ? { sandboxId: response.sandboxId } : undefined
-        });
-      } catch (error) {
-        logger.error(`[handleChatMessage] Error notifying API of response:`, error);
-        // Continue even if notification fails
-      }
-      
-      return {
-        userId,
-        sessionId,
-        response: response.text,
-        processingTimeMs: Date.now() - startTime,
-        metadata: response.sandboxId ? { sandboxId: response.sandboxId } : undefined
-      };
-    } catch (error: any) {
-      logger.error("[handleChatMessage] Unhandled error:", error);
-      return { 
-        error: `Unhandled error: ${error.message}`, 
-        processingTimeMs: Date.now() - startTime 
-      };
-    }
-  }
-);
-
-// Function to execute a command in e2b
-async function executeE2bCommand(command: string): Promise<string> {
-  try {
-    logger.info('Calling e2b service to execute command', { command });
-    
-    // Dynamically import axios
-    const { default: axios } = await import('axios');
-    
-    // Call the e2b service (adjust URL as needed)
-    const e2bServiceUrl = process.env.E2B_SERVICE_URL || 'http://localhost:8002';
-    const response = await axios.post(`${e2bServiceUrl}/run-command`, {
-      command
-    });
-    
-    logger.info('E2b command execution successful', { 
-      status: response.status,
-      dataLength: JSON.stringify(response.data).length
-    });
-    
-    return `Command output:\n\`\`\`\n${response.data.output}\n\`\`\``;
-  } catch (error) {
-    logger.error('E2b service error', {
-      error: error instanceof Error ? error.message : String(error)
-    });
-    throw error;
-  }
-}
-
-// Helper function to generate sample code based on message
-function generateSampleCode(message: string): string {
-  // Check if this is a shell command
-  const shellCommandRegex = /^\s*\$?\s*(ls|cd|mkdir|rm|cp|mv|cat|grep|find|echo|curl|wget|git|for)\s/;
-  const runCommandRegex = /run\s+(the\s+)?command\s*[:`'"'](.+?)[`'"':]/i;
-  const commandMatch = message.match(runCommandRegex);
-  
-  if (commandMatch && commandMatch[2]) {
-    // Extract the actual command from the message
-    const command = commandMatch[2].trim();
-    return `
-import subprocess
-import sys
-
-try:
-    print("Executing command: ${command.replace(/"/g, '\\"')}")
-    result = subprocess.run("${command.replace(/"/g, '\\"')}", shell=True, capture_output=True, text=True)
-    
-    # Print stdout
-    if result.stdout:
-        print(result.stdout, end='')
-    
-    # Print stderr if any
-    if result.stderr:
-        print("Error output:", file=sys.stderr)
-        print(result.stderr, file=sys.stderr, end='')
-    
-    # Print return code
-    print(f"Command completed with exit code: {result.returncode}")
-except Exception as e:
-    print(f"Failed to execute command: {str(e)}", file=sys.stderr)
-`;
-  } else if (shellCommandRegex.test(message)) {
-    // Extract the actual command
-    const command = message.replace(/^\s*\$\s*/, '').trim();
-    return `
-import subprocess
-import sys
-
-try:
-    print("Executing command: ${command.replace(/"/g, '\\"')}")
-    result = subprocess.run("${command.replace(/"/g, '\\"')}", shell=True, capture_output=True, text=True)
-    
-    # Print stdout
-    if result.stdout:
-        print(result.stdout, end='')
-    
-    # Print stderr if any
-    if result.stderr:
-        print("Error output:", file=sys.stderr)
-        print(result.stderr, file=sys.stderr, end='')
-    
-    # Print return code
-    print(f"Command completed with exit code: {result.returncode}")
-except Exception as e:
-    print(f"Failed to execute command: {str(e)}", file=sys.stderr)
-`;
-  } else if (message.toLowerCase().includes('file') || message.toLowerCase().includes('read')) {
-    return `
-// Sample code to read a file
-const fs = require('fs');
-
-fs.readFile('example.txt', 'utf8', (err, data) => {
-  if (err) {
-    console.error('Error reading file:', err);
-    return;
-  }
-  console.log('File contents:', data);
-});
-`;
-  } else {
-    // Default code example
-    return `
-# Sample Python code
-print("Hello from Athenic!")
-print("I'm executing this code in a sandbox environment.")
-print("You can ask me to run more complex code if needed.")
-`;
-  }
-}
 
 // Define a more complex task handler
 export const complexTaskHandler = inngest.createFunction(
@@ -414,200 +148,6 @@ export const complexTaskHandler = inngest.createFunction(
   }
 );
 
-// Add new function to listen to athenic/chat.message.received events
-export const processChat = inngest.createFunction(
-  { id: "process-chat" },
-  { event: "athenic/chat.message.received" },
-  async ({ event, step }) => {
-    const startTime = Date.now();
-    logger.info('Chat message event received', { 
-      eventId: event.id,
-      eventData: JSON.stringify(event.data)
-    });
-    
-    try {
-      // Extract message content from event data
-      const { message, userId, organisationId, clientId } = event.data;
-      
-      if (!message) {
-        logger.warn('Missing message content in event data');
-        return { error: 'Missing message content' };
-      }
-      
-      logger.info(`Processing message from ${userId || 'unknown user'}: ${message.substring(0, 100) + (message.length > 100 ? '...' : '')}`);
-      
-      // Analyze the message to determine what kind of response is needed
-      const analysis = await step.run('analyze-message', async () => {
-        // Check if this is an e2b terminal command
-        const e2bCommandRegex = /run\s+(the\s+)?command\s*[:`'"](.+?)[`'"]/i;
-        const shellCommandRegex = /^\s*\$?\s*(ls|cd|mkdir|rm|cp|mv|cat|grep|find|echo|curl|wget|git|for)\s/;
-        
-        const e2bMatch = message.match(e2bCommandRegex);
-        
-        if (e2bMatch && e2bMatch[2]) {
-          return {
-            requiresE2B: true,
-            command: e2bMatch[2],
-            type: 'shell-command' as const
-          };
-        }
-        
-        if (shellCommandRegex.test(message)) {
-          return {
-            requiresE2B: true,
-            command: message.replace(/^\s*\$\s*/, '').trim(),
-            type: 'shell-command' as const
-          };
-        }
-        
-        // Check for other code execution patterns
-        const codeBlockRegex = /```([a-z]*)\n([\s\S]*?)```/;
-        const codeMatch = message.match(codeBlockRegex);
-        
-        if (codeMatch) {
-          return {
-            requiresE2B: true,
-            language: codeMatch[1] || 'python',
-            code: codeMatch[2].trim(),
-            type: 'code-block' as const
-          };
-        }
-        
-        return {
-          requiresE2B: false,
-          type: 'text-response' as const
-        };
-      });
-      
-      logger.info(`Message analysis:`, analysis);
-      
-      let response;
-      let sandboxId;
-      
-      // Handle the message based on the analysis
-      if (analysis.requiresE2B) {
-        if (analysis.type === 'shell-command') {
-          // Execute shell command in E2B
-          const command = (analysis as { command: string, type: 'shell-command' }).command;
-          logger.info(`Executing shell command in E2B: ${command}`);
-          
-          try {
-            const result = await step.run('execute-command', async () => {
-              const code = `
-import subprocess
-import sys
-
-try:
-    print("Executing command: ${command.replace(/"/g, '\\"')}")
-    result = subprocess.run("${command.replace(/"/g, '\\"')}", shell=True, capture_output=True, text=True)
-    
-    # Print stdout
-    if result.stdout:
-        print(result.stdout, end='')
-    
-    # Print stderr if any
-    if result.stderr:
-        print("Error output:", file=sys.stderr)
-        print(result.stderr, file=sys.stderr, end='')
-    
-    # Print return code
-    print(f"Command completed with exit code: {result.returncode}")
-except Exception as e:
-    print(f"Failed to execute command: {str(e)}", file=sys.stderr)
-`;
-              
-              return await executeCodeDirectly(code, 'code-interpreter-v1', clientId, step);
-            });
-            
-            sandboxId = result.sandboxId;
-            response = `I'm executing your command in an E2B sandbox. You should see the output shortly.`;
-          } catch (error: unknown) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            logger.error(`Error executing shell command: ${errorMessage}`);
-            response = `Sorry, I ran into an error trying to execute your command: ${errorMessage}`;
-          }
-        } else if (analysis.type === 'code-block') {
-          // Execute code block in E2B
-          const codeBlockAnalysis = analysis as { code: string, language: string, type: 'code-block' };
-          logger.info(`Executing code block in E2B: ${codeBlockAnalysis.language}`);
-          
-          try {
-            const result = await step.run('execute-code-block', async () => {
-              return await executeCodeDirectly(codeBlockAnalysis.code, 'code-interpreter-v1', clientId, step);
-            });
-            
-            sandboxId = result.sandboxId;
-            response = `I'm executing your ${codeBlockAnalysis.language} code in an E2B sandbox. You should see the output shortly.`;
-          } catch (error: unknown) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            logger.error(`Error executing code block: ${errorMessage}`);
-            response = `Sorry, I ran into an error trying to execute your code: ${errorMessage}`;
-          }
-        }
-      } else {
-        // Handle regular text responses by using the NLP service
-        const { default: axios } = await import('axios');
-        const nlpServiceUrl = process.env.API_SERVER_URL || 'http://localhost:3000';
-
-        try {
-          logger.info('Using NLP service for standard text response');
-          
-          const nlpResponse = await step.run('generate-text-response', async () => {
-            const result = await axios.post(`${nlpServiceUrl}/api/nlp/chat`, {
-              message,
-              userId,
-              organisationId
-            });
-            return result.data;
-          });
-          
-          response = nlpResponse.message || "I processed your request, but couldn't generate a response. Please try again.";
-          logger.info(`NLP service generated response: ${response.substring(0, 100)}${response.length > 100 ? '...' : ''}`);
-        } catch (error: unknown) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          logger.error(`Error getting NLP response: ${errorMessage}`);
-          response = "I'm sorry, I couldn't generate a response at this time. Please try again later.";
-        }
-      }
-      
-      // Send response to the client
-      try {
-        const apiServerPort = process.env.API_SERVER_PORT || '3000';
-        // Import axios dynamically
-        const { default: axios } = await import('axios');
-        
-        await axios.post(`http://localhost:${apiServerPort}/api/chat/response`, {
-          clientId,
-          response,
-          requiresE2B: analysis.requiresE2B,
-          sandboxId,
-          e2bResult: { success: true }
-        });
-        
-        logger.info(`Response sent back to API server for client ${clientId}`);
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.error(`Error sending response to API server: ${errorMessage}`);
-      }
-      
-      return {
-        success: true,
-        response,
-        requiresE2B: analysis.requiresE2B,
-        sandboxId,
-        processingTimeMs: Date.now() - startTime
-      };
-    } catch (error: any) {
-      logger.error(`Unhandled error in processChat: ${error.message}`);
-      return {
-        success: false,
-        error: error.message,
-        processingTimeMs: Date.now() - startTime
-      };
-    }
-  }
-);
-
 // Add new function to handle messages with AgentKit
 export const handleNewChatMessage = inngest.createFunction(
   { id: "handle-new-chat-message", name: "Handle New Chat Message" },
@@ -618,96 +158,162 @@ export const handleNewChatMessage = inngest.createFunction(
 
     const { message, userId, organisationId, clientId } = event.data;
 
-    // Ensure the required modules are loaded
-    if (!createAgent || !createNetwork) {
-      await loadModules();
-      if (!createAgent || !createNetwork) {
-        logger.error(`[handleNewChatMessage] AgentKit modules not loaded correctly`);
+    // Validate required input from event data
+    if (!message || !userId || !organisationId || !clientId) {
+        logger.error(`[handleNewChatMessage] Missing required fields in event data for clientId ${clientId}`, { userId, organisationId, messageProvided: !!message, clientId });
         return {
           status: 'error',
           clientId,
-          error: 'Failed to load required modules',
+          error: 'Missing required fields (message, userId, organisationId, clientId) in event data.',
+          durationMs: Date.now() - startTime,
+        };
+    }
+
+    // Ensure the required modules are loaded
+    if (!createAgent || !createNetwork || !openai) { // Check for LLM adapter too
+      try {
+        await loadModules();
+      } catch (loadError: any) {
+         logger.error(`[handleNewChatMessage] Failed to load modules: ${loadError.message}`);
+         return {
+           status: 'error',
+           clientId,
+           error: `Failed to load required modules: ${loadError.message}`,
+           durationMs: Date.now() - startTime,
+         };
+      }
+      if (!createAgent || !createNetwork || !openai) {
+        logger.error(`[handleNewChatMessage] AgentKit modules or LLM adapter not loaded correctly after attempting reload`);
+        return {
+          status: 'error',
+          clientId,
+          error: 'Failed to load required modules even after reload attempt.',
           durationMs: Date.now() - startTime,
         };
       }
     }
 
     // --- Define the Agent ---
-    const chatAgent = createAgent({
-      name: "AthenicChatAgent",
-      // Simple system prompt for now
-      system: `You are Athenic, a helpful AI assistant designed to assist with various tasks. 
-Respond concisely and accurately to the user's message.
-If the user asks you to run code or execute commands, you can use the tools available to you.`,
-      model: {
-        provider: 'openai',
-        model: process.env.OPENAI_MODEL || "gpt-4o-mini", // Use env var or default to gpt-4o-mini
-      },
-      // No tools yet in Phase 1
-      tools: [],
-    });
+    let chatAgent;
+    try {
+        chatAgent = createAgent({
+          name: "AthenicChatAgent",
+          // Simple system prompt for now - Phase 2 will add tool instructions
+          system: `You are Athenic, a helpful AI assistant designed to assist with various tasks.
+Respond concisely and accurately to the user's message based on the provided input.
+User ID: ${userId}
+Organisation ID: ${organisationId}
+Client ID for this interaction: ${clientId}
+You do not have tools available in this phase, just respond directly to the message.`,
+          // Use the dynamically loaded LLM adapter
+          model: openai({
+            model: process.env.OPENAI_MODEL || "gpt-4o-mini", // Use env var or default to gpt-4o-mini
+            // AgentKit should automatically pick up OPENAI_API_KEY from env
+          }),
+          // Tools will be added in Phase 2
+          tools: [],
+        });
+    } catch(agentCreationError: any) {
+        logger.error(`[handleNewChatMessage] Failed to create agent for clientId ${clientId}`, { error: agentCreationError.message });
+        return {
+          status: 'error',
+          clientId,
+          error: `Failed to create agent: ${agentCreationError.message}`,
+          durationMs: Date.now() - startTime,
+        };
+    }
+
 
     // --- Run the Agent ---
     let agentResponseText = "Sorry, I encountered an issue processing your request.";
+    let agentResult;
 
     try {
-      const agentResult = await step.run("run-chat-agent", async () => {
+      agentResult = await step.run("run-chat-agent", async () => {
         // Create network with our agent
-        const network = createNetwork({ 
-          agents: [chatAgent], 
+        const network = createNetwork({
+          agents: [chatAgent],
           defaultModel: chatAgent.model
         });
-        
-        // Store the clientId in the network state for potential future use with tools
-        if (network.state && network.state.kv) {
-          network.state.kv.set('clientId', clientId);
-        }
-        
+
+        // Inject clientId into state for potential tool use later (if network supports state)
+        // Note: Standard network doesn't have persistent state like this,
+        // but good practice if using stateful networks later.
+        // if (network.state && typeof network.state.set === 'function') {
+        //   network.state.set('clientId', clientId);
+        // } else if (network.state && network.state.kv && typeof network.state.kv.set === 'function') {
+        //    network.state.kv.set('clientId', clientId); // Handle kv store state if present
+        // }
+
         // Run the agent with the user's message
         return await network.run(message);
       });
 
       // Extract the text response from the agent result
+      // AgentKit v0.7+ output format handling
       if (agentResult?.output?.length > 0) {
-        const lastMessage = agentResult.output[agentResult.output.length - 1];
-        if (lastMessage.type === 'text') {
-          agentResponseText = typeof lastMessage.content === 'string'
-            ? lastMessage.content
-            : lastMessage.content.map((c: any) => c.text).join('');
-        }
+         const lastMessage = agentResult.output[agentResult.output.length - 1];
+         if (lastMessage.type === 'text') {
+           agentResponseText = typeof lastMessage.content === 'string'
+             ? lastMessage.content
+             : lastMessage.content.map((c: any) => c.text || '').join(''); // Handle potential content arrays safely
+         } else if (lastMessage.type === 'tool_outputs') {
+            // Handle case where the last output is from a tool (Phase 2 onwards)
+            agentResponseText = "I used a tool to process your request. What would you like to do next?"; // Placeholder
+         } else {
+            agentResponseText = "I processed your request."; // Generic fallback
+         }
+      } else if (agentResult?.error) {
+         logger.error(`[handleNewChatMessage] Agent network run resulted in an error for clientId ${clientId}`, { error: agentResult.error });
+         agentResponseText = `Sorry, the agent encountered an error: ${agentResult.error}`;
       }
+
       logger.info(`[handleNewChatMessage] Agent generated response for clientId ${clientId}`, { responseLength: agentResponseText.length });
 
-    } catch (agentError: any) {
-      logger.error(`[handleNewChatMessage] Agent execution failed for clientId ${clientId}`, { error: agentError.message });
-      agentResponseText = `Sorry, I encountered an error while processing your request: ${agentError.message}`;
+    } catch (agentRunError: any) {
+      logger.error(`[handleNewChatMessage] Agent execution ('run-chat-agent' step) failed for clientId ${clientId}`, { error: agentRunError.message, stack: agentRunError.stack });
+      // Try to provide a more informative error message if possible
+      agentResponseText = `Sorry, I encountered an error while processing your request. Step "run-chat-agent" failed: ${agentRunError.message}`;
     }
 
     // --- Notify API Server of completion ---
+    // This should ideally happen *after* DB persistence, but keeping order from plan for now
     try {
       const { default: axios } = await import('axios');
       const apiServerPort = process.env.API_SERVER_PORT || '3000';
-      await axios.post(`http://localhost:${apiServerPort}/api/chat/response`, {
-        clientId,
-        response: agentResponseText,
-        requiresE2B: false,
+      const apiServerUrl = `http://localhost:${apiServerPort}`;
+
+      await step.run("notify-api-server", async () => {
+          await axios.post(`${apiServerUrl}/api/chat/response`, {
+            clientId,
+            response: agentResponseText,
+            // Indicate no E2B was used in this phase
+            requiresE2B: false,
+            // metadata: agentResult?.metadata // Pass any relevant metadata if needed
+          });
+          return { notified: true };
       });
       logger.info(`[handleNewChatMessage] Notified API server with response for clientId ${clientId}`);
     } catch (notifyError: any) {
-      logger.error(`[handleNewChatMessage] Failed to notify API server: ${notifyError.message}`);
-      // Continue execution even if notification fails
+      // Log error from the step if available, otherwise the caught error
+      const stepError = (notifyError.cause as any)?.error; // Inngest wraps errors in step.run
+      const finalErrorMessage = stepError?.message || notifyError.message;
+      logger.error(`[handleNewChatMessage] Failed to notify API server (step 'notify-api-server') for clientId ${clientId}: ${finalErrorMessage}`);
+      // Consider implications - client might not get response. Don't re-throw, just log.
     }
 
     // --- Placeholder for DB Storage (Phase 3) ---
     await step.run("store-conversation-placeholder", async () => {
       logger.info(`[handleNewChatMessage] Placeholder: Storing user message and AI response for clientId ${clientId} in DB.`);
-      // DB logic will go here in Phase 3
-      return { stored: true };
+      // In Phase 3: Use event.data.message, agentResponseText, userId, organisationId, clientId
+      // Find/create thread, create message objects, update thread
+      return { stored: true }; // Placeholder success
     });
 
     const duration = Date.now() - startTime;
     logger.info(`[handleNewChatMessage] Finished processing for clientId ${clientId}`, { durationMs: duration });
 
+    // Final return includes status, clientId, response text, and duration
     return {
       status: 'success',
       clientId: clientId,
@@ -719,11 +325,9 @@ If the user asks you to run code or execute commands, you can use the tools avai
 
 logger.info('Functions module fully loaded and exported');
 
-// Export a default for convenience
+// Update the default export to only include active functions
 export default {
   testFunction,
-  handleChatMessage,
   complexTaskHandler,
-  processChat,
-  handleNewChatMessage  // Add the new function to the exports
+  handleNewChatMessage  // This is the main chat handler now
 };

@@ -3,7 +3,7 @@
 import { serve } from 'inngest/express';
 import express from 'express';
 import { inngest } from './client';
-import { testFunction, handleChatMessage, processChat, complexTaskHandler, handleNewChatMessage } from './functions';
+import { testFunction, complexTaskHandler, handleNewChatMessage } from './functions';
 import Logger from '../utils/logger';
 import ensureLogDirectories from '../utils/ensure-log-dirs';
 
@@ -24,8 +24,6 @@ app.use(express.json());
 // Register the Inngest functions
 const inngestFunctions = [
   testFunction,
-  handleChatMessage,
-  processChat,
   complexTaskHandler,
   handleNewChatMessage,
   // Add more functions here as they are created

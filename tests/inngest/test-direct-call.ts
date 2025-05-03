@@ -1,4 +1,4 @@
-import { handleChatMessage } from '../../src/inngest/functions';
+import { handleNewChatMessage } from '../../src/inngest/functions';
 import Logger from '../../src/utils/logger';
 import ensureLogDirectories from '../../src/utils/ensure-log-dirs';
 
@@ -15,18 +15,18 @@ const logger = Logger.getLogger({
  * Run with: npx ts-node tests/inngest/test-direct-call.ts
  */
 async function main() {
-  console.log('Directly calling chat message handler function...');
+  console.log('Directly calling the new chat message handler function (handleNewChatMessage)...');
   
   try {
     // Create a mock event and step object
     const mockEvent = {
-      id: 'test-event-id',
-      name: 'chat/message.sent',
+      id: 'test-event-id-new',
+      name: 'athenic/chat.message.received',
       data: {
-        message: 'Hello, can you help me with some JavaScript code examples?',
-        userId: 'test-user-direct',
-        clientId: 'test-client-direct',
-        sessionId: 'test-session-direct',
+        message: 'Hello, this is a test message for the new handler.',
+        userId: 'test-user-direct-new',
+        organisationId: 'test-org-direct-new',
+        clientId: 'test-client-direct-new',
         timestamp: new Date().toISOString(),
       },
     };
@@ -53,7 +53,7 @@ async function main() {
     
     // Call the function directly using the handler function
     // @ts-ignore - Ignoring type issues to directly test handler
-    const result = await handleChatMessage.handler({ 
+    const result = await handleNewChatMessage.handler({ 
       event: mockEvent, 
       step: mockStep,
       logger: mockLogger
