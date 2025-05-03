@@ -115,6 +115,17 @@ Athenic is an agentic AI platform designed to understand high-level business obj
     npm run dev:all
     ```
 
+5. **Run the e2b environment server:**
+    ```bash
+    cd e2b
+    npm run dev
+    ```
+
+6. **Run the web app in that directory with
+    ```bash
+    flutter run -d chrome --web-port 8000
+    ```
+
 This will start:
 - API server on port 3000 (default)
 - Inngest server on port 8001 (default)

@@ -45,20 +45,16 @@
     "test:logs": "npx ts-node tests/log-test.ts",
     "test:chat": "npx ts-node tests/inngest/test-chat-message.ts",
     "test:direct": "npx ts-node tests/inngest/test-direct-call.ts",
-    
     "# Inngest Server": "",
     "start:inngest": "npx ts-node --project tsconfig-override.json src/inngest/server.ts",
     "dev:inngest": "npx nodemon --exec \"ts-node --project tsconfig-override.json src/inngest/server.ts\"",
     "dev:inngest-cli": "npx inngest-cli@latest dev -u http://localhost:8001/api/inngest",
-    
     "# API Server": "",
     "start:api": "npx ts-node --project tsconfig-override.json src/api/server.ts",
     "dev:api": "npx nodemon --exec \"ts-node --project tsconfig-override.json src/api/server.ts\"",
-    
     "# Combined Commands": "",
     "start:all": "npx concurrently \"npm run start:inngest\" \"npm run start:api\"",
     "dev:all": "npx concurrently --kill-others --prefix \"[{name}]\" --prefix-colors \"blue.bold,green.bold,yellow.bold\" --names \"INNGEST,API,DEV-CLI\" --timestamp-format \"HH:mm:ss\" \"npm run dev:inngest\" \"npm run dev:api\" \"npm run dev:inngest-cli\"",
-    
     "# Logs": "",
     "dev:logs": "tail -f logs/*.log",
     "logs": "src/scripts/view-logs.sh",
