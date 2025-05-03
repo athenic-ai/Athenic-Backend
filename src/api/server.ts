@@ -109,17 +109,37 @@ app.post('/api/chat', async (req: any, res: any) => {
     
     // Send the event to Inngest for processing
     logger.debug('Sending event to Inngest');
-    await inngest.send({
-      name: 'athenic/chat.message.received',
-      data: {
-        message,
-        userId: userId || 'anonymous',
-        organisationId: organisationId || 'default',
-        clientId,
-        timestamp: new Date().toISOString(),
-      },
-    });
-    logger.info('Inngest event sent successfully');
+    try {
+      await inngest.send({
+        name: 'athenic/chat.message.received',
+        data: {
+          message,
+          userId: userId || 'anonymous',
+          organisationId: organisationId || 'default',
+          clientId,
+          timestamp: new Date().toISOString(),
+        },
+      });
+      logger.info('Inngest event sent successfully');
+    } catch (inngestError: any) {
+      logger.error(`Error sending event to Inngest: ${inngestError.message}`, { 
+        stack: inngestError.stack,
+        cause: inngestError.cause ? JSON.stringify(inngestError.cause) : 'No cause provided'
+      });
+      
+      // Update session with the error
+      if (clientSessions.has(clientId)) {
+        const session = clientSessions.get(clientId);
+        session.error = `Failed to process message: ${inngestError.message}`;
+        session.processingState = 'error';
+        session.errorTimestamp = new Date().toISOString();
+        
+        // Force session update
+        clientSessions.set(clientId, { ...session });
+      }
+      
+      // Don't return an error to the client, allow them to poll for the response
+    }
     
     // Immediately return 202 Accepted, indicating the request is being processed
     logger.debug('Returning 202 response with clientId');
@@ -129,10 +149,14 @@ app.post('/api/chat', async (req: any, res: any) => {
       clientId, // Return the clientId to the client for later use
     });
   } catch (error: any) {
-    logger.error(`Error processing chat message: ${error.message}`, error);
+    logger.error(`Error processing chat message: ${error.message}`, {
+      stack: error.stack,
+      cause: error.cause ? JSON.stringify(error.cause) : 'No cause provided'
+    });
     return res.status(500).json({
       error: 'Internal server error',
       message: error.message,
+      detail: error.stack ? error.stack.split('\n')[0] : 'No stack trace available'
     });
   }
 });

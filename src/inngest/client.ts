@@ -13,16 +13,16 @@ const logger = Logger.getLogger({
 // Check if we're in dev mode
 const isDev = process.env.NODE_ENV !== 'production';
 
-// Initialize Inngest client
+// Initialize Inngest client with correct dev mode settings
 export const inngest = new Inngest({
   id: 'athenic-backend',
   // Use dev mode when running locally
-  isDev: isDev,
-  // Optional: Specify Inngest API key if you're using Inngest Cloud
-  // (You would add this to your .env file)
-  apiKey: process.env.INNGEST_API_KEY,
-  // Optional: Specify an event key which is used to sign events
-  eventKey: process.env.INNGEST_EVENT_KEY,
+  isDev: true,
+  // For the dev server specifically, don't set these
+  apiKey: undefined,
+  eventKey: undefined,
+  // For local development, tell the client to use the default dev server URL on port 8288
+  // The Inngest development server (not our custom server) runs on this port
 });
 
 // Export a simple function to test connectivity

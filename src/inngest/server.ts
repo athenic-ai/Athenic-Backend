@@ -3,7 +3,7 @@
 import { serve } from 'inngest/express';
 import express from 'express';
 import { inngest } from './client';
-import { testFunction, handleChatMessage, processChat, complexTaskHandler } from './functions';
+import { testFunction, handleChatMessage, processChat, complexTaskHandler, handleNewChatMessage } from './functions';
 import Logger from '../utils/logger';
 import ensureLogDirectories from '../utils/ensure-log-dirs';
 
@@ -27,6 +27,7 @@ const inngestFunctions = [
   handleChatMessage,
   processChat,
   complexTaskHandler,
+  handleNewChatMessage,
   // Add more functions here as they are created
 ];
 
@@ -44,10 +45,11 @@ for (const fn of inngestFunctions) {
 
 logger.info(`Registering ${inngestFunctions.length} Inngest functions`);
 
-// Create Inngest handler
+// Create Inngest handler with signing disabled for local dev
 const inngestHandler = serve({
   client: inngest,
   functions: inngestFunctions.filter(Boolean),
+  signingKey: undefined, // Disable signing for local development
 });
 
 // Add Inngest handler to Express app

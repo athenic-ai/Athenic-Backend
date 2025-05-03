@@ -608,11 +608,122 @@ except Exception as e:
   }
 );
 
+// Add new function to handle messages with AgentKit
+export const handleNewChatMessage = inngest.createFunction(
+  { id: "handle-new-chat-message", name: "Handle New Chat Message" },
+  { event: "athenic/chat.message.received" }, // Trigger on the new event
+  async ({ event, step, logger }) => {
+    const startTime = Date.now();
+    logger.info(`[handleNewChatMessage] Received event`, { eventId: event.id, clientId: event.data.clientId });
+
+    const { message, userId, organisationId, clientId } = event.data;
+
+    // Ensure the required modules are loaded
+    if (!createAgent || !createNetwork) {
+      await loadModules();
+      if (!createAgent || !createNetwork) {
+        logger.error(`[handleNewChatMessage] AgentKit modules not loaded correctly`);
+        return {
+          status: 'error',
+          clientId,
+          error: 'Failed to load required modules',
+          durationMs: Date.now() - startTime,
+        };
+      }
+    }
+
+    // --- Define the Agent ---
+    const chatAgent = createAgent({
+      name: "AthenicChatAgent",
+      // Simple system prompt for now
+      system: `You are Athenic, a helpful AI assistant designed to assist with various tasks. 
+Respond concisely and accurately to the user's message.
+If the user asks you to run code or execute commands, you can use the tools available to you.`,
+      model: {
+        provider: 'openai',
+        model: process.env.OPENAI_MODEL || "gpt-4o-mini", // Use env var or default to gpt-4o-mini
+      },
+      // No tools yet in Phase 1
+      tools: [],
+    });
+
+    // --- Run the Agent ---
+    let agentResponseText = "Sorry, I encountered an issue processing your request.";
+
+    try {
+      const agentResult = await step.run("run-chat-agent", async () => {
+        // Create network with our agent
+        const network = createNetwork({ 
+          agents: [chatAgent], 
+          defaultModel: chatAgent.model
+        });
+        
+        // Store the clientId in the network state for potential future use with tools
+        if (network.state && network.state.kv) {
+          network.state.kv.set('clientId', clientId);
+        }
+        
+        // Run the agent with the user's message
+        return await network.run(message);
+      });
+
+      // Extract the text response from the agent result
+      if (agentResult?.output?.length > 0) {
+        const lastMessage = agentResult.output[agentResult.output.length - 1];
+        if (lastMessage.type === 'text') {
+          agentResponseText = typeof lastMessage.content === 'string'
+            ? lastMessage.content
+            : lastMessage.content.map((c: any) => c.text).join('');
+        }
+      }
+      logger.info(`[handleNewChatMessage] Agent generated response for clientId ${clientId}`, { responseLength: agentResponseText.length });
+
+    } catch (agentError: any) {
+      logger.error(`[handleNewChatMessage] Agent execution failed for clientId ${clientId}`, { error: agentError.message });
+      agentResponseText = `Sorry, I encountered an error while processing your request: ${agentError.message}`;
+    }
+
+    // --- Notify API Server of completion ---
+    try {
+      const { default: axios } = await import('axios');
+      const apiServerPort = process.env.API_SERVER_PORT || '3000';
+      await axios.post(`http://localhost:${apiServerPort}/api/chat/response`, {
+        clientId,
+        response: agentResponseText,
+        requiresE2B: false,
+      });
+      logger.info(`[handleNewChatMessage] Notified API server with response for clientId ${clientId}`);
+    } catch (notifyError: any) {
+      logger.error(`[handleNewChatMessage] Failed to notify API server: ${notifyError.message}`);
+      // Continue execution even if notification fails
+    }
+
+    // --- Placeholder for DB Storage (Phase 3) ---
+    await step.run("store-conversation-placeholder", async () => {
+      logger.info(`[handleNewChatMessage] Placeholder: Storing user message and AI response for clientId ${clientId} in DB.`);
+      // DB logic will go here in Phase 3
+      return { stored: true };
+    });
+
+    const duration = Date.now() - startTime;
+    logger.info(`[handleNewChatMessage] Finished processing for clientId ${clientId}`, { durationMs: duration });
+
+    return {
+      status: 'success',
+      clientId: clientId,
+      response: agentResponseText,
+      durationMs: duration,
+    };
+  }
+);
+
 logger.info('Functions module fully loaded and exported');
 
 // Export a default for convenience
 export default {
   testFunction,
   handleChatMessage,
-  complexTaskHandler
+  complexTaskHandler,
+  processChat,
+  handleNewChatMessage  // Add the new function to the exports
 };
