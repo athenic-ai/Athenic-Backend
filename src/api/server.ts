@@ -3,10 +3,10 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import morgan from 'morgan';
 import { v4 as uuid } from 'uuid';
-import { inngest } from '../inngest/client';
-import { createSupabaseClient } from './supabase';
-import Logger from '../utils/logger';
-import ensureLogDirectories from '../utils/ensure-log-dirs';
+import { inngest } from '../inngest/index.js';
+import { createSupabaseClient } from './supabase.js';
+import Logger from '../utils/logger.js';
+import ensureLogDirectories from '../utils/ensure-log-dirs.js';
 import fs from 'fs';
 import path from 'path';
 

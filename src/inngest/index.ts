@@ -1,7 +1,4 @@
-// Export all Inngest components
-export * from './client';
-export * from './functions';
-export * from './server';
-
-// This file can be imported and used directly:
-// import { inngest, startInngestServer } from './inngest'; 
+// Export client and functions for external use
+export { inngest } from "./inngest.js";
+export { testInngestConnection } from "./client.js";
+export { createInngestServer, startInngestServer } from "./server.js";

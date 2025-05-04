@@ -1,30 +1,35 @@
-# Athenic Inngest Integration
+# Athenic AgentKit Implementation
 
-This directory contains the integration with Inngest for the Athenic backend. Inngest is used for workflow orchestration, which enables more complex, durable, and reliable agent workflows compared to direct API calls.
+This directory contains the AgentKit-based implementation of Athenic's agent system, powered by Inngest.
 
-## Structure
+## Overview
 
-- `client.ts` - Configures the Inngest client
-- `functions.ts` - Defines Inngest functions that handle specific events
-- `server.ts` - Sets up an Express server to serve the Inngest webhook handler
-- `index.ts` - Re-exports all components for easy importing
+The Athenic agent system uses [AgentKit by Inngest](https://agentkit.inngest.com/) to create a powerful, orchestrated AI agent system. This implementation replaces the previous Inngest-based implementation with a more sophisticated agent-based approach.
+
+## Key Components
+
+- **Agents**: Individual specialized AI agents defined in the `agents/` directory
+- **Networks**: Collections of agents that work together, defined in the `networks/` directory
+- **Tools**: Custom capabilities that agents can use, defined in the `tools/` directory
+- **Server**: Express server that exposes the Inngest webhook endpoints and UI
+- **Client**: Exports the Inngest client for use by other parts of the application
+
+## Architecture
+
+This implementation follows the modular design of AgentKit:
+
+1. **AgentKit Networks** orchestrate the overall workflows
+2. **AgentKit Agents** handle specialized tasks based on their expertise
+3. **Tools** allow agents to interact with external systems, databases, or perform specific actions
+4. **Inngest** handles the event-based execution, durable state, and retry logic
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js installed
-- Inngest CLI installed (`npm install -g inngest-cli`)
-
-### Configuration
-
-Add the following environment variables to your `.env` file:
-
-```
-INNGEST_API_KEY=your_api_key     # Optional, for Inngest Cloud
-INNGEST_EVENT_KEY=athenic-dev    # Used to sign events
-INNGEST_SERVER_PORT=8000         # Port for the Inngest server
-```
+- Node.js 16+
+- npm/pnpm
+- Running Supabase instance
 
 ### Running the Server
 
@@ -34,48 +39,93 @@ To start the Inngest server:
 npm run start:inngest
 ```
 
-This will start an Express server at the port specified in your `.env` file.
-
-### Development
-
-For local development with hot reloading:
+To start the development server with hot reload:
 
 ```bash
 npm run dev:inngest
 ```
 
-### Testing the Connection
-
-To test the Inngest connection:
+To start both API and Inngest servers together:
 
 ```bash
-npm run test:inngest
+npm run start:all
 ```
 
-This will send a test event to Inngest and verify if it was received.
+### Testing
 
-### Running the Inngest Dev Server
-
-To visualize and debug events and functions, run the Inngest Dev Server:
+To test the chat functionality:
 
 ```bash
-npx inngest-cli dev
+./test-chat.sh
 ```
 
-This will open a browser window showing the Inngest Dev UI, where you can see events, function executions, and debug logs.
+Or run the test script directly:
 
-## Function Calling Flow
+```bash
+npx ts-node src/test-chat.ts
+```
 
-1. Events are sent to Inngest using the `inngest.send()` method
-2. Registered functions that match the event name will be triggered
-3. Each function executes steps via `step.run()`
-4. Steps can use AgentKit to implement agent logic
-5. Results of the functions can trigger webhooks or callbacks
+## Development Guide
 
-## Adding New Functions
+### Creating a New Agent
 
-To create a new Inngest function:
+To create a new agent, add a new file in the `agents/` directory:
 
-1. Add the function to `functions.ts` using `inngest.createFunction()`
-2. Register it in the `inngestFunctions` array in `server.ts`
-3. Restart the server to apply changes 
+```typescript
+import { createAgent, anthropic } from '@inngest/agent-kit';
+
+export const myAgent = createAgent({
+  name: 'My Agent',
+  description: 'Handles specific tasks',
+  system: 'You are an expert agent that...',
+  model: anthropic({
+    model: 'claude-3-5-haiku-latest',
+  }),
+});
+```
+
+### Creating a Network
+
+Networks combine multiple agents to work together:
+
+```typescript
+import { createNetwork } from '@inngest/agent-kit';
+import { agentA, agentB } from '../agents/myAgents';
+
+export const myNetwork = createNetwork({
+  name: 'My Network',
+  agents: [agentA, agentB],
+  defaultModel: anthropic({
+    model: 'claude-3-5-haiku-latest',
+  }),
+});
+```
+
+### Adding a Tool
+
+Tools extend agent capabilities. Add new tools to the `tools/` directory:
+
+```typescript
+import { createTool } from '@inngest/agent-kit';
+
+export const myTool = createTool({
+  name: 'my-tool',
+  description: 'Does something useful',
+  handler: async (input, context) => {
+    // Implementation
+    return { result: 'Success' };
+  },
+});
+```
+
+## Configuration
+
+The Inngest configuration is set in `inngest.ts`. Key settings include:
+
+- Event schemas
+- Function definitions and retry policies
+- Integration with external services
+
+## API Reference
+
+See the [AgentKit documentation](https://agentkit.inngest.com/getting-started/quick-start) for more details on the available APIs and components.

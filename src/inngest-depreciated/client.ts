@@ -1,6 +1,6 @@
-import { inngest } from './inngest.js';
+import { Inngest } from 'inngest';
 import * as dotenv from 'dotenv';
-import { Logger } from '../utils/logger.js';
+import Logger from '../utils/logger';
 
 // Load environment variables
 dotenv.config();
@@ -10,8 +10,20 @@ const logger = Logger.getLogger({
   component: 'InngestClient'
 });
 
-// Export the inngest client
-export { inngest };
+// Check if we're in dev mode
+const isDev = process.env.NODE_ENV !== 'production';
+
+// Initialize Inngest client with correct dev mode settings
+export const inngest = new Inngest({
+  id: 'athenic-backend',
+  // Use dev mode when running locally
+  isDev: true,
+  // For the dev server specifically, don't set these
+  apiKey: undefined,
+  eventKey: undefined,
+  // For local development, tell the client to use the default dev server URL on port 8288
+  // The Inngest development server (not our custom server) runs on this port
+});
 
 // Export a simple function to test connectivity
 export async function testInngestConnection(): Promise<boolean> {

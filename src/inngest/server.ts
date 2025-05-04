@@ -1,75 +1,62 @@
-// Using any types to avoid TypeScript issues
+import express from "express";
+import { serve } from "inngest/express";
+import { fn, inngest, chatMessageFunction } from "./inngest.js";
 
-import { serve } from 'inngest/express';
-import express from 'express';
-import { inngest } from './client';
-import { testFunction, complexTaskHandler, handleNewChatMessage } from './functions';
-import Logger from '../utils/logger';
-import ensureLogDirectories from '../utils/ensure-log-dirs';
+/**
+ * Creates and configures an Express server for Inngest
+ * @param {number} port - The port to listen on (default: 3001)
+ * @returns {express.Application} The configured Express app
+ */
+export function createInngestServer(port: number = 3001) {
+  const app = express();
 
-// Ensure log directories exist
-ensureLogDirectories();
+  // Important: ensure you add JSON middleware to process incoming JSON POST payloads.
+  app.use(express.json({ limit: "50mb" }));
 
-// Create a logger specifically for the Inngest server
-const logger = Logger.getLogger({
-  component: 'InngestServer'
-});
+  app.use(
+    // Expose the middleware on our recommended path at `/api/inngest`.
+    "/api/inngest",
+    serve({
+      client: inngest,
+      functions: [fn, chatMessageFunction],
+    })
+  );
 
-// Create express app for Inngest server
-const app = express();
-
-// Add middleware to parse JSON bodies
-app.use(express.json());
-
-// Register the Inngest functions
-const inngestFunctions = [
-  testFunction,
-  complexTaskHandler,
-  handleNewChatMessage,
-  // Add more functions here as they are created
-];
-
-// Log function registrations more clearly
-for (const fn of inngestFunctions) {
-  if (fn) {
-    logger.info(`Registering Inngest function: ${fn.id}`, { 
-      functionId: fn.id,
-      triggerEvent: fn.id || 'unknown'
-    });
-  } else {
-    logger.warn('Found undefined function in registration list');
-  }
+  return app;
 }
 
-logger.info(`Registering ${inngestFunctions.length} Inngest functions`);
-
-// Create Inngest handler with signing disabled for local dev
-const inngestHandler = serve({
-  client: inngest,
-  functions: inngestFunctions.filter(Boolean),
-  signingKey: undefined, // Disable signing for local development
-});
-
-// Add Inngest handler to Express app
-app.use('/api/inngest', inngestHandler);
-
-// Add a health check endpoint
-app.get('/health', (req, res) => {
-  logger.debug('Health check endpoint called');
-  res.json({ status: 'healthy', service: 'inngest-server' });
-});
-
-// Export server start function
-export function startInngestServer(port: number = 8001): void {
-  app.listen(port, () => {
-    logger.info(`Inngest server listening on port ${port}`);
-    logger.info(`Health check: http://localhost:${port}/health`);
-    logger.info(`Inngest webhook URL: http://localhost:${port}/api/inngest`);
+/**
+ * Starts the Inngest server
+ * @param {number} port - The port to listen on (default: from env or 3001)
+ */
+export function startInngestServer(port?: number) {
+  const serverPort = port || parseInt(process.env.INNGEST_SERVER_PORT || "3001", 10);
+  const app = createInngestServer(serverPort);
+  
+  const server = app.listen(serverPort, () => {
+    console.log(`Inngest server listening on port ${serverPort}`);
+    console.log(`Inngest UI available at: http://localhost:${serverPort}/api/inngest`);
   });
+  
+  // Setup graceful shutdown
+  process.on('SIGINT', () => {
+    console.log('SIGINT received, gracefully shutting down Inngest server');
+    server.close(() => {
+      console.log('Inngest server closed');
+    });
+  });
+  
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM received, gracefully shutting down Inngest server');
+    server.close(() => {
+      console.log('Inngest server closed');
+    });
+  });
+  
+  return server;
 }
 
-// Start server if this file is run directly
-if (require.main === module) {
-  const port = parseInt(process.env.INNGEST_SERVER_PORT || '8001', 10);
-  startInngestServer(port);
+// If this file is executed directly, start the server
+if (import.meta.url === `file://${process.argv[1]}`) {
+  startInngestServer();
 } 
