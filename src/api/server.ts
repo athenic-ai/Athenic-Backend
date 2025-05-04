@@ -60,6 +60,109 @@ apiRouter.get('/health', (req: any, res: any) => {
   res.json({ status: 'healthy', service: 'backend-api' });
 });
 
+// SSE endpoint for streaming chat responses
+apiRouter.get('/chat/stream/:clientId', (req: any, res: any) => {
+  const { clientId } = req.params;
+  
+  if (!clientId) {
+    return res.status(400).json({ error: 'Missing clientId parameter' });
+  }
+  
+  logger.info(`SSE connection requested for client ${clientId}`);
+  
+  // Check if client session exists
+  if (!clientSessions.has(clientId)) {
+    logger.warn(`No session found for client ID: ${clientId}`);
+    return res.status(404).json({ error: 'No session found for this client ID' });
+  }
+  
+  // Set up SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+  });
+  
+  // Send initial connection established message
+  res.write(`data: ${JSON.stringify({ connected: true, clientId })}\n\n`);
+  
+  // Setup interval to check for updates
+  const checkInterval = 500; // 500ms
+  const maxWaitTime = 60000; // 60 seconds
+  let totalWaitTime = 0;
+  
+  const sessionCheckInterval = setInterval(() => {
+    if (!clientSessions.has(clientId)) {
+      // Session was somehow removed
+      clearInterval(sessionCheckInterval);
+      res.write(`data: ${JSON.stringify({ error: 'Session lost', complete: true })}\n\n`);
+      res.end();
+      return;
+    }
+    
+    const session = clientSessions.get(clientId);
+    
+    // Check if we have a response
+    if (session.lastResponse) {
+      // Send the final response
+      res.write(`data: ${JSON.stringify({
+        response: session.lastResponse,
+        requiresE2B: session.requiresE2B || false,
+        references: session.references || null,
+        complete: true
+      })}\n\n`);
+      
+      clearInterval(sessionCheckInterval);
+      res.end();
+      
+      logger.info(`SSE stream completed for client ${clientId}`);
+      return;
+    }
+    
+    // Check for error state
+    if (session.processingState === 'error') {
+      res.write(`data: ${JSON.stringify({
+        error: session.error || 'An unknown error occurred',
+        complete: true
+      })}\n\n`);
+      
+      clearInterval(sessionCheckInterval);
+      res.end();
+      
+      logger.warn(`SSE stream ended with error for client ${clientId}: ${session.error}`);
+      return;
+    }
+    
+    // Send progress update
+    res.write(`data: ${JSON.stringify({
+      status: session.processingState,
+      progress: totalWaitTime / maxWaitTime,
+      complete: false
+    })}\n\n`);
+    
+    // Check if we've waited too long
+    totalWaitTime += checkInterval;
+    if (totalWaitTime >= maxWaitTime) {
+      res.write(`data: ${JSON.stringify({
+        error: 'Request timed out after 60 seconds',
+        complete: true
+      })}\n\n`);
+      
+      clearInterval(sessionCheckInterval);
+      res.end();
+      
+      logger.warn(`SSE stream timed out for client ${clientId}`);
+      return;
+    }
+  }, checkInterval);
+  
+  // Handle client disconnect
+  req.on('close', () => {
+    clearInterval(sessionCheckInterval);
+    logger.info(`SSE connection closed for client ${clientId}`);
+  });
+});
+
 // Chat endpoint - handles messages from the Flutter app
 apiRouter.post('/chat', async (req: any, res: any) => {
   logger.info('Chat endpoint called');
