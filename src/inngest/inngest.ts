@@ -4,7 +4,8 @@ import fs from "node:fs";
 import { EventSchemas, Inngest } from "inngest";
 import { z } from "zod";
 import { AgentState, codeWritingNetwork } from "./networks/codeWritingNetwork.js";
-import { runChatSession } from "./networks/chatNetwork.js";
+import { chatAgent } from "./agents/chatAgent.js";
+import { type Message } from "@inngest/agent-kit";
 
 export const inngest = new Inngest({
   id: "athenic-backend",
@@ -85,96 +86,133 @@ export const fn = inngest.createFunction(
   }
 );
 
+// Helper function for timeout (could be moved elsewhere)
+function createTimeout(ms: number, message: string) {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(message)), ms);
+  });
+}
+
 export const chatMessageFunction = inngest.createFunction(
-  { id: "chat-message-handler", retries: 2 },
+  { id: "chat-message-handler", retries: 0 }, // Keep retries at 0 for testing
   { event: "athenic/chat.message.received" },
   async ({ event, step }) => {
     const { message, userId, organisationId, clientId } = event.data;
     
-    // Log the received message
     await step.run("log-message", () => {
       console.log(`Received message from user ${userId}: ${message}`);
       return { received: true };
     });
     
-    // Process the message using the chat network (Removed step.run wrapper)
-    let responsePayload: { response: any; error: string | null };
+    let responsePayload: { response: string; error: string | null } = {
+        response: "An unexpected issue occurred before processing could complete.",
+        error: "Initialization failure"
+    };
+    
     try {
-      // Process the message with our chat network directly
-      const aiResponse = await runChatSession(message, {
-        userId,
-        organisationId,
-        clientId
-      });
+      // Call chatAgent.run directly with a timeout
+      console.log("Running chatAgent.run directly...");
+      const TIMEOUT_MS = 30000;
+      const agentResponse = await Promise.race([
+          chatAgent.run(message), // Pass only the message prompt
+          createTimeout(TIMEOUT_MS, `Agent execution timed out after ${TIMEOUT_MS} ms`)
+      ]) as { output: Message[] }; // Type assertion for expected success structure
+
+      console.log("chatAgent.run call completed successfully.");
       
-      // Assuming runChatSession returns the direct AI response or structure containing it
-      // Adjust based on the actual return type of runChatSession if needed
-      const lastResultRaw = aiResponse?.state?.results?.[aiResponse.state.results.length - 1];
-      const exportedResult = lastResultRaw?.export();
-      
-      let finalContent = "No text response generated.";
-      // Check the output array within the exported result
-      if (exportedResult && exportedResult.output && exportedResult.output.length > 0) {
-        const lastOutputMessage = exportedResult.output[exportedResult.output.length - 1];
+      // --- Logic to extract content from agentResponse.output --- 
+      let finalContent = "No valid text response found in agent output.";
+      if (agentResponse?.output && agentResponse.output.length > 0) {
+        // Find the assistant message
+        const assistantMessage = agentResponse.output.find(m => m.role === 'assistant');
         
-        // Now check the type and content of the last message in the output array
-        if (lastOutputMessage?.type === 'text') {
-          // Handle different possible content structures for text type
-          if (typeof lastOutputMessage.content === 'string') {
-            finalContent = lastOutputMessage.content;
-          } else if (Array.isArray(lastOutputMessage.content)) {
-             // Example: Handle Anthropic's content block array [{ type: 'text', text: '...' }]
-             const textBlock = lastOutputMessage.content.find((block: any) => block.type === 'text');
-             if (textBlock && typeof textBlock.text === 'string') {
-               finalContent = textBlock.text;
+        // Check if it exists and assume it has content based on role
+        if (assistantMessage) { // No need to check role again, find did that
+            // Use type assertion if necessary to access content
+             const content = (assistantMessage as any).content;
+             if (typeof content === 'string') {
+                 finalContent = content;
+                 console.log(`Extracted content: ${finalContent.substring(0, 50)}...`);
+             } else if (Array.isArray(content)) {
+                 // Handle potential structured content (e.g., Anthropic)
+                 const textBlock = content.find((block: any) => block.type === 'text');
+                 if (textBlock && typeof textBlock.text === 'string') {
+                     finalContent = textBlock.text;
+                     console.log(`Extracted content from block: ${finalContent.substring(0, 50)}...`);
+                 }
+             } else {
+                 console.log("Assistant message content is not a string or suitable array.");
              }
-          }
+        } else {
+             console.log("No message with role 'assistant' found in agent output.");
         }
+      } else {
+        console.log("No output array found in agent response.");
       }
+      // --- End of extraction logic ---
       
       responsePayload = {
-        response: finalContent, // Access last message content safely
+        response: finalContent,
         error: null
       };
+
     } catch (error) {
-      console.error('Error processing chat message:', error);
-      responsePayload = {
-        response: "I apologize, but I encountered an error processing your request. Please try again.",
-        error: error instanceof Error ? error.message : String(error)
-      };
+      // Catch errors from chatAgent.run or the timeout
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Error during agent execution:', errorMessage);
+
+      // Check specifically for our timeout message
+      if (errorMessage.includes('Agent execution timed out after')) { 
+        console.log('Caught agent timeout error. Setting timeout fallback response.');
+        responsePayload = {
+          response: "I apologize, but your request timed out. Please try again later.",
+          error: errorMessage
+        };
+      } else {
+        console.log('Caught non-timeout error during agent execution. Setting generic error response.');
+        responsePayload = {
+          response: "I apologize, but an unexpected error occurred. Please try again later.",
+          error: errorMessage
+        };
+      }
     }
     
-    // Send the response back to the API server
+    // --- Send Response Step (always runs) --- 
+    console.log("Proceeding to send response step.");
     await step.run("send-response", async () => {
+      console.log("Executing send-response step.");
       try {
-        // Get the API server port from environment variable or default to 8001
         const apiPort = process.env.API_SERVER_PORT || '8001';
-        const apiUrl = `http://localhost:${apiPort}/chat/response`; // Use the /chat/response endpoint, not /api/chat/response
-
-        // Make a POST request to the API server's response endpoint
+        const apiUrl = `http://localhost:${apiPort}/chat/response`;
+        
+        const responseToSend = typeof responsePayload.response === 'string' ? responsePayload.response : JSON.stringify(responsePayload.response);
+        console.log(`Sending final response to API: ${responseToSend.substring(0, 50)}...`);
+        
         const apiResponse = await fetch(apiUrl, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            clientId,
-            response: responsePayload.response, // Use the response from the payload
-            requiresE2B: false, // Assuming no E2B for basic chat for now
+            clientId, // Pass clientId back to the API
+            response: responseToSend,
+            requiresE2B: false, // Chat agent doesn't use E2B
+            error: responsePayload.error 
           }),
         });
         
         if (!apiResponse.ok) {
-          throw new Error(`API responded with status: ${apiResponse.status}`);
+          console.error(`API responded with status: ${apiResponse.status} during send.`);
+          throw new Error(`API call failed with status: ${apiResponse.status}`); 
         }
         
+        console.log("Response successfully sent to API server.");
         return { sent: true };
-      } catch (error) {
-        console.error('Failed to send response back to API:', error);
-        return { sent: false, error: String(error) };
+      } catch (sendError) {
+        console.error('Failed to send response back to API:', sendError);
+        throw sendError; // Fail this step if sending fails
       }
     });
     
-    return { processed: true };
+    console.log("chatMessageFunction finished.");
+    return { processed: responsePayload.error === null }; // Indicate success if no error was caught
   }
 );
