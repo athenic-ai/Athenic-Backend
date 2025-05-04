@@ -61,7 +61,7 @@
     "# Combined Commands": "",
     "start": "npx tsx src/start-servers.ts",
     "start:all": "npx tsx src/start-servers.ts",
-    "dev": "npx nodemon --exec \"npx tsx src/start-servers.ts\"",
+    "dev": "npx nodemon --exec \"NODE_OPTIONS='-r dotenv/config' npx tsx src/start-servers.ts\"",
     "dev:all": "npx concurrently --kill-others --prefix \"[{name}]\" --prefix-colors \"blue.bold,green.bold,yellow.bold\" --names \"SERVERS,DEV-CLI\" --timestamp-format \"HH:mm:ss\" \"npm run dev\" \"npm run dev:inngest-cli\"",
     "# Logs": "",
     "dev:logs": "tail -f logs/*.log",

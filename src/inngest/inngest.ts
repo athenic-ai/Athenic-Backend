@@ -97,28 +97,52 @@ export const chatMessageFunction = inngest.createFunction(
       return { received: true };
     });
     
-    // Process the message using the chat network
-    const response = await step.run("process-message", async () => {
-      try {
-        // Process the message with our chat network
-        const aiResponse = await runChatSession(message, {
-          userId,
-          organisationId,
-          clientId
-        });
+    // Process the message using the chat network (Removed step.run wrapper)
+    let responsePayload: { response: any; error: string | null };
+    try {
+      // Process the message with our chat network directly
+      const aiResponse = await runChatSession(message, {
+        userId,
+        organisationId,
+        clientId
+      });
+      
+      // Assuming runChatSession returns the direct AI response or structure containing it
+      // Adjust based on the actual return type of runChatSession if needed
+      const lastResultRaw = aiResponse?.state?.results?.[aiResponse.state.results.length - 1];
+      const exportedResult = lastResultRaw?.export();
+      
+      let finalContent = "No text response generated.";
+      // Check the output array within the exported result
+      if (exportedResult && exportedResult.output && exportedResult.output.length > 0) {
+        const lastOutputMessage = exportedResult.output[exportedResult.output.length - 1];
         
-        return {
-          response: aiResponse,
-          error: null
-        };
-      } catch (error) {
-        console.error('Error processing chat message:', error);
-        return {
-          response: "I apologize, but I encountered an error processing your request. Please try again.",
-          error: error instanceof Error ? error.message : String(error)
-        };
+        // Now check the type and content of the last message in the output array
+        if (lastOutputMessage?.type === 'text') {
+          // Handle different possible content structures for text type
+          if (typeof lastOutputMessage.content === 'string') {
+            finalContent = lastOutputMessage.content;
+          } else if (Array.isArray(lastOutputMessage.content)) {
+             // Example: Handle Anthropic's content block array [{ type: 'text', text: '...' }]
+             const textBlock = lastOutputMessage.content.find((block: any) => block.type === 'text');
+             if (textBlock && typeof textBlock.text === 'string') {
+               finalContent = textBlock.text;
+             }
+          }
+        }
       }
-    });
+      
+      responsePayload = {
+        response: finalContent, // Access last message content safely
+        error: null
+      };
+    } catch (error) {
+      console.error('Error processing chat message:', error);
+      responsePayload = {
+        response: "I apologize, but I encountered an error processing your request. Please try again.",
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
     
     // Send the response back to the API server
     await step.run("send-response", async () => {
@@ -135,7 +159,7 @@ export const chatMessageFunction = inngest.createFunction(
           },
           body: JSON.stringify({
             clientId,
-            response: response.response,
+            response: responsePayload.response, // Use the response from the payload
             requiresE2B: false, // Assuming no E2B for basic chat for now
           }),
         });

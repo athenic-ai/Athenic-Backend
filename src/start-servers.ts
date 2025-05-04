@@ -5,10 +5,6 @@
 
 import { startInngestServer } from './inngest/server.js';
 import { startApiServer } from './api/server.js';
-import dotenv from 'dotenv';
-
-// Load environment variables
-dotenv.config();
 
 // Get port configurations from environment variables or use defaults
 const INNGEST_PORT = parseInt(process.env.INNGEST_SERVER_PORT || '8002', 10);

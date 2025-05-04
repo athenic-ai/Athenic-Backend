@@ -1,4 +1,4 @@
-import { createNetwork, createState, anthropic } from '@inngest/agent-kit';
+import { createNetwork, createState, openai } from '@inngest/agent-kit';
 import { chatAgent } from '../agents/chatAgent.js';
 
 /**
@@ -21,11 +21,9 @@ export interface ChatState {
 export const chatNetwork = createNetwork({
   name: 'Chat Network',
   agents: [chatAgent],
-  defaultModel: anthropic({
-    model: 'claude-3-5-haiku-latest',
-    defaultParameters: {
-      max_tokens: 1000,
-    },
+  defaultModel: openai({
+    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    apiKey: process.env.OPENAI_API_KEY,
   }),
 });
 
