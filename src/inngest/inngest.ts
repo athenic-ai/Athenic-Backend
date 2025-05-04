@@ -123,8 +123,12 @@ export const chatMessageFunction = inngest.createFunction(
     // Send the response back to the API server
     await step.run("send-response", async () => {
       try {
+        // Get the API server port from environment variable or default to 8001
+        const apiPort = process.env.API_SERVER_PORT || '8001';
+        const apiUrl = `http://localhost:${apiPort}/chat/response`; // Use the /chat/response endpoint, not /api/chat/response
+
         // Make a POST request to the API server's response endpoint
-        const apiResponse = await fetch('http://localhost:3000/api/chat/response', {
+        const apiResponse = await fetch(apiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -132,7 +136,7 @@ export const chatMessageFunction = inngest.createFunction(
           body: JSON.stringify({
             clientId,
             response: response.response,
-            requiresE2B: false,
+            requiresE2B: false, // Assuming no E2B for basic chat for now
           }),
         });
         

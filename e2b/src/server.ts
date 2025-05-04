@@ -25,7 +25,7 @@ import * as e2bService from './e2b-service';
 dotenv.config();
 
 // Constants
-const PORT = process.env.PORT || 8002;
+const PORT = process.env.E2B_SERVICE_PORT || 8003;
 const E2B_API_KEY = process.env.E2B_API_KEY;
 
 // Setup Express app with CORS and JSON body parser

@@ -54,7 +54,7 @@
     "start:inngest:direct": "node src/run-inngest-server.js",
     "dev:inngest": "npx nodemon --exec \"npx tsx src/inngest/server.ts\"",
     "dev:inngest:direct": "npx nodemon src/run-inngest-server.js",
-    "dev:inngest-cli": "npx inngest-cli@latest dev -u http://localhost:3001/api/inngest",
+    "dev:inngest-cli": "npx inngest-cli@latest dev -u http://localhost:8002/api/inngest",
     "# API Server": "",
     "start:api": "npx tsx src/api/server.ts",
     "dev:api": "npx nodemon --exec \"npx tsx src/api/server.ts\"",
@@ -69,7 +69,9 @@
     "logs:follow": "src/scripts/view-logs.sh --follow",
     "logs:errors": "src/scripts/view-logs.sh --grep ERROR",
     "logs:inngest": "src/scripts/view-logs.sh --log inngest --follow",
-    "logs:api": "src/scripts/view-logs.sh --log api --follow"
+    "logs:api": "src/scripts/view-logs.sh --log api --follow",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\""
   },
   "jest": {
     "preset": "ts-jest",

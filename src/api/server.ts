@@ -1,4 +1,5 @@
 import express from 'express';
+import Router from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import morgan from 'morgan';
@@ -47,17 +48,20 @@ app.use(bodyParser.json());
 app.use(morgan('dev')); // Console logging
 logger.info('Middleware configured');
 
+// Create a router for all API endpoints
+const apiRouter = Router();
+
 // Store active client sessions
 const clientSessions = new Map();
 
 // Health check endpoint
-app.get('/api/health', (req: any, res: any) => {
+apiRouter.get('/health', (req: any, res: any) => {
   logger.debug('Health check endpoint called');
   res.json({ status: 'healthy', service: 'backend-api' });
 });
 
 // Chat endpoint - handles messages from the Flutter app
-app.post('/api/chat', async (req: any, res: any) => {
+apiRouter.post('/chat', async (req: any, res: any) => {
   logger.info('Chat endpoint called');
   try {
     const { message, userId, organisationId } = req.body;
@@ -162,7 +166,7 @@ app.post('/api/chat', async (req: any, res: any) => {
 });
 
 // Endpoint for Inngest to send responses back to the client (will be handled via WebSocket)
-app.post('/api/chat/response', (req: any, res: any) => {
+apiRouter.post('/chat/response', (req: any, res: any) => {
   logger.info('Chat response endpoint called');
   const { clientId, response, requiresE2B, e2bResult } = req.body;
   
@@ -210,7 +214,7 @@ app.post('/api/chat/response', (req: any, res: any) => {
 });
 
 // Endpoint for notifying that E2B code execution has started
-app.post('/api/chat/execution-started', (req: any, res: any) => {
+apiRouter.post('/chat/execution-started', (req: any, res: any) => {
   logger.info('E2B execution started endpoint called');
   const { clientId, sandboxId } = req.body;
   
@@ -282,7 +286,7 @@ app.post('/api/chat/execution-started', (req: any, res: any) => {
 });
 
 // Add endpoint to get latest session state for a client (polling fallback)
-app.get('/api/chat/session/:clientId', (req: any, res: any) => {
+apiRouter.get('/chat/session/:clientId', (req: any, res: any) => {
   const { clientId } = req.params;
   
   if (clientSessions.has(clientId)) {
@@ -310,7 +314,7 @@ app.get('/api/chat/session/:clientId', (req: any, res: any) => {
 });
 
 // Add new NLP service endpoint for handling regular chat messages
-app.post('/api/nlp/chat', async (req, res) => {
+apiRouter.post('/nlp/chat', async (req: any, res: any) => {
   try {
     const { message, userId, organisationId } = req.body;
     
@@ -371,42 +375,57 @@ app.post('/api/nlp/chat', async (req, res) => {
   }
 });
 
+// Mount the API router
+// We will only mount it on the root path now, as mounting on /api might conflict
+// if other services (like Inngest) are also using /api
+app.use('/', apiRouter);
+
 // Export function to start the server
 export function startApiServer(port: number = 3000): ReturnType<typeof app.listen> {
-  logger.info(`Starting API server on port ${port}`);
-  const server = app.listen(port, () => {
-    logger.info(`Backend API server listening on port ${port}`);
-    logger.info(`Health check: http://localhost:${port}/api/health`);
-  });
-  
-  // Setup graceful shutdown
-  process.on('SIGINT', () => {
-    logger.info('SIGINT received, gracefully shutting down API server');
-    accessLogStream.end();
-    server.close(() => {
-      logger.info('Server closed');
-      process.exit(0);
+  logger.info(`Attempting to start API server on port ${port}...`); // Log start attempt
+  try {
+    const server = app.listen(port, () => {
+      logger.info(`Backend API server successfully listening on port ${port}`); // Log success
+      logger.info(`Health check available at: http://localhost:${port}/health`);
+      logger.info(`Chat endpoint available at: http://localhost:${port}/chat`);
     });
-  });
-  
-  process.on('SIGTERM', () => {
-    logger.info('SIGTERM received, gracefully shutting down API server');
-    accessLogStream.end();
-    server.close(() => {
-      logger.info('Server closed');
-      process.exit(0);
+    
+    server.on('error', (error) => {
+        logger.error(`API server failed to start on port ${port}: ${error.message}`, { stack: error.stack }); // Log specific errors
     });
-  });
-  
-  return server;
+    
+    // Setup graceful shutdown
+    process.on('SIGINT', () => {
+      logger.info('SIGINT received, gracefully shutting down API server');
+      accessLogStream.end();
+      server.close(() => {
+        logger.info('API Server closed (SIGINT)');
+        // process.exit(0); // Avoid exiting here, let start-servers handle it
+      });
+    });
+    
+    process.on('SIGTERM', () => {
+      logger.info('SIGTERM received, gracefully shutting down API server');
+      accessLogStream.end();
+      server.close(() => {
+        logger.info('API Server closed (SIGTERM)');
+        // process.exit(0); // Avoid exiting here, let start-servers handle it
+      });
+    });
+    
+    logger.info(`startApiServer function returning server instance for port ${port}`); // Log return
+    return server;
+  } catch (error: any) {
+    logger.error(`Critical error during API server startup on port ${port}: ${error.message}`, { stack: error.stack }); // Log any synchronous errors
+    throw error; // Rethrow critical errors
+  }
 }
 
-// If this file is executed directly, start the server
-if (require.main === module) {
-  const port = parseInt(process.env.API_SERVER_PORT || '3000', 10);
-  startApiServer(port);
-}
-
-// Remove the logger shutdown calls that might be causing premature exit
 // Just end with exporting the app
-export default app; 
+export default app;
+
+// Add this block to start the server if the file is run directly
+if (import.meta.url.startsWith('file:') && process.argv[1] === import.meta.filename) {
+  const PORT = parseInt(process.env.API_SERVER_PORT || '8001', 10);
+  startApiServer(PORT);
+} 
