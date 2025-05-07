@@ -1,5 +1,6 @@
 import { createNetwork, createState, openai } from '@inngest/agent-kit';
 import { chatAgent } from '../agents/chatAgent.js';
+import { buildMcpServersConfig } from '../utils/mcpHelpers.js';
 
 /**
  * Type definition for chat state
@@ -74,13 +75,28 @@ export async function runChatSession(
   
   const state = createState<ChatState>(initialState);
   console.log(`[runChatSession] Created state object for client ${metadata.clientId}`);
+  
+  // Get MCP servers for this organization
+  console.log(`[runChatSession] Fetching MCP servers for organization ${metadata.organisationId}`);
+  const mcpServersConfig = await buildMcpServersConfig(metadata.organisationId);
+  console.log(`[runChatSession] Found ${mcpServersConfig.length} MCP servers for organization ${metadata.organisationId}`);
 
   console.log(`[runChatSession] Running chat network with message: "${message.substring(0, 30)}..."`);
   
   // Restore Promise.race for timeout
   const TIMEOUT_MS = 30000; // 30 seconds timeout
+  
+  // We need to use type assertion here as the TypeScript definitions might not include mcpServers
+  const runOptions: any = { state };
+  
+  // Only add mcpServers property if we have servers to avoid undefined values
+  if (mcpServersConfig.length > 0) {
+    runOptions.mcpServers = mcpServersConfig;
+    console.log(`[runChatSession] Including ${mcpServersConfig.length} MCP servers in network run`);
+  }
+  
   const response = await Promise.race([
-    chatNetwork.run(message, { state }),
+    chatNetwork.run(message, runOptions),
     createTimeout(TIMEOUT_MS)
   ]) as NetworkResponse;
   

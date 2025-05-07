@@ -6,315 +6,572 @@
  */
 
 import { Sandbox } from '@e2b/code-interpreter';
-import dotenv from 'dotenv';
+import { AxiosError } from 'axios';
+import { decryptCredential, encryptCredential } from '../utils/credentials.js';
 
-// Load environment variables
-dotenv.config();
-
-// Get E2B API key from environment
-const E2B_API_KEY = process.env.E2B_API_KEY;
-
-if (!E2B_API_KEY) {
-  console.error('E2B_API_KEY environment variable is not set.');
+// Define a simple logger interface to avoid dependencies
+interface ILogger {
+  debug(message: string, ...args: any[]): void;
+  info(message: string, ...args: any[]): void;
+  error(message: string, error?: unknown): void;
 }
 
-// Track active MCP sandboxes for cleanup and management
-const activeMcpSandboxes = new Map<string, Sandbox>();
+// Basic logger implementation
+class DefaultLogger implements ILogger {
+  private prefix: string;
+  
+  constructor(prefix: string) {
+    this.prefix = prefix;
+  }
+  
+  debug(message: string, ...args: any[]): void {
+    console.debug(`[${this.prefix}] ${message}`, ...args);
+  }
+  
+  info(message: string, ...args: any[]): void {
+    console.info(`[${this.prefix}] ${message}`, ...args);
+  }
+  
+  error(message: string, error?: unknown): void {
+    console.error(`[${this.prefix}] ${message}`, error || '');
+  }
+}
 
-// Define custom Sandbox type that includes the properties we're using
-interface ExtendedSandbox extends Sandbox {
+// Define error types
+export class E2BMcpConnectionError extends Error {
+  constructor(message: string, public readonly cause?: unknown) {
+    super(message);
+    this.name = 'E2BMcpConnectionError';
+  }
+}
+
+export class E2BMcpCredentialError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'E2BMcpCredentialError';
+  }
+}
+
+export class E2BMcpTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'E2BMcpTimeoutError';
+  }
+}
+
+// MCP Server Status enum
+export enum McpServerStatus {
+  STARTING = 'mcpStarting',
+  RUNNING = 'mcpRunning',
+  STOPPED = 'mcpStopped',
+  ERROR = 'mcpError',
+}
+
+// Connection configuration type
+export type McpServerConfig = {
+  command: string;
+  envVars?: Record<string, string>;
+};
+
+// Define a type for the E2B sandbox
+interface E2BSandbox {
+  sandboxId: string;
   network: {
     startProxy(options: { port: number; hostname: string; protocol: string }): Promise<string>;
   };
   process: {
-    startAndWait(options: { cmd: string }): Promise<any>;
-    start(options: { 
-      cmd: string; 
-      onStdout?: (data: string) => void; 
-      onStderr?: (data: string) => void;
-    }): Promise<any>;
+    startAndWait(options: { cmd: string; env?: Record<string, string> }): Promise<any>;
+    start(options: { cmd: string; env?: Record<string, string>; onStdout?: (data: string) => void; onStderr?: (data: string) => void }): Promise<any>;
   };
   setTimeout(timeoutMs: number): Promise<void>;
+  kill(): Promise<void>;
   isRunning(): Promise<boolean>;
 }
 
-// Extend the Sandbox type to include the static reconnect method
-interface SandboxStatic {
-  create(options: any): Promise<ExtendedSandbox>;
-  reconnect(sandboxId: string, options: { apiKey: string }): Promise<ExtendedSandbox>;
-}
+// Default timeout settings
+const DEFAULT_STARTUP_TIMEOUT_MS = 60000; // 1 minute
+const DEFAULT_OPERATION_TIMEOUT_MS = 30000; // 30 seconds
+const DEFAULT_SANDBOX_TIMEOUT_MS = 300000; // 5 minutes (initial timeout)
+const DEFAULT_KEEP_ALIVE_INTERVAL_MS = 240000; // 4 minutes (keep alive interval)
+const MAX_SANDBOX_TIMEOUT_MS = 3600000; // 1 hour (maximum timeout)
+const MCP_SERVER_PORT = 3000; // Default port for MCP servers
 
-// Cast the Sandbox class to our extended type
-const ExtendedSandbox = Sandbox as unknown as SandboxStatic;
+// Active sandboxes record - used for global resource tracking
+const activeSandboxes = new Map<string, { 
+  sandbox: E2BSandbox;
+  keepAliveInterval?: NodeJS.Timeout;
+  lastUsed: Date;
+}>();
 
 /**
- * Wait for the MCP server to become ready by polling the URL
+ * Manager for E2B-hosted MCP servers.
+ * Handles creating, managing, and cleaning up MCP server sandboxes.
  */
-async function waitForMcpServerReady(serverUrl: string, maxAttempts = 10, intervalMs = 2000): Promise<boolean> {
-  console.log(`Waiting for MCP server at ${serverUrl} to become ready...`);
-  
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+export class E2BMcpManager {
+  private sandbox?: E2BSandbox;
+  private sandboxId?: string;
+  private keepAliveInterval?: NodeJS.Timeout;
+  private serverUrl?: string;
+  private status: McpServerStatus = McpServerStatus.STOPPED;
+  private logger: ILogger;
+  private apiKey: string;
+
+  /**
+   * Creates a new E2BMcpManager.
+   * 
+   * @param apiKey E2B API key (will be decrypted if encrypted)
+   * @param logger Optional logger instance
+   */
+  constructor(apiKey: string, logger?: ILogger) {
+    this.logger = logger || new DefaultLogger('E2BMcpManager');
+    
     try {
-      const response = await fetch(serverUrl);
-      
-      // Check if the server is responding properly
-      if (response.status === 200) {
-        console.log(`MCP server at ${serverUrl} is ready (attempt ${attempt})`);
-        return true;
+      // Check if the API key is encrypted and decrypt if needed
+      this.apiKey = this.processApiKey(apiKey);
+    } catch (error) {
+      throw new E2BMcpCredentialError('Failed to initialize E2B client with the provided API key');
+    }
+  }
+
+  /**
+   * Process the API key - decrypt if needed
+   */
+  private processApiKey(apiKey: string): string {
+    if (apiKey.startsWith('enc:')) {
+      try {
+        return decryptCredential(apiKey);
+      } catch (error) {
+        this.logger.error('Failed to decrypt E2B API key', error);
+        throw new E2BMcpCredentialError('Invalid encrypted E2B API key');
       }
+    }
+    return apiKey;
+  }
+
+  /**
+   * Create a new MCP server in an E2B sandbox
+   * 
+   * @param config MCP server configuration
+   * @param startupTimeoutMs Timeout for server startup in milliseconds
+   * @returns The MCP server URL
+   */
+  async createMcpServer(
+    config: McpServerConfig,
+    startupTimeoutMs: number = DEFAULT_STARTUP_TIMEOUT_MS
+  ): Promise<string> {
+    try {
+      this.status = McpServerStatus.STARTING;
       
-      console.log(`MCP server not ready yet (attempt ${attempt}), status: ${response.status}`);
+      // Process environment variables - decrypt any encrypted credentials
+      const processedEnvVars = this.processEnvironmentVariables(config.envVars || {});
+      
+      // Start the sandbox with a secure timeout
+      this.sandbox = await Sandbox.create({
+        apiKey: this.apiKey,
+        timeoutMs: DEFAULT_SANDBOX_TIMEOUT_MS,
+      }) as unknown as E2BSandbox;
+      
+      this.sandboxId = this.sandbox.sandboxId;
+      
+      // Register sandbox for tracking and cleanup
+      this.trackSandbox();
+      
+      // Handle startup timeout
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new E2BMcpTimeoutError(`MCP server startup timed out after ${startupTimeoutMs}ms`));
+        }, startupTimeoutMs);
+      });
+      
+      // Install supergateway (used to convert stdio-based MCP servers to HTTP/SSE)
+      await this.sandbox.process.startAndWait({
+        cmd: 'npm install -g supergateway',
+      });
+      
+      // Set up port forwarding for the MCP server
+      this.serverUrl = await this.sandbox.network.startProxy({
+        port: MCP_SERVER_PORT,
+        hostname: '0.0.0.0', // Listen on all interfaces inside the sandbox
+        protocol: 'http',
+      });
+      
+      // Add extra environment variables for the MCP server
+      const envVars = {
+        ...processedEnvVars,
+        // Use the supergateway to make MCP servers accessible via SSE
+        MCP_SUPERGATEWAY: 'true',
+        // Make the server listen on all interfaces (0.0.0.0) inside the sandbox
+        MCP_HOST: '0.0.0.0',
+        MCP_PORT: MCP_SERVER_PORT.toString(),
+      };
+      
+      // Format environment variables for the command
+      const envVarsString = Object.entries(envVars)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(' ');
+      
+      // Start the MCP server with the environment variables
+      const startPromise = this.sandbox.process.start({
+        cmd: `${envVarsString} ${config.command}`,
+        onStdout: (data: string) => {
+          this.logger.debug(`MCP server stdout: ${data}`);
+        },
+        onStderr: (data: string) => {
+          this.logger.debug(`MCP server stderr: ${data}`);
+        },
+      });
+      
+      // Race the startup process against the timeout
+      await Promise.race([startPromise, timeoutPromise]);
+      
+      // Check if server is responsive
+      await this.waitForServerReady(startupTimeoutMs);
+      
+      // Start the keepalive interval to extend sandbox timeout periodically
+      this.setupKeepAlive();
+      
+      this.status = McpServerStatus.RUNNING;
+      
+      return this.serverUrl;
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.log(`Connection to MCP server failed (attempt ${attempt}): ${errorMessage}`);
+      this.status = McpServerStatus.ERROR;
+      
+      // Cleanup on error
+      await this.cleanupSandbox();
+      
+      if (error instanceof E2BMcpTimeoutError) {
+        throw error;
+      }
+      
+      throw new E2BMcpConnectionError(
+        'Failed to create MCP server in E2B sandbox',
+        error
+      );
     }
-    
-    // Wait before the next attempt
-    await new Promise(resolve => setTimeout(resolve, intervalMs));
   }
-  
-  console.error(`MCP server failed to become ready after ${maxAttempts} attempts`);
-  return false;
-}
 
-/**
- * Deploy a new MCP server in an E2B sandbox
- * 
- * @param mcpServerObject The MCP server configuration object from the database
- * @param userProvidedEnvs Environment variables provided by the user (e.g., API keys)
- * @param accountId The account ID this server is associated with
- * @returns Information about the deployed server
- */
-export async function deployMcpServer(
-  mcpServerObject: any,
-  userProvidedEnvs: Record<string, string>,
-  accountId: string
-): Promise<{ sandboxId: string; serverUrl: string; sandbox: ExtendedSandbox }> {
-  try {
-    if (!E2B_API_KEY) {
-      throw new Error('E2B API key is not set - set the E2B_API_KEY environment variable');
-    }
+  /**
+   * Process environment variables, decrypting any encrypted values
+   */
+  private processEnvironmentVariables(envVars: Record<string, string>): Record<string, string> {
+    const processedVars: Record<string, string> = {};
     
-    console.log(`Deploying MCP server "${mcpServerObject.metadata.title}" for account ${accountId}`);
-    
-    // Create an E2B sandbox
-    const sandbox = await ExtendedSandbox.create({
-      apiKey: E2B_API_KEY,
-      // Use default timeout from the MCP server object, or default to 30 minutes
-      timeoutMs: mcpServerObject.metadata.default_timeout || 30 * 60 * 1000,
-    });
-    
-    const sandboxId = sandbox.sandboxId;
-    console.log(`Created E2B sandbox with ID: ${sandboxId}`);
-    
-    // Store the sandbox for future reference
-    activeMcpSandboxes.set(sandboxId, sandbox);
-    
-    // Extract the start command from the MCP server object
-    const startCommand = mcpServerObject.metadata.start_command;
-    if (!startCommand) {
-      throw new Error('MCP server object is missing the start_command in metadata');
-    }
-    
-    // Set up port forwarding for the MCP server
-    // MCP servers typically listen on port 3000 by default
-    const port = 3000;
-    const serverUrl = await sandbox.network.startProxy({
-      port: port,
-      hostname: '0.0.0.0', // Listen on all interfaces inside the sandbox
-      protocol: 'http',
-    });
-    
-    console.log(`MCP server URL: ${serverUrl}`);
-    
-    // Execute the command to start the MCP server in the sandbox
-    // First, let's install supergateway (used to convert stdio-based MCP servers to HTTP/SSE)
-    await sandbox.process.startAndWait({
-      cmd: 'npm install -g supergateway',
-    });
-    
-    // Add an environment variable to direct the MCP server to use supergateway
-    const envVars = {
-      ...userProvidedEnvs,
-      // Use the supergateway to make MCP servers accessible via SSE
-      MCP_SUPERGATEWAY: 'true',
-      // Make the server listen on all interfaces (0.0.0.0) inside the sandbox
-      MCP_HOST: '0.0.0.0',
-      MCP_PORT: port.toString(),
-    };
-    
-    // Format environment variables for the command
-    const envVarsString = Object.entries(envVars)
-      .map(([key, value]) => `${key}=${value}`)
-      .join(' ');
-    
-    // Start the MCP server with the environment variables
-    const process = await sandbox.process.start({
-      cmd: `${envVarsString} ${startCommand}`,
-      onStdout: (data: string) => console.log(`[MCP Server Stdout]: ${data}`),
-      onStderr: (data: string) => console.error(`[MCP Server Stderr]: ${data}`),
-    });
-    
-    // Wait for the MCP server to become ready
-    const isReady = await waitForMcpServerReady(serverUrl);
-    if (!isReady) {
-      // If the server doesn't become ready, we should clean up
-      await sandbox.kill();
-      activeMcpSandboxes.delete(sandboxId);
-      throw new Error('MCP server failed to start properly');
-    }
-    
-    console.log(`MCP server "${mcpServerObject.metadata.title || 'Unnamed'}" deployed successfully`);
-    
-    return {
-      sandboxId,
-      serverUrl,
-      sandbox,
-    };
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('Error deploying MCP server:', error);
-    throw new Error(`Failed to deploy MCP server: ${errorMessage}`);
-  }
-}
-
-/**
- * Get the status of an MCP server
- * 
- * @param sandboxId The ID of the E2B sandbox running the MCP server
- * @returns The status of the MCP server
- */
-export async function getMcpServerStatus(
-  sandboxId: string
-): Promise<'mcpRunning' | 'mcpStopped' | 'mcpError'> {
-  try {
-    const sandbox = activeMcpSandboxes.get(sandboxId) as ExtendedSandbox | undefined;
-    
-    if (!sandbox) {
-      // If we can't find the sandbox in our map, check if it exists in E2B
+    for (const [key, value] of Object.entries(envVars)) {
       try {
-        // Try to reconnect to the sandbox
-        const reconnectedSandbox = await ExtendedSandbox.reconnect(sandboxId, { apiKey: E2B_API_KEY || '' });
-        activeMcpSandboxes.set(sandboxId, reconnectedSandbox);
+        // Decrypt if the value is encrypted
+        if (value.startsWith('enc:')) {
+          processedVars[key] = decryptCredential(value);
+        } else {
+          processedVars[key] = value;
+        }
+      } catch (error) {
+        this.logger.error(`Failed to decrypt environment variable: ${key}`, error);
+        throw new E2BMcpCredentialError(`Invalid encrypted value for environment variable: ${key}`);
+      }
+    }
+    
+    return processedVars;
+  }
+
+  /**
+   * Wait for the server to be ready by polling the health endpoint
+   */
+  private async waitForServerReady(timeoutMs: number): Promise<void> {
+    if (!this.serverUrl) {
+      throw new E2BMcpConnectionError('Server URL not available');
+    }
+    
+    const startTime = Date.now();
+    const maxAttempts = 5;
+    
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (Date.now() - startTime > timeoutMs) {
+        throw new E2BMcpTimeoutError('Timeout waiting for MCP server to be ready');
+      }
+      
+      try {
+        // Make a request to the server health endpoint
+        const response = await fetch(this.serverUrl);
         
-        // Check if it's still running
-        const isRunning = await reconnectedSandbox.isRunning();
-        return isRunning ? 'mcpRunning' : 'mcpStopped';
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(`Error reconnecting to sandbox ${sandboxId}:`, errorMessage);
-        return 'mcpError';
-      }
-    }
-    
-    // Check if the sandbox is running
-    const isRunning = await sandbox.isRunning();
-    return isRunning ? 'mcpRunning' : 'mcpStopped';
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`Error checking status of MCP server in sandbox ${sandboxId}:`, errorMessage);
-    return 'mcpError';
-  }
-}
-
-/**
- * Stop an MCP server and kill its sandbox
- * 
- * @param sandboxId The ID of the E2B sandbox running the MCP server
- */
-export async function stopMcpServer(sandboxId: string): Promise<void> {
-  try {
-    const sandbox = activeMcpSandboxes.get(sandboxId) as ExtendedSandbox | undefined;
-    
-    if (!sandbox) {
-      // If we can't find the sandbox in our map, check if it exists in E2B
-      try {
-        // Try to reconnect to the sandbox and then kill it
-        const reconnectedSandbox = await ExtendedSandbox.reconnect(sandboxId, { apiKey: E2B_API_KEY || '' });
-        await reconnectedSandbox.kill();
-        console.log(`Killed reconnected sandbox ${sandboxId}`);
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(`Error reconnecting to sandbox ${sandboxId} for cleanup:`, errorMessage);
-        // Not much we can do if we can't reconnect
-      }
-      return;
-    }
-    
-    // Kill the sandbox
-    await sandbox.kill();
-    console.log(`Killed sandbox ${sandboxId}`);
-    
-    // Remove from our active sandboxes map
-    activeMcpSandboxes.delete(sandboxId);
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`Error stopping MCP server in sandbox ${sandboxId}:`, errorMessage);
-    throw new Error(`Failed to stop MCP server: ${errorMessage}`);
-  }
-}
-
-/**
- * Extend the timeout for an MCP server's sandbox
- * 
- * @param sandboxId The ID of the E2B sandbox running the MCP server
- * @param timeoutMs New timeout in milliseconds
- */
-export async function extendMcpServerTimeout(sandboxId: string, timeoutMs: number): Promise<void> {
-  try {
-    const sandbox = activeMcpSandboxes.get(sandboxId) as ExtendedSandbox | undefined;
-    
-    if (!sandbox) {
-      // If we can't find the sandbox in our map, check if it exists in E2B
-      try {
-        // Try to reconnect to the sandbox
-        const reconnectedSandbox = await ExtendedSandbox.reconnect(sandboxId, { apiKey: E2B_API_KEY || '' });
-        activeMcpSandboxes.set(sandboxId, reconnectedSandbox);
+        if (response.status === 200) {
+          this.logger.debug(`MCP server ready after ${attempt + 1} attempts`);
+          return;
+        }
         
-        // Extend the timeout
-        await reconnectedSandbox.setTimeout(timeoutMs);
-        console.log(`Extended timeout for reconnected sandbox ${sandboxId} to ${timeoutMs}ms`);
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(`Error reconnecting to sandbox ${sandboxId} for timeout extension:`, errorMessage);
-        throw new Error(`Could not extend timeout: ${errorMessage}`);
+        this.logger.debug(`Server not ready (attempt ${attempt + 1}), status: ${response.status}`);
+      } catch (error) {
+        this.logger.debug(`Server connection failed (attempt ${attempt + 1})`);
       }
-      return;
+      
+      // Wait 5 seconds between attempts
+      await new Promise(resolve => setTimeout(resolve, 5000));
     }
     
-    // Extend the timeout
-    await sandbox.setTimeout(timeoutMs);
-    console.log(`Extended timeout for sandbox ${sandboxId} to ${timeoutMs}ms`);
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`Error extending timeout for MCP server in sandbox ${sandboxId}:`, errorMessage);
-    throw new Error(`Failed to extend MCP server timeout: ${errorMessage}`);
+    throw new E2BMcpConnectionError('MCP server is not responding after maximum attempts');
   }
-}
 
-/**
- * Clean up all active MCP sandboxes (useful for server shutdown)
- */
-export async function cleanupAllMcpSandboxes(): Promise<void> {
-  const cleanupPromises: Promise<void>[] = [];
-  
-  for (const [sandboxId, sandbox] of activeMcpSandboxes.entries()) {
-    console.log(`Cleaning up sandbox ${sandboxId}`);
-    cleanupPromises.push(
-      sandbox.kill().catch((error: unknown) => {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(`Error killing sandbox ${sandboxId}:`, errorMessage);
-      })
-    );
+  /**
+   * Track sandbox for resource management
+   */
+  private trackSandbox(): void {
+    if (!this.sandbox || !this.sandboxId) return;
+    
+    // Store the sandbox for global tracking
+    activeSandboxes.set(this.sandboxId, {
+      sandbox: this.sandbox,
+      lastUsed: new Date()
+    });
   }
-  
-  await Promise.allSettled(cleanupPromises);
-  activeMcpSandboxes.clear();
-}
 
-/**
- * Get the number of active MCP sandboxes
- */
-export function getActiveMcpSandboxCount(): number {
-  return activeMcpSandboxes.size;
+  /**
+   * Setup keep-alive interval to extend sandbox timeout
+   */
+  private setupKeepAlive(): void {
+    // Clear any existing interval
+    this.clearKeepAliveInterval();
+    
+    // Setup new interval
+    this.keepAliveInterval = setInterval(async () => {
+      try {
+        await this.extendTimeout();
+      } catch (error) {
+        this.logger.error('Failed to extend sandbox timeout', error);
+      }
+    }, DEFAULT_KEEP_ALIVE_INTERVAL_MS);
+    
+    // Update in global tracking
+    if (this.sandboxId) {
+      const tracked = activeSandboxes.get(this.sandboxId);
+      if (tracked) {
+        tracked.keepAliveInterval = this.keepAliveInterval;
+        activeSandboxes.set(this.sandboxId, tracked);
+      }
+    }
+  }
+
+  /**
+   * Clear the keep-alive interval
+   */
+  private clearKeepAliveInterval(): void {
+    if (this.keepAliveInterval) {
+      clearInterval(this.keepAliveInterval);
+      this.keepAliveInterval = undefined;
+    }
+  }
+
+  /**
+   * Get the current status of the MCP server
+   * 
+   * @returns The current status
+   */
+  getStatus(): McpServerStatus {
+    return this.status;
+  }
+
+  /**
+   * Get the MCP server URL
+   * 
+   * @returns The server URL
+   */
+  getServerUrl(): string | undefined {
+    return this.serverUrl;
+  }
+
+  /**
+   * Get the sandbox ID
+   * 
+   * @returns The sandbox ID
+   */
+  getSandboxId(): string | undefined {
+    return this.sandboxId;
+  }
+
+  /**
+   * Extend the sandbox timeout
+   * 
+   * @param timeoutMs New timeout in milliseconds
+   */
+  async extendTimeout(timeoutMs: number = DEFAULT_SANDBOX_TIMEOUT_MS): Promise<void> {
+    try {
+      if (!this.sandbox) {
+        throw new E2BMcpConnectionError('Sandbox not initialized');
+      }
+      
+      // Check if sandbox is still running
+      const isRunning = await this.sandbox.isRunning();
+      if (!isRunning) {
+        this.status = McpServerStatus.STOPPED;
+        throw new E2BMcpConnectionError('Sandbox is not running');
+      }
+      
+      // Enforce maximum timeout
+      const actualTimeout = Math.min(timeoutMs, MAX_SANDBOX_TIMEOUT_MS);
+      
+      // Extend the timeout
+      await this.sandbox.setTimeout(actualTimeout);
+      
+      // Update last used timestamp
+      if (this.sandboxId) {
+        const tracked = activeSandboxes.get(this.sandboxId);
+        if (tracked) {
+          tracked.lastUsed = new Date();
+          activeSandboxes.set(this.sandboxId, tracked);
+        }
+      }
+      
+      this.logger.debug(`Extended sandbox timeout to ${actualTimeout}ms`);
+    } catch (error: unknown) {
+      if (error instanceof E2BMcpConnectionError) {
+        throw error;
+      }
+      
+      throw new E2BMcpConnectionError('Failed to extend sandbox timeout', error);
+    }
+  }
+
+  /**
+   * Check if the MCP server is still running
+   * 
+   * @returns True if the server is running
+   */
+  async isRunning(): Promise<boolean> {
+    try {
+      if (!this.sandbox) {
+        return false;
+      }
+      
+      const isRunning = await this.sandbox.isRunning();
+      
+      // Update status if needed
+      if (!isRunning && this.status === McpServerStatus.RUNNING) {
+        this.status = McpServerStatus.STOPPED;
+      }
+      
+      return isRunning;
+    } catch (error) {
+      this.logger.error('Error checking if sandbox is running', error);
+      return false;
+    }
+  }
+
+  /**
+   * Shutdown the MCP server and cleanup resources
+   */
+  async shutdown(timeoutMs: number = DEFAULT_OPERATION_TIMEOUT_MS): Promise<void> {
+    try {
+      await Promise.race([
+        this.cleanupSandbox(),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new E2BMcpTimeoutError(`Shutdown timed out after ${timeoutMs}ms`));
+          }, timeoutMs);
+        }),
+      ]);
+    } catch (error) {
+      if (error instanceof E2BMcpTimeoutError) {
+        this.logger.error('Shutdown timed out, forcing cleanup', error);
+      } else {
+        this.logger.error('Error during shutdown', error);
+      }
+      
+      // Force cleanup even on error
+      await this.forceCleanup();
+    } finally {
+      this.status = McpServerStatus.STOPPED;
+    }
+  }
+
+  /**
+   * Clean up the sandbox gracefully
+   */
+  private async cleanupSandbox(): Promise<void> {
+    // Clear the keep-alive interval
+    this.clearKeepAliveInterval();
+    
+    if (this.sandbox) {
+      try {
+        // Try to kill the sandbox gracefully
+        await this.sandbox.kill();
+      } catch (error) {
+        this.logger.error('Error closing sandbox gracefully', error);
+        throw error;
+      } finally {
+        // Remove from global tracking
+        if (this.sandboxId) {
+          activeSandboxes.delete(this.sandboxId);
+        }
+        
+        // Clean up instance properties
+        this.sandbox = undefined;
+        this.serverUrl = undefined;
+        this.sandboxId = undefined;
+      }
+    }
+  }
+
+  /**
+   * Force cleanup - to be used when graceful cleanup fails
+   */
+  private async forceCleanup(): Promise<void> {
+    this.clearKeepAliveInterval();
+    
+    if (this.sandboxId) {
+      activeSandboxes.delete(this.sandboxId);
+    }
+    
+    this.sandbox = undefined;
+    this.serverUrl = undefined;
+    this.sandboxId = undefined;
+  }
+
+  /**
+   * Utility method to encrypt an API key or credential
+   * 
+   * @param value The value to encrypt
+   * @returns The encrypted value
+   */
+  static encryptCredential(value: string): string {
+    return encryptCredential(value);
+  }
+
+  /**
+   * Close idle sandboxes across all instances
+   * Safe to call periodically to clean up resources
+   * 
+   * @param maxIdleTimeMs Maximum idle time in milliseconds before cleanup
+   */
+  static async closeIdleSandboxes(maxIdleTimeMs: number = 1800000): Promise<void> {
+    const now = new Date();
+    const logger = new DefaultLogger('E2BMcpManager');
+    
+    for (const [id, tracked] of activeSandboxes.entries()) {
+      const idleTime = now.getTime() - tracked.lastUsed.getTime();
+      
+      if (idleTime > maxIdleTimeMs) {
+        logger.info(`Closing idle sandbox ${id} (idle for ${Math.round(idleTime / 1000)}s)`);
+        
+        try {
+          // Clear any keep-alive interval
+          if (tracked.keepAliveInterval) {
+            clearInterval(tracked.keepAliveInterval);
+          }
+          
+          // Close the sandbox
+          await tracked.sandbox.kill();
+        } catch (error) {
+          logger.error(`Error closing idle sandbox ${id}`, error);
+        } finally {
+          // Remove from tracking regardless of success
+          activeSandboxes.delete(id);
+        }
+      }
+    }
+  }
+
+  /**
+   * Get the number of currently active sandboxes
+   */
+  static getActiveSandboxCount(): number {
+    return activeSandboxes.size;
+  }
 } 

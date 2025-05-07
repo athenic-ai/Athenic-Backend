@@ -6,6 +6,8 @@ import { z } from "zod";
 import { AgentState, codeWritingNetwork } from "./networks/codeWritingNetwork.js";
 import { chatAgent } from "./agents/chatAgent.js";
 import { type Message } from "@inngest/agent-kit";
+import { buildMcpServersConfig } from "./utils/mcpHelpers.js";
+import { createMcpIntegrationFunctions } from "./examples/mcpIntegrationExample.js";
 
 export const inngest = new Inngest({
   id: "athenic-backend",
@@ -31,6 +33,27 @@ export const inngest = new Inngest({
         organisationId: z.string(),
         clientId: z.string(),
         timestamp: z.string(),
+      }),
+    },
+    "athenic/chat.message": {
+      data: z.object({
+        userId: z.string(),
+        organisationId: z.string(),
+        clientId: z.string(),
+        message: z.string(),
+      }),
+    },
+    "athenic/mcp.query": {
+      data: z.object({
+        organisationId: z.string(),
+        query: z.string(),
+      }),
+    },
+    "athenic/test.mcp_integration": {
+      data: z.object({
+        organisationId: z.string(),
+        clientId: z.string(),
+        message: z.string(),
       }),
     },
   }),
@@ -94,125 +117,52 @@ function createTimeout(ms: number, message: string) {
 }
 
 export const chatMessageFunction = inngest.createFunction(
-  { id: "chat-message-handler", retries: 0 }, // Keep retries at 0 for testing
-  { event: "athenic/chat.message.received" },
+  { id: "chat-message", retries: 1 },
+  { event: "athenic/chat.message" },
   async ({ event, step }) => {
-    const { message, userId, organisationId, clientId } = event.data;
-    
-    await step.run("log-message", () => {
-      console.log(`Received message from user ${userId}: ${message}`);
-      return { received: true };
+    const { userId, organisationId, clientId, message } = event.data;
+
+    // Initialize state
+    const state = createState({
+      userId,
+      organisationId,
+      clientId,
+      messageHistory: [
+        {
+          role: "user",
+          content: message,
+          timestamp: new Date().toISOString(),
+        },
+      ],
     });
-    
-    let responsePayload: { response: string; error: string | null } = {
-        response: "An unexpected issue occurred before processing could complete.",
-        error: "Initialization failure"
+
+    // Fetch MCP servers specific to this organization
+    const mcpServersConfig = await step.run(
+      "Build MCP Servers Config",
+      async () => buildMcpServersConfig(organisationId)
+    );
+
+    console.log(`Found ${mcpServersConfig.length} MCP servers for organisation ${organisationId}`);
+
+    // Use the chat agent with MCP servers
+    const result = await chatAgent.run(message, {
+      state,
+      // Inject MCP servers into the agent context
+      mcpServers: mcpServersConfig,
+    } as any);
+
+    return {
+      response: result.output,
+      agentName: chatAgent.name,
     };
-    
-    try {
-      // Call chatAgent.run directly with a timeout
-      console.log("Running chatAgent.run directly...");
-      const TIMEOUT_MS = 30000;
-      const agentResponse = await Promise.race([
-          chatAgent.run(message), // Pass only the message prompt
-          createTimeout(TIMEOUT_MS, `Agent execution timed out after ${TIMEOUT_MS} ms`)
-      ]) as { output: Message[] }; // Type assertion for expected success structure
-
-      console.log("chatAgent.run call completed successfully.");
-      
-      // --- Logic to extract content from agentResponse.output --- 
-      let finalContent = "No valid text response found in agent output.";
-      if (agentResponse?.output && agentResponse.output.length > 0) {
-        // Find the assistant message
-        const assistantMessage = agentResponse.output.find(m => m.role === 'assistant');
-        
-        // Check if it exists and assume it has content based on role
-        if (assistantMessage) { // No need to check role again, find did that
-            // Use type assertion if necessary to access content
-             const content = (assistantMessage as any).content;
-             if (typeof content === 'string') {
-                 finalContent = content;
-                 console.log(`Extracted content: ${finalContent.substring(0, 50)}...`);
-             } else if (Array.isArray(content)) {
-                 // Handle potential structured content (e.g., Anthropic)
-                 const textBlock = content.find((block: any) => block.type === 'text');
-                 if (textBlock && typeof textBlock.text === 'string') {
-                     finalContent = textBlock.text;
-                     console.log(`Extracted content from block: ${finalContent.substring(0, 50)}...`);
-                 }
-             } else {
-                 console.log("Assistant message content is not a string or suitable array.");
-             }
-        } else {
-             console.log("No message with role 'assistant' found in agent output.");
-        }
-      } else {
-        console.log("No output array found in agent response.");
-      }
-      // --- End of extraction logic ---
-      
-      responsePayload = {
-        response: finalContent,
-        error: null
-      };
-
-    } catch (error) {
-      // Catch errors from chatAgent.run or the timeout
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('Error during agent execution:', errorMessage);
-
-      // Check specifically for our timeout message
-      if (errorMessage.includes('Agent execution timed out after')) { 
-        console.log('Caught agent timeout error. Setting timeout fallback response.');
-        responsePayload = {
-          response: "I apologize, but your request timed out. Please try again later.",
-          error: errorMessage
-        };
-      } else {
-        console.log('Caught non-timeout error during agent execution. Setting generic error response.');
-        responsePayload = {
-          response: "I apologize, but an unexpected error occurred. Please try again later.",
-          error: errorMessage
-        };
-      }
-    }
-    
-    // --- Send Response Step (always runs) --- 
-    console.log("Proceeding to send response step.");
-    await step.run("send-response", async () => {
-      console.log("Executing send-response step.");
-      try {
-        const apiPort = process.env.API_SERVER_PORT || '8001';
-        const apiUrl = `http://localhost:${apiPort}/chat/response`;
-        
-        const responseToSend = typeof responsePayload.response === 'string' ? responsePayload.response : JSON.stringify(responsePayload.response);
-        console.log(`Sending final response to API: ${responseToSend.substring(0, 50)}...`);
-        
-        const apiResponse = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            clientId, // Pass clientId back to the API
-            response: responseToSend,
-            requiresE2B: false, // Chat agent doesn't use E2B
-            error: responsePayload.error 
-          }),
-        });
-        
-        if (!apiResponse.ok) {
-          console.error(`API responded with status: ${apiResponse.status} during send.`);
-          throw new Error(`API call failed with status: ${apiResponse.status}`); 
-        }
-        
-        console.log("Response successfully sent to API server.");
-        return { sent: true };
-      } catch (sendError) {
-        console.error('Failed to send response back to API:', sendError);
-        throw sendError; // Fail this step if sending fails
-      }
-    });
-    
-    console.log("chatMessageFunction finished.");
-    return { processed: responsePayload.error === null }; // Indicate success if no error was caught
   }
 );
+
+// Create the MCP integration functions using the factory function
+const { runMcpEnabledFunction, testMcpIntegrationFunction } = createMcpIntegrationFunctions(inngest);
+
+// Functions created elsewhere
+export const exportedFunctions = [
+  runMcpEnabledFunction,
+  testMcpIntegrationFunction,
+];

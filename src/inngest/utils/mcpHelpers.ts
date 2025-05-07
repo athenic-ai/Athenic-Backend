@@ -1,26 +1,33 @@
 import fetch from 'node-fetch';
-import { MCP } from '@agent-kit/core';
+import { MCP } from '@inngest/agent-kit';
 
+/**
+ * Interface for MCP connection metadata
+ */
 interface McpConnectionMetadata {
   id: string;
   title: string;
-  url: string;
-  status: string;
+  mcp_status: string;
+  mcp_server_url?: string;
+  e2b_sandbox_id?: string;
+  provided_credential_schema?: Record<string, string>;
   created_at: string;
 }
 
-interface McpCredentialsResponse {
-  status: number;
-  data?: {
-    url: string;
-    credential?: string;
-    name: string;
+/**
+ * Interface for MCP server object
+ */
+interface McpServerObject {
+  id: string;
+  metadata: {
+    title: string;
+    start_command: string;
+    requested_credential_schema?: Record<string, string>;
   };
-  message: string;
 }
 
 /**
- * Fetches MCP connections for a specific organization from the Supabase database
+ * Fetches MCP connections for a specific organization from the Supabase objects table
  * @param organisationId The organization ID to fetch connections for
  * @returns Promise resolving to an array of MCP connection metadata
  */
@@ -28,9 +35,9 @@ export async function fetchMcpConnectionsForOrganisation(
   organisationId: string
 ): Promise<McpConnectionMetadata[]> {
   try {
-    // Use the list endpoint to get all connections (without credentials)
+    // Use the Supabase Edge function to list MCP connections
     const response = await fetch(
-      `${process.env.SUPABASE_URL}/functions/v1/mcp-connections/list?organisationId=${encodeURIComponent(organisationId)}`,
+      `${process.env.SUPABASE_URL}/functions/v1/mcp-connections?account_id=${encodeURIComponent(organisationId)}`,
       {
         method: 'GET',
         headers: {
@@ -46,55 +53,14 @@ export async function fetchMcpConnectionsForOrganisation(
 
     const result = await response.json();
     
-    if (result.status !== 200 || !result.data) {
-      throw new Error(result.message || 'Failed to fetch MCP connections');
+    if (!result || !Array.isArray(result)) {
+      throw new Error('Failed to fetch MCP connections: Invalid response format');
     }
 
-    return result.data;
+    return result.map(conn => conn.metadata) as McpConnectionMetadata[];
   } catch (error) {
     console.error('Error fetching MCP connections:', error);
     return [];
-  }
-}
-
-/**
- * Retrieves secure credentials for a specific MCP connection
- * @param organisationId The organization ID the connection belongs to
- * @param connectionId The specific connection ID to retrieve credentials for
- * @returns Promise resolving to the credential response with URL and decrypted credential
- */
-export async function retrieveMcpCredentials(
-  organisationId: string,
-  connectionId: string
-): Promise<McpCredentialsResponse> {
-  try {
-    // Call the secure credentials endpoint
-    const response = await fetch(
-      `${process.env.SUPABASE_URL}/functions/v1/mcp-connections/get-credentials`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`
-        },
-        body: JSON.stringify({
-          organisationId,
-          connectionId
-        })
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Failed to retrieve MCP credentials: ${response.statusText}`);
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Error retrieving MCP credentials:', error);
-    return {
-      status: 500,
-      message: `Error retrieving MCP credentials: ${error instanceof Error ? error.message : String(error)}`
-    };
   }
 }
 
@@ -112,47 +78,41 @@ export async function buildMcpServersConfig(
     // Get all MCP connections for this organization
     const mcpConnections = await fetchMcpConnectionsForOrganisation(organisationId);
     
-    // Only process connections with 'connected' or 'pending' status
+    // Only process connections with 'mcpRunning' status and a valid URL
     const activeConnections = mcpConnections.filter(
-      conn => conn.status === 'connected' || conn.status === 'pending'
+      conn => conn.mcp_status === 'mcpRunning' && conn.mcp_server_url
     );
     
     // If no active connections, return empty array
     if (activeConnections.length === 0) {
+      console.log(`No active MCP connections found for organisation ${organisationId}`);
       return mcpServersConfig;
     }
     
-    // For each active connection, get the credentials
+    console.log(`Found ${activeConnections.length} active MCP connections for organisation ${organisationId}`);
+    
+    // For each active connection, create an MCP.Server object
     for (const conn of activeConnections) {
       try {
-        const credentialsResponse = await retrieveMcpCredentials(
-          organisationId,
-          conn.id
-        );
-        
-        // Skip if retrieval failed
-        if (credentialsResponse.status !== 200 || !credentialsResponse.data) {
-          console.warn(`Failed to retrieve credentials for MCP connection ${conn.id}: ${credentialsResponse.message}`);
+        if (!conn.mcp_server_url) {
+          console.warn(`MCP connection ${conn.id} is missing mcp_server_url`);
           continue;
         }
         
-        const { url, credential, name } = credentialsResponse.data;
-        
         // Determine transport type based on URL protocol
-        const transportType: 'ws' | 'sse' = url.startsWith('ws') ? 'ws' : 'sse';
+        const transportType: 'ws' | 'sse' = conn.mcp_server_url.startsWith('ws') ? 'ws' : 'sse';
         
         // Add to MCP servers config
         mcpServersConfig.push({
-          name: name || conn.title, // Use name from credentials or fallback to connection title
+          name: conn.title,
           transport: {
             type: transportType,
-            url: url,
-            // Add authentication headers if credentials exist
-            requestInit: credential ? 
-              { headers: { 'Authorization': `Bearer ${credential}` } } : 
-              undefined,
+            url: conn.mcp_server_url,
+            // No authentication headers needed - E2B handles authentication
           },
         });
+        
+        console.log(`Added MCP server ${conn.title} with URL ${conn.mcp_server_url}`);
       } catch (error) {
         console.error(`Error processing MCP connection ${conn.id}:`, error);
         // Continue with the next connection
@@ -169,7 +129,7 @@ export async function buildMcpServersConfig(
 /**
  * Example usage in an Inngest function:
  * 
- * import { buildMcpServersConfig } from './utils/mcpHelpers';
+ * import { buildMcpServersConfig } from '../utils/mcpHelpers';
  * 
  * export const yourInngestFunction = inngest.createFunction(
  *   { name: "Your Function" },

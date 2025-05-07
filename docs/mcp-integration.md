@@ -1,104 +1,227 @@
-# MCP (Model Context Protocol) Integration
+# MCP Integration Guide
 
-This document outlines how MCP server integration is implemented in Athenic to enhance agent capabilities with external tools.
+This document provides a comprehensive guide to the Model Context Protocol (MCP) integration in the Athenic platform.
 
-## Overview
+## What is Model Context Protocol (MCP)?
 
-Model Context Protocol (MCP) servers provide a standardized way to extend agent capabilities by offering additional tools via WebSocket or HTTP/SSE connections. Our implementation includes:
+Model Context Protocol (MCP) is an open standard developed by Anthropic that enables two-way connections between AI assistants and external data sources or tools. It allows AI models to access real-time information from various systems like databases, GitHub, email, and other business platforms.
 
-1. **Backend API** - Supabase Edge Functions for managing MCP connections
-2. **Secure Credential Storage** - AES-CBC encryption for API keys/tokens
-3. **AgentKit Integration** - Helper utilities to dynamically load MCP servers
-4. **Frontend Integration** - UI components for managing connections (implemented separately)
+MCP consists of:
+- **MCP Servers**: Expose access to specific data sources or tools
+- **MCP Clients**: AI applications or assistants that query MCP servers
 
-## Database Structure
+## Architecture Overview
 
-MCP connections are stored using the existing object model:
-- `object_type_id`: `mcp_connection`
-- Metadata fields:
-  - `title`: User-friendly name for the connection
-  - `mcp_url`: WebSocket or HTTP URL of the MCP server
-  - `mcp_credentials`: Encrypted credentials (API key/token)
-  - `mcp_status`: Connection status (pending, connected, error)
-  - `created_at`: Timestamp when the connection was created
+Our MCP integration has the following components:
 
-## Server-Side Components
+1. **E2B Sandboxes**: We use [E2B](https://e2b.dev) to run MCP servers in secure, isolated sandboxes
+2. **MCP Server Registry**: Database of available MCP servers that can be instantiated
+3. **MCP Connection Management**: API for installing, configuring, and removing MCP server connections
+4. **MCP Integration with AgentKit**: Connects MCP servers to our agent framework
+5. **Security Layer**: Handles credential management and access control
 
-### Supabase Edge Function (`mcp-connections`)
+### Component Diagram
 
-Located at: `/supabase/functions/mcp-connections/index.ts`
+```
+┌──────────────────┐      ┌───────────────────┐      ┌─────────────────────┐
+│                  │      │                   │      │                     │
+│  Athenic Client  │◄────►│  Athenic Backend  │◄────►│  E2B MCP Sandboxes  │
+│                  │      │                   │      │                     │
+└──────────────────┘      └───────────────────┘      └─────────────────────┘
+                                   ▲                           ▲
+                                   │                           │
+                                   ▼                           ▼
+                          ┌─────────────────┐         ┌─────────────────┐
+                          │                 │         │                 │
+                          │  Agent Runners  │────────►│  External APIs  │
+                          │                 │         │                 │
+                          └─────────────────┘         └─────────────────┘
+```
 
-This Edge Function provides the following endpoints:
-- `POST /add` - Add a new MCP connection
-- `GET /list` - List MCP connections for an organisation
-- `DELETE /delete` - Delete an MCP connection
-- `POST /get-credentials` - Internal endpoint for secure credential retrieval
+## MCP Server Types
 
-The API handles input validation, secure encryption/decryption, and proper authentication checks for all operations.
+We support the following types of MCP servers:
 
-### Credential Security
+1. **File System Tools**: Access to file systems and document storage
+2. **Database Tools**: Query databases directly through natural language
+3. **GitHub Integration**: Access repositories, issues, and pull requests
+4. **Custom API Tools**: Connect to any API with the right credentials
+5. **Email & Calendar**: Access to productivity tools
+6. **Internal Systems**: Connect to internal business systems
+7. **On-premise MCP Servers**: For enterprise customers with strict data governance
 
-- Credentials are encrypted using AES-CBC encryption before storage
-- Each credential has a unique initialization vector (IV)
-- The encryption key is derived from the `MCP_SECRET_KEY` environment variable, falling back to `SUPABASE_SERVICE_ROLE_KEY`
-- The internal endpoint for credential retrieval is only accessible with the service role key
+## Deployment and Lifecycle Management
 
-## AgentKit Integration
+### MCP Server Installation
 
-Located at: `/src/inngest/utils/mcpHelpers.ts`
+To install a new MCP server:
 
-Helper functions for Inngest integration:
-- `fetchMcpConnectionsForOrganisation` - Get all MCP connections for an organization
-- `retrieveMcpCredentials` - Securely retrieve credentials for a specific connection
-- `buildMcpServersConfig` - Build the MCP server configuration array for AgentKit
+1. Select a server type from the server registry
+2. Provide required credentials (API keys, connection strings, etc.)
+3. The system deploys the server in an E2B sandbox
+4. The server URL is registered with the client application
 
-### Example Usage
-
-```typescript
-import { buildMcpServersConfig } from '../utils/mcpHelpers';
-
-// Within an Inngest function
-const mcpServersConfig = await step.run(
-  'Build MCP Servers Config',
-  async () => buildMcpServersConfig(organisationId)
-);
-
-// Use with createAgent or createNetwork
-const agent = createAgent({
-  // ...other configuration
-  mcpServers: mcpServersConfig,
+```javascript
+// Example: Installing a new MCP server
+const response = await fetch('/functions/v1/mcp-connections/install', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${serviceRoleKey}`
+  },
+  body: JSON.stringify({
+    mcp_server_id: 'github-server',
+    account_id: 'user-account-id',
+    title: 'GitHub Integration',
+    provided_credential_schema: {
+      github_token: 'YOUR_ENCRYPTED_TOKEN'
+    }
+  })
 });
 ```
 
-A complete example is available at `/src/inngest/examples/mcpIntegrationExample.ts`
+### MCP Server Lifecycle
 
-## Frontend Integration
+MCP servers go through the following lifecycle states:
 
-The frontend integration is implemented separately in the Flutter app (`Athenic-App-Business`). It uses the API endpoints to:
-1. Display existing MCP connections
-2. Add new connections with a user-friendly form
-3. Delete connections when needed
+1. **mcpPending**: Initial state during creation
+2. **mcpDeploying**: E2B sandbox is being provisioned
+3. **mcpRunning**: Server is active and available for use
+4. **mcpStopped**: Server has been stopped but can be restarted
+5. **mcpError**: An error occurred during deployment or operation
 
-The frontend never receives or handles decrypted credentials, following security best practices.
+### Resource Management
 
-## Adding New MCP Servers
+The E2BMcpManager handles resource management:
 
-To add support for new MCP servers:
+- Automatic cleanup of idle sandboxes
+- Timeout extension for active sandboxes
+- Graceful shutdown during service restarts
 
-1. **Backend**: No changes needed - the backend is designed to support any MCP-compliant server
-2. **Frontend**: Add to the UI as needed following existing patterns
-3. **Documentation**: Document which MCP servers are officially supported
-4. **Testing**: Validate that tools from the MCP server are correctly discovered by agents
+## Security Considerations
 
-## Environment Variables
+### Credential Management
 
-The following environment variables are used:
-- `SUPABASE_URL` - Base URL for Supabase API
-- `SUPABASE_SERVICE_ROLE_KEY` - Service role key for internal operations
-- `MCP_SECRET_KEY` (optional) - Dedicated key for credential encryption (falls back to service role key if not set)
+Sensitive credentials are:
 
-## Additional Notes
+1. Encrypted at rest using AES-256
+2. Only decrypted when needed in the E2B sandbox
+3. Never exposed in logs or responses
 
-- The MCP connection status starts as "pending" and can be updated by a separate process that validates connections
-- MCP servers with "pending" or "connected" status are loaded into agents, while "error" status connections are ignored
-- The implementation follows the AgentKit MCP Server standard as documented at: https://agentkit.inngest.com/advanced-patterns/mcp 
+### Sandbox Isolation
+
+Each MCP server runs in its own isolated E2B sandbox:
+
+- Network isolation between different customers' MCP servers
+- No persistent storage between sessions (unless explicitly configured)
+- Sandbox timeouts to limit resource consumption
+
+## Using MCP Servers with Agents
+
+### Integration with AgentKit
+
+To use MCP servers with an agent:
+
+```javascript
+import { createState } from '@inngest/agent-kit';
+import { buildMcpServersConfig } from '../utils/mcpHelpers.js';
+
+// Get all active MCP servers for the user
+const mcpServers = await buildMcpServersConfig(accountId);
+
+// Create agent state with MCP servers
+const state = createState({
+  // other state configuration...
+  mcpServers,
+});
+
+// The agent can now use the MCP servers
+const result = await agent.run(state, {
+  messages: [
+    { role: 'user', content: 'Find all open pull requests in our repository' }
+  ]
+});
+```
+
+### Available MCP Tools
+
+| Tool Type | Description | Credentials Required |
+|-----------|-------------|---------------------|
+| GitHub | Access repositories, PRs, issues | GitHub API token |
+| Postgres | Query databases using natural language | Connection string |
+| Slack | Send and read messages | Slack OAuth token |
+| GoogleDrive | Access documents and files | Google OAuth credentials |
+| Jira | Access issues and projects | Jira API token |
+| Custom API | Connect to any RESTful API | Varies by API |
+
+## Monitoring and Diagnostics
+
+### Health Checks
+
+Health endpoints are available to monitor MCP server status:
+
+```
+GET /functions/v1/mcp-connections/health?account_id=<account_id>
+```
+
+The response includes:
+- Overall status (healthy/unhealthy)
+- Per-connection status
+- Response times
+- Error details if applicable
+
+### Logging
+
+MCP server operations are logged at multiple levels:
+
+1. **E2B Sandbox Logs**: Raw stdout/stderr from the MCP server
+2. **Connection Status Logs**: State transitions and connectivity
+3. **Request Logs**: Request patterns and performance metrics
+4. **Error Logs**: Detailed error information for troubleshooting
+
+## Testing
+
+The MCP integration includes comprehensive tests:
+
+1. **Unit Tests**: For individual components
+2. **Integration Tests**: For end-to-end flows
+3. **Stress Tests**: For performance and concurrency
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Connection Timeout**: 
+   - Check network connectivity to E2B
+   - Verify the MCP server is properly configured
+
+2. **Authentication Errors**:
+   - Ensure credentials are valid and not expired
+   - Check if encrypted credentials can be properly decrypted
+
+3. **Sandbox Resources**:
+   - Monitor sandbox resource usage
+   - Check if timeouts are configured correctly
+
+### Getting Support
+
+For issues with MCP integration, contact:
+- Internal: #mcp-support channel
+- External: support@athenic.ai with subject "MCP Issue"
+
+## Future Enhancements
+
+Planned improvements for the MCP integration:
+
+1. **MCP Server Templates**: Allow customers to create custom MCP server templates
+2. **Multi-region Deployment**: Deploy MCP servers in multiple regions for improved latency
+3. **Enhanced Monitoring**: More detailed metrics and observability
+4. **Batched Operations**: Support for batched requests across multiple MCP servers
+5. **Persistent Sandboxes**: Long-lived MCP servers for enterprise customers
+
+## References
+
+- [Anthropic MCP Documentation](https://www.anthropic.com/news/model-context-protocol)
+- [E2B Documentation](https://e2b.dev/docs)
+- [AgentKit Documentation](https://github.com/inngest/agent-kit)
+- [Model Context Protocol Specification](https://modelcontextprotocol.io) 
