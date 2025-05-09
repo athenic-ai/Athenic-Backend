@@ -48,7 +48,7 @@ const mockSandboxes = new Map<string, MockSandbox>();
  */
 export function mockActiveSandboxes(): void {
   // Mock createSandbox to return a new sandbox ID and add it to mockSandboxes
-  jest.spyOn(e2bService, 'createSandbox').mockImplementation(async (template = 'code-interpreter-v1') => {
+  jest.spyOn(e2bService, 'createSandbox').mockImplementation(async (template = 'base') => {
     const sandboxId = `mock-sandbox-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const mockSandbox = new MockSandbox(sandboxId);
     mockSandboxes.set(sandboxId, mockSandbox);

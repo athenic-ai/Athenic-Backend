@@ -36,7 +36,7 @@ export function registerClientsMap(clients: Map<string, WebSocket>) {
  * @param template The sandbox template to use
  * @returns A promise that resolves to the sandbox ID
  */
-export async function createSandbox(template = 'code-interpreter-v1'): Promise<string> {
+export async function createSandbox(template = 'base'): Promise<string> {
   try {
     if (!E2B_API_KEY) {
       throw new Error('E2B API key is not set - set the E2B_API_KEY environment variable');
@@ -227,10 +227,10 @@ export async function runCodeAndStream(
   if (isShellCommand) {
     // Get template type from sandboxId or use default
     // The sandbox might not have a template property directly accessible
-    const templateInfo = activeSandboxTemplates.get(sandboxId) || 'code-interpreter-v1';
+    const templateInfo = activeSandboxTemplates.get(sandboxId) || 'base';
     
     // For Python-based templates
-    if (templateInfo.includes('python') || templateInfo === 'code-interpreter-v1') {
+    if (templateInfo.includes('python') || templateInfo === 'base') {
       // Format as Python subprocess call
       code = `
 import subprocess

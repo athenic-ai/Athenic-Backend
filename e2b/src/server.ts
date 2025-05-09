@@ -243,7 +243,7 @@ app.post('/execute-stream', async (req, res) => {
     let sandboxId: string;
     
     // Create sandbox
-    sandboxId = await e2bService.createSandbox(language || 'code-interpreter-v1');
+    sandboxId = await e2bService.createSandbox(language || 'base');
     
     // Send processing status to client
     res.status(202).json({
@@ -266,7 +266,7 @@ app.post('/execute-stream', async (req, res) => {
 
 // Create sandbox endpoint
 app.post('/create-sandbox', async (req, res) => {
-  const { template = 'code-interpreter-v1' } = req.body;
+  const { template = 'base' } = req.body;
   
   try {
     console.log(`Creating sandbox with template: ${template}`);
@@ -358,7 +358,7 @@ app.post('/test-execute', async (req, res) => {
     console.log('Received test execute request');
     
     // Create sandbox
-    const sandbox = await Sandbox.create('code-interpreter-v1', { apiKey: E2B_API_KEY });
+    const sandbox = await Sandbox.create('base', { apiKey: E2B_API_KEY });
     console.log(`Created test sandbox: ${sandbox.sandboxId}`);
     
     // Run simple echo command

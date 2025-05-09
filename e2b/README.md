@@ -89,7 +89,7 @@ Executes code in a sandbox and streams the output via WebSocket.
 {
   "code": "print('Hello, World!')",
   "clientId": "unique_client_id",
-  "language": "code-interpreter-v1",
+  "language": "base",
   "timeout": 30000
 }
 ```

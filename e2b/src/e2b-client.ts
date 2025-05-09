@@ -29,7 +29,7 @@ export class E2BClient {
    * Initialize the client and create a sandbox
    * @param template The sandbox template to use
    */
-  async initialize(template = 'code-interpreter-v1'): Promise<void> {
+  async initialize(template = 'base'): Promise<void> {
     if (!this.apiKey) {
       throw new Error('E2B API key is required');
     }

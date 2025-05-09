@@ -92,7 +92,7 @@ jest.mock('../src/e2b-service', () => {
   
   return {
     // Mock these functions
-    createSandbox: jest.fn().mockImplementation(async (template = 'code-interpreter-v1') => {
+    createSandbox: jest.fn().mockImplementation(async (template = 'base') => {
       try {
         const sandboxId = 'test-sandbox-id';
         const mockRunCode = jest.fn().mockImplementation(async (code: string, options: any) => {

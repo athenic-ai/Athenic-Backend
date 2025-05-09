@@ -23,7 +23,7 @@ class MockProcessMessageJob {
     this.fetchImpl = jest.fn();
   }
 
-  async callE2BService(messageText: string, clientId: string, template = 'code-interpreter-v1') {
+  async callE2BService(messageText: string, clientId: string, template = 'base') {
     const e2bServiceUrl = process.env.E2B_SERVICE_URL || 'http://localhost:4000';
     const e2bWebsocketUrl = process.env.E2B_WEBSOCKET_URL || 'ws://localhost:4000';
 
@@ -114,7 +114,7 @@ describe('E2B Service Integration', () => {
     const requestBody = JSON.parse(mockJob.fetchImpl.mock.calls[0][1].body);
     expect(requestBody).toEqual({
       code: mockCode,
-      language: 'code-interpreter-v1', // default template
+      language: 'base', // default template
       clientId: mockClientId,
       timeout: 30000
     });

@@ -254,12 +254,12 @@ export class ProcessMessageJob<T> {
 
         // Determine the appropriate E2B template based on the request
         // For now using a simple approach - could be enhanced with LLM analysis in the future
-        let e2bTemplate = 'code-interpreter-v1'; // Default template
+        let e2bTemplate = 'base'; // Default template
         if (messageTextPartsStr.toLowerCase().includes('javascript') || 
             messageTextPartsStr.toLowerCase().includes('node')) {
           e2bTemplate = 'nodejs-v1';
         } else if (messageTextPartsStr.toLowerCase().includes('python')) {
-          e2bTemplate = 'code-interpreter-v1'; // Python-focused
+          e2bTemplate = 'base'; // Python-focused
         }
 
         // Extract the command from the message using regex

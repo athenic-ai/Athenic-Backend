@@ -1,7 +1,7 @@
 declare module '@e2b/service' {
   /**
    * Create a new E2B sandbox
-   * @param template The E2B template to use (default: 'code-interpreter-v1')
+   * @param template The E2B template to use (default: 'base')
    * @returns The sandbox ID
    */
   export function createSandbox(template?: string): Promise<string>;

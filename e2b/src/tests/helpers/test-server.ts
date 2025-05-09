@@ -35,7 +35,7 @@ export async function createServer(): Promise<{ server: Server; app: express.Exp
   
   // Add execute-stream endpoint
   app.post('/execute-stream', async (req, res) => {
-    const { code, template = 'code-interpreter-v1', clientId } = req.body;
+    const { code, template = 'base', clientId } = req.body;
     
     if (!code) return res.status(400).json({ error: 'Missing code parameter' });
     if (!clientId) return res.status(400).json({ error: 'Missing clientId parameter' });

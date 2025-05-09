@@ -76,7 +76,7 @@ conditionalDescribe('End-to-End Flow Tests', () => {
       .send({
         code: 'print("Hello from E2B Integration Test")',
         clientId: clientId,
-        template: 'code-interpreter-v1'
+        template: 'base'
       });
     
     // Check HTTP response (should be 202 Accepted)
@@ -141,7 +141,7 @@ except ImportError:
       .send({
         code: testCode,
         clientId: clientId,
-        template: 'code-interpreter-v1'
+        template: 'base'
       });
     
     // Check HTTP response
@@ -198,7 +198,7 @@ print("This line will never execute")
       .send({
         code: testCode,
         clientId: clientId,
-        template: 'code-interpreter-v1'
+        template: 'base'
       });
     
     // Check HTTP response

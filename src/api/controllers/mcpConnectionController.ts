@@ -28,8 +28,11 @@ export class McpConnectionController {
   public installMcpServer = async (req: Request, res: Response): Promise<void> => {
     try {
       // Parse request body
-      const { mcp_server_id, account_id, provided_credential_schema, title } = req.body;
+      const { mcp_server_id, account_id, provided_credential_schema, title, test_connection } = req.body;
       const organisationId = account_id; // Use organisationId internally to be consistent with our schema
+      
+      // Log whether we're in test mode
+      logger.info(`Installing MCP server in ${test_connection ? 'test' : 'normal'} mode`);
       
       if (!mcp_server_id || !organisationId || !title) {
         res.status(400).json({ 
@@ -55,6 +58,10 @@ export class McpConnectionController {
         return;
       }
       
+      let newConnection = null;
+
+      // Only create a connection record if not in testing mode
+      if (!test_connection) {
       // Create a new connection object with initial pending status
       const newConnectionData = {
         related_object_type_id: 'connection',
@@ -70,7 +77,7 @@ export class McpConnectionController {
         }
       };
       
-      const newConnection = await this.storageService.updateRow({
+        newConnection = await this.storageService.updateRow({
         table: config.OBJECT_TABLE_NAME,
         rowData: newConnectionData,
         nlpService: this.nlpService,
@@ -102,16 +109,73 @@ export class McpConnectionController {
         nlpService: this.nlpService,
         mayAlreadyExist: true
       });
+      }
       
       try {
         // Deploy the MCP server in an E2B sandbox
-        const { sandboxId, serverUrl } = await this.deployMcpServer(
+        const { sandboxId, serverUrl, sandbox } = await this.deployMcpServer(
           mcpServerDefinition,
           provided_credential_schema || {},
           organisationId
         );
         
-        // Update the connection with the sandbox information
+        // Try to verify the MCP server is responding
+        try {
+          // Wait up to 15 seconds for the server to start
+          let serverReady = false;
+          for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+              // Make a simple HTTP request to the server
+              const fetch = (await import('node-fetch')).default;
+              const response = await fetch(serverUrl);
+              
+              if (response.ok) {
+                serverReady = true;
+                logger.info(`MCP server is ready at ${serverUrl} after ${attempt + 1} attempts`);
+                break;
+              }
+              logger.info(`MCP server not ready yet (attempt ${attempt + 1}), status: ${response.status}`);
+            } catch (error) {
+              logger.info(`MCP server connection failed (attempt ${attempt + 1})`);
+            }
+            // Wait 3 seconds between attempts
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+          
+          if (!serverReady) {
+            throw new Error('MCP server is not responding after maximum attempts');
+          }
+        } catch (verifyError) {
+          logger.error(`MCP server verification failed: ${verifyError.message}`);
+          
+          // Kill the sandbox since the server failed to start properly
+          try {
+            await sandbox.kill();
+          } catch (killError) {
+            logger.error(`Failed to kill sandbox: ${killError.message}`);
+          }
+          
+          throw new Error(`MCP server verification failed: ${verifyError.message}`);
+        }
+        
+        // If we're in test mode, kill the sandbox and just return success
+        if (test_connection) {
+          // Kill the sandbox since we don't need it in test mode
+          try {
+            await sandbox.kill();
+          } catch (killError) {
+            logger.error(`Failed to kill test sandbox: ${killError.message}`);
+          }
+          
+          res.status(200).json({
+            success: true,
+            message: 'MCP server connection test successful',
+            test_mode: true
+          });
+          return;
+        }
+        
+        // Only update connection if we're in normal (non-test) mode
         const finalConnectionData = {
           ...newConnection,
           metadata: {
@@ -157,6 +221,8 @@ export class McpConnectionController {
       } catch (deployError: any) {
         logger.error(`Error deploying MCP server: ${deployError.message}`);
         
+        // Only update connection status if we're not in test mode
+        if (!test_connection && newConnection) {
         // Update the connection with error status
         const errorConnectionData = {
           ...newConnection,
@@ -174,11 +240,12 @@ export class McpConnectionController {
           nlpService: this.nlpService,
           mayAlreadyExist: true
         });
+        }
         
         res.status(500).json({ 
           error: 'Deployment Error', 
           message: `Failed to deploy MCP server: ${deployError.message}`,
-          connection_id: newConnection.id
+          connection_id: test_connection ? null : newConnection?.id
         });
       }
     } catch (error: any) {
@@ -309,7 +376,7 @@ export class McpConnectionController {
     mcpServerObject: any,
     userProvidedEnvs: Record<string, string>,
     organisationId: string
-  ): Promise<{ sandboxId: string; serverUrl: string; sandbox: any }> => {
+  ): Promise<{ sandboxId: string; serverUrl: string; sandbox: Sandbox }> => {
     try {
       logger.info(`Deploying MCP server "${mcpServerObject.metadata.title}" for organisation ${organisationId}`);
       

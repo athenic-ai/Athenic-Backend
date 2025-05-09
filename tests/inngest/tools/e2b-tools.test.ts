@@ -67,7 +67,7 @@ describe('E2B Tools', () => {
     test('should create a sandbox, run code, and close sandbox when successful', async () => {
       // Arrange
       const code = 'console.log("Hello, World!")';
-      const template = 'code-interpreter-v1';
+      const template = 'base';
       
       // Get clientId from event
       mockStep.event = mockEvent;

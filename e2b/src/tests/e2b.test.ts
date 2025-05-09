@@ -15,7 +15,7 @@ class E2BClient {
   
   async initialize() {
     if (!this.sandbox) {
-      this.sandbox = await MockSandbox.create('code-interpreter-v1', { apiKey: 'test-api-key' });
+      this.sandbox = await MockSandbox.create('base', { apiKey: 'test-api-key' });
     }
     return this.sandbox;
   }

@@ -35,10 +35,10 @@ export async function getInitializedTools() {
     description: 'Executes code in a secure sandbox environment and streams output to the client.',
     parameters: z.object({
       code: z.string().describe('The code to execute.'),
-      template: z.string().optional().default('code-interpreter-v1').describe('The E2B template to use.'),
+      template: z.string().optional().default('base').describe('The E2B template to use.'),
     }),
     handler: async (input: { code: string; template?: string }, opts: any) => {
-      const { code, template = 'code-interpreter-v1' } = input;
+      const { code, template = 'base' } = input;
       const { step, agent, network } = opts;
       
       // Ensure step is available
@@ -215,7 +215,7 @@ initModules().catch(error => {
 // Add this export for directly calling the handler 
 export const executeCodeDirectly = async (
   code: string, 
-  template: string = 'code-interpreter-v1',
+  template: string = 'base',
   clientId: string,
   step: any
 ): Promise<any> => {
@@ -324,7 +324,7 @@ export const e2bTools = {
         return { error: 'Client ID not found for streaming. Cannot execute code without a client connection.' };
       }
       
-      return executeCodeDirectly(code, template || 'code-interpreter-v1', clientId, step);
+      return executeCodeDirectly(code, template || 'base', clientId, step);
     }
   },
   getActiveSandboxes: null,

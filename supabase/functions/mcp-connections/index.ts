@@ -7,11 +7,23 @@ import { corsHeaders } from '../_shared/configs/cors.ts';
 // @ts-ignore
 import { ClientType } from 'npm:@supabase/supabase-js/src/types.ts';
 
-// Type fixes for deno environment
+// Type definitions
 interface CustomObject {
   id: string;
+  related_object_type_id: string;
+  owner_organisation_id: string;
   metadata: Record<string, any>;
-  [key: string]: any;
+  created_at?: string;
+  embedding?: any;
+  owner_member_id?: string;
+}
+
+// Request and response types
+interface InstallMcpServerRequest {
+  mcpServerId: string;
+  organisationId: string;
+  memberId?: string;
+  auth?: Record<string, string>;
 }
 
 // API Configuration
@@ -19,7 +31,7 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 const E2B_API_KEY = Deno.env.get('E2B_API_KEY') || '';
 const DEFAULT_MCP_SERVER_PORT = 3000;
-const DEFAULT_MCP_SERVER_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const DEFAULT_MCP_SERVER_TIMEOUT_MS = 60 * 60 * 1000; // 60 minutes - increased from 30 to 60
 
 // Helper function to decrypt sensitive fields
 function decryptSensitiveFields(fields: Record<string, string>): Record<string, string> {
@@ -78,24 +90,65 @@ function createSupabaseClient(): ClientType {
 }
 
 // Helper function to wait for the MCP server to become ready
-async function waitForMcpServerReady(url: string, maxAttempts = 10): Promise<boolean> {
+async function waitForMcpServerReady(url: string, maxAttempts = 15, initialWaitMs = 5000): Promise<boolean> {
+  // Initial wait before even starting to check connections
+  console.log(`Waiting ${initialWaitMs}ms before beginning connection checks...`);
+  await new Promise(resolve => setTimeout(resolve, initialWaitMs));
+  
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      console.log(`Attempting to connect to MCP server at ${url}, attempt ${i + 1}...`);
-      const response = await fetch(url);
+      // Ensure the URL has a proper protocol prefix
+      const fullUrl = url.startsWith('http') ? url : `https://${url}`;
       
-      if (response.status === 200) {
-        console.log('MCP server is ready!');
+      console.log(`Attempting to connect to MCP server at ${fullUrl}, attempt ${i + 1}...`);
+      const response = await fetch(fullUrl, { 
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        // Reasonable timeout for each request
+        signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined
+      });
+      
+      // Any 2xx or 3xx status could be considered success
+      if (response.ok || response.status < 400) {
+        console.log(`MCP server is ready at ${fullUrl}!`);
         return true;
       }
       
+      // If we get a 404, try with /sse if it doesn't already have it
+      if (response.status === 404 && !fullUrl.endsWith('/sse')) {
+        const sseUrl = `${fullUrl.endsWith('/') ? fullUrl.slice(0, -1) : fullUrl}/sse`;
+        console.log(`Trying SSE endpoint at ${sseUrl}...`);
+        
+        try {
+          const sseResponse = await fetch(sseUrl, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' },
+            signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined
+          });
+          
+          if (sseResponse.ok || sseResponse.status < 400) {
+            console.log(`MCP server is ready at ${sseUrl}!`);
+            return true;
+          }
+        } catch (sseError) {
+          console.log(`SSE endpoint check failed: ${sseError instanceof Error ? sseError.message : String(sseError)}`);
+        }
+      }
+      
       console.log(`MCP server not ready yet. Status: ${response.status}`);
+      
+      // Wait between attempts, increasing the wait time for later attempts
+      const waitTime = Math.min(2000 * (i + 1), 10000);
+      console.log(`Server not ready yet. Waiting ${waitTime}ms before next attempt...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
     } catch (error: unknown) {
       console.log(`Connection attempt failed: ${error instanceof Error ? error.message : String(error)}`);
+      
+      // Wait between attempts with exponential backoff
+      const waitTime = Math.min(2000 * (i + 1), 10000);
+      console.log(`Connection failed. Waiting ${waitTime}ms before next attempt...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
     }
-    
-    // Wait before the next attempt
-    await new Promise(resolve => setTimeout(resolve, 2000));
   }
   
   console.error(`MCP server failed to become ready after ${maxAttempts} attempts`);
@@ -109,144 +162,60 @@ async function deployMcpServer(
   mcpServerObject: CustomObject,
   userProvidedEnvs: Record<string, string>,
   organisationId: string
-): Promise<{ sandboxId: string; serverUrl: string }> {
+): Promise<{ sandboxId: string; serverUrl: string; sandbox: any }> {
   try {
     console.log(`Deploying MCP server "${mcpServerObject.metadata.title}" for organisation ${organisationId}`);
     
-    // Create an E2B sandbox
+    // Get the timeout from metadata or use a default
+    const timeoutMs = mcpServerObject.metadata.default_timeout || DEFAULT_MCP_SERVER_TIMEOUT_MS;
+    console.log(`Using timeout of ${timeoutMs}ms for MCP server deployment`);
+    
+    // Create the sandbox using "base" template as shown in the example
+    console.log("Creating sandbox...");
     const sandbox = await Sandbox.create({
       apiKey: E2B_API_KEY,
-      // Use default timeout from the MCP server object, or default to 30 minutes
-      timeoutMs: mcpServerObject.metadata.default_timeout || DEFAULT_MCP_SERVER_TIMEOUT_MS,
+      timeoutMs: Number(timeoutMs),
     });
     
     console.log(`Created E2B sandbox with ID: ${sandbox.sandboxId}`);
     
-    // Prepare environment variables for the MCP server
+    // Get the server URL
     const port = mcpServerObject.metadata.port || DEFAULT_MCP_SERVER_PORT;
+    const host = sandbox.getHost(port);
+    const serverUrl = `https://${host}`;
+    
+    console.log(`Server will be accessible at: ${serverUrl}`);
+    
+    // Construct the environment variables
     const envVars = {
-      // Make the server listen on all interfaces (0.0.0.0) inside the sandbox
       MCP_HOST: '0.0.0.0',
       MCP_PORT: port.toString(),
-      // Add the sandbox ID for tracing/debugging
       E2B_SANDBOX_ID: sandbox.sandboxId,
-      // Add user-provided environment variables
-      ...userProvidedEnvs,
+      ...userProvidedEnvs
     };
     
-    // Check available methods on the sandbox
-    console.log('Available methods on sandbox:', JSON.stringify(Object.getOwnPropertyNames(sandbox), null, 2));
+    // Following the example code exactly:
+    // Use supergateway to proxy the MCP server
+    const command = mcpServerObject.metadata.start_command;
+    console.log("Starting MCP server with command:", command);
     
-    // Inspect the commands object if it exists
-    if (sandbox.commands) {
-      console.log('Available methods on sandbox.commands:', JSON.stringify(Object.getOwnPropertyNames(sandbox.commands), null, 2));
-    }
-    
-    // Format all environment variables for shell script
-    const envExportsStr = Object.entries(envVars)
-      .map(([key, value]) => `export ${key}="${value?.toString().replace(/"/g, '\\"') || ''}"`)
-      .join('\n');
-    
-    // Check if we need to run an installation command
-    if (mcpServerObject.metadata.install_command) {
-      console.log(`Installing MCP server with command: ${mcpServerObject.metadata.install_command}`);
-      
-      // Use the most appropriate method to run the installation command
-      if (sandbox.commands && typeof sandbox.commands.run === 'function') {
-        // Try running with commands.run
-        const installResult = await sandbox.commands.run(mcpServerObject.metadata.install_command);
-        console.log('Installation result:', installResult);
-        
-        if (installResult.exitCode !== 0) {
-          throw new Error(`Installation failed with exit code ${installResult.exitCode}`);
-        }
-      } else if (sandbox.pty && typeof sandbox.pty.spawn === 'function') {
-        // Try using pseudo-terminal (pty) as an alternative
-        const terminal = await sandbox.pty.spawn('bash');
-        
-        // Set environment variables first
-        for (const [key, value] of Object.entries(envVars)) {
-          await terminal.write(`export ${key}="${value?.toString().replace(/"/g, '\\"') || ''}"\n`);
-        }
-        
-        // Run the installation command
-        await terminal.write(`${mcpServerObject.metadata.install_command}\n`);
-        await terminal.write('exit\n');
-        
-        // Close the terminal
-        await terminal.kill();
-      } else if (sandbox.files && typeof sandbox.files.write === 'function') {
-        // Create a shell script as a fallback
-        const scriptPath = '/tmp/install_script.sh';
-        const scriptContent = `#!/bin/bash\n${envExportsStr}\n${mcpServerObject.metadata.install_command}\n`;
-        
-        // Write the script
-        await sandbox.files.write(scriptPath, scriptContent);
-        
-        // Make it executable
-        if (typeof sandbox.commands?.run === 'function') {
-          await sandbox.commands.run(`chmod +x ${scriptPath}`);
-          const result = await sandbox.commands.run(scriptPath);
-          
-          if (result.exitCode !== 0) {
-            throw new Error(`Installation script failed with exit code ${result.exitCode}`);
-          }
-        }
+    await sandbox.commands.run(
+      `npx -y supergateway --base-url ${serverUrl} --port ${port} --cors --stdio "${command.replace(/"/g, '\\"')}"`,
+      {
+        env: envVars,
+        background: true
       }
-    }
+    );
     
-    // Start the MCP server
-    console.log(`Starting MCP server with command: ${mcpServerObject.metadata.start_command}`);
+    console.log(`MCP server started at: ${serverUrl}/sse`);
     
-    // Try different methods to run the start command
-    if (sandbox.commands && typeof sandbox.commands.run === 'function') {
-      // Run the command in the background using nohup
-      const backgroundCmd = `nohup ${mcpServerObject.metadata.start_command} > /tmp/mcp-server.log 2>&1 &`;
-      await sandbox.commands.run(backgroundCmd);
-    } else if (sandbox.pty && typeof sandbox.pty.spawn === 'function') {
-      // Try using pseudo-terminal (pty)
-      const terminal = await sandbox.pty.spawn('bash');
-      
-      // Set environment variables
-      for (const [key, value] of Object.entries(envVars)) {
-        await terminal.write(`export ${key}="${value?.toString().replace(/"/g, '\\"') || ''}"\n`);
-      }
-      
-      // Run in background with nohup
-      await terminal.write(`nohup ${mcpServerObject.metadata.start_command} > /tmp/mcp-server.log 2>&1 &\n`);
-      
-      // Exit but keep processes running
-      await terminal.write('disown -a\n');
-      await terminal.write('exit\n');
-      
-      // Close the terminal but keep background processes
-      await terminal.kill();
-    } else if (sandbox.files && typeof sandbox.files.write === 'function' && typeof sandbox.commands?.run === 'function') {
-      // Create a shell script to run in the background
-      const scriptPath = '/tmp/start_script.sh';
-      const scriptContent = `#!/bin/bash\n${envExportsStr}\nnohup ${mcpServerObject.metadata.start_command} > /tmp/mcp-server.log 2>&1 &\n`;
-      
-      // Write and execute the script
-      await sandbox.files.write(scriptPath, scriptContent);
-      await sandbox.commands.run(`chmod +x ${scriptPath}`);
-      await sandbox.commands.run(scriptPath);
-    } else {
-      throw new Error('No suitable method found to execute start command');
-    }
-    
-    // Wait for a moment to allow the server to start
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    
-    // Get the exposed port URL using the documented getHost method
-    const serverUrl = sandbox.getHost(port);
-    
-    console.log(`MCP server is running on port ${port}, accessible at: ${serverUrl}`);
-    
+    // Return all needed info
     return {
       sandboxId: sandbox.sandboxId,
-      serverUrl,
+      serverUrl: `${serverUrl}/sse`,
+      sandbox
     };
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`Error deploying MCP server:`, error);
     throw new Error(`Failed to deploy MCP server: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -261,7 +230,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 });
 
 // Deno serve function to handle HTTP requests
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   // Handle CORS for preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -292,10 +261,10 @@ Deno.serve(async (req) => {
         { status: 404, headers }
       );
     }
-  } catch (error) {
-    console.error(`Error handling request to ${path}:`, error);
+  } catch (error: unknown) {
+    console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
     return new Response(
-      JSON.stringify({ error: 'Server error', message: error.message }), 
+      JSON.stringify({ error: 'Server error', message: error instanceof Error ? error.message : String(error) }), 
       { status: 500, headers }
     );
   }
@@ -304,163 +273,95 @@ Deno.serve(async (req) => {
 // Handle POST /mcp-connections/install
 async function handleInstallMcpServer(req: Request, headers: HeadersInit): Promise<Response> {
   try {
-    // Parse request body
-    const requestData = await req.json();
-    
-    // Validate required fields
-    const { mcp_server_id, account_id, provided_credential_schema, title } = requestData;
-    const organisationId = account_id; // Use organisationId internally to be consistent with our schema
+    // Extract request data using the original parameter names that the frontend expects
+    const data = await req.json();
+    const { mcp_server_id, account_id, provided_credential_schema, title } = data;
+    const organisationId = account_id; // Map to our internal variable name
     
     if (!mcp_server_id || !organisationId || !title) {
       return new Response(
-        JSON.stringify({ 
-          error: 'Bad Request', 
-          message: 'Missing required fields: mcp_server_id, account_id, and title are required' 
-        }), 
+        JSON.stringify({ success: false, error: 'Missing required fields: mcp_server_id, account_id, and title are required' }), 
         { status: 400, headers }
       );
     }
     
-    // Fetch the MCP server definition from the database
-    const { data: mcpServerDefinition, error: mcpServerError } = await supabase
+    console.log(`Attempting to install MCP server ${mcp_server_id} for organisation ${organisationId}`);
+    
+    // Get Supabase Admin client
+    const supabase = createSupabaseAdmin();
+    
+    // Get MCP server definition from DB
+    const { data: mcpServerObjects, error: mcpServerError } = await supabase
       .from('objects')
       .select('*')
-      .eq('id', mcp_server_id)
       .eq('related_object_type_id', 'mcp_server')
-      .single();
-    
-    if (mcpServerError || !mcpServerDefinition) {
-      console.error('Error fetching MCP server definition:', mcpServerError);
+      .eq('id', mcp_server_id)
+      .limit(1);
+      
+    if (mcpServerError || !mcpServerObjects || mcpServerObjects.length === 0) {
+      console.error('Error retrieving MCP server:', mcpServerError);
       return new Response(
-        JSON.stringify({ 
-          error: 'Not Found', 
-          message: 'MCP server definition not found' 
-        }), 
+        JSON.stringify({ success: false, error: 'MCP server not found' }), 
         { status: 404, headers }
       );
     }
     
-    // Create a new connection object with initial pending status
-    const { data: newConnection, error: createError } = await supabase
-      .from('objects')
-      .insert({
-        related_object_type_id: 'connection',
-        owner_organisation_id: organisationId,
-        metadata: {
-          title,
-          mcp_status: 'mcpPending',
-          mcp_server_id: mcp_server_id,
-          created_at: new Date().toISOString(),
-          provided_credential_schema: provided_credential_schema 
-            ? encryptSensitiveFields(provided_credential_schema)
-            : {}
-        }
-      })
-      .select()
-      .single();
+    const mcpServerObject = mcpServerObjects[0] as CustomObject;
     
-    if (createError || !newConnection) {
-      console.error('Error creating MCP connection:', createError);
-      return new Response(
-        JSON.stringify({ 
-          error: 'Database Error', 
-          message: 'Failed to create MCP connection record' 
-        }), 
-        { status: 500, headers }
-      );
+    // Deploy the MCP server using the example code pattern
+    const { serverUrl, sandboxId } = await deployMcpServer(mcpServerObject, provided_credential_schema || {}, organisationId);
+    
+    // Check if the server is ready
+    const isReady = await waitForMcpServerReady(serverUrl);
+    if (!isReady) {
+      throw new Error('MCP server was deployed but did not respond in time');
     }
     
-    // Deploy the MCP server in an E2B sandbox
-    try {
-      // Update status to deploying
-      await supabase
-        .from('objects')
-        .update({
+    // Add connection to Supabase
+    const { data: newConnection, error: connectionError } = await supabase
+      .from('objects')
+      .insert([
+        {
+          related_object_type_id: 'connection',
+          owner_organisation_id: organisationId,
           metadata: {
-            ...newConnection.metadata,
-            mcp_status: 'mcpDeploying'
-          }
-        })
-        .eq('id', newConnection.id);
-      
-      // Deploy the server
-      const { sandboxId, serverUrl } = await deployMcpServer(
-        mcpServerDefinition,
-        provided_credential_schema || {},
-        organisationId
-      );
-      
-      // Update the connection with the sandbox information
-      const { data: updatedConnection, error: updateError } = await supabase
-        .from('objects')
-        .update({
-          metadata: {
-            ...newConnection.metadata,
+            title,
             mcp_status: 'mcpRunning',
+            mcp_server_id: mcp_server_id,
+            created_at: new Date().toISOString(),
             e2b_sandbox_id: sandboxId,
             mcp_server_url: serverUrl,
+            provided_credential_schema: provided_credential_schema || {}
           }
-        })
-        .eq('id', newConnection.id)
-        .select()
-        .single();
+        }
+      ])
+      .select()
+      .limit(1);
       
-      if (updateError || !updatedConnection) {
-        console.error('Error updating MCP connection:', updateError);
-        return new Response(
-          JSON.stringify({ 
-            error: 'Database Error', 
-            message: 'Failed to update MCP connection record' 
-          }), 
-          { status: 500, headers }
-        );
-      }
-      
-      // Return success with the connection
+    if (connectionError || !newConnection || newConnection.length === 0) {
+      console.error('Error creating MCP connection:', connectionError);
       return new Response(
-        JSON.stringify({
-          success: true,
-          message: 'MCP server deployed successfully',
-          connection: {
-            ...updatedConnection,
-            // Don't return sensitive credentials
-            metadata: {
-              ...updatedConnection.metadata,
-              provided_credential_schema: Object.keys(updatedConnection.metadata.provided_credential_schema || {})
-                .reduce((acc, key) => ({ ...acc, [key]: '[REDACTED]' }), {})
-            }
-          }
-        }),
-        { status: 200, headers }
-      );
-    } catch (deployError) {
-      console.error('Error deploying MCP server:', deployError);
-      
-      // Update the connection with error status
-      await supabase
-        .from('objects')
-        .update({
-          metadata: {
-            ...newConnection.metadata,
-            mcp_status: 'mcpError',
-            last_error: deployError.message || 'Unknown error'
-          }
-        })
-        .eq('id', newConnection.id);
-      
-      return new Response(
-        JSON.stringify({ 
-          error: 'Deployment Error', 
-          message: `Failed to deploy MCP server: ${deployError.message}`,
-          connection_id: newConnection.id
-        }), 
+        JSON.stringify({ success: false, error: 'Failed to create MCP connection' }), 
         { status: 500, headers }
       );
     }
-  } catch (error) {
+    
+    return new Response(
+      JSON.stringify({
+        success: true,
+        message: 'MCP server installed successfully',
+        connection: newConnection[0]
+      }), 
+      { status: 200, headers }
+    );
+  } catch (error: unknown) {
     console.error('Error in handleInstallMcpServer:', error);
     return new Response(
-      JSON.stringify({ error: 'Server Error', message: error.message }), 
+      JSON.stringify({ 
+        success: false, 
+        error: 'Failed to install MCP server', 
+        message: error instanceof Error ? error.message : String(error)
+      }), 
       { status: 500, headers }
     );
   }
@@ -572,12 +473,14 @@ async function handleGetMcpConnections(req: Request, headers: HeadersInit): Prom
     }
     
     // Redact sensitive credential information before returning
-    const redactedConnections = connections.map(connection => ({
+    const redactedConnections = connections.map((connection: CustomObject) => ({
       ...connection,
       metadata: {
         ...connection.metadata,
-        provided_credential_schema: Object.keys(connection.metadata.provided_credential_schema || {})
-          .reduce((acc, key) => ({ ...acc, [key]: '[REDACTED]' }), {})
+        // Ensure credentials and sensitive info are redacted
+        auth: connection.metadata.auth ? Object.keys(connection.metadata.auth).reduce(
+          (acc: Record<string, string>, key: string) => ({ ...acc, [key]: '[REDACTED]' }), {}
+        ) : {}
       }
     }));
     

@@ -4,7 +4,7 @@ const http = require('http');
 const requestData = {
   code: 'echo "Hello from E2B"',
   clientId: 'test-client-' + Date.now(),
-  language: 'code-interpreter-v1',
+  language: 'base',
   timeout: 30000
 };
 
