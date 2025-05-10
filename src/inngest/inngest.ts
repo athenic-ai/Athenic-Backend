@@ -8,6 +8,10 @@ import { chatAgent } from "./agents/chatAgent.js";
 import { type Message } from "@inngest/agent-kit";
 import { buildMcpServersConfig } from "./utils/mcpHelpers.js";
 import { createMcpIntegrationFunctions } from "./examples/mcpIntegrationExample.js";
+import axios from "axios";
+
+// Get API server URL from environment variable or use default
+const API_SERVER_URL = process.env.API_SERVER_URL || 'http://localhost:8001';
 
 export const inngest = new Inngest({
   id: "athenic-backend",
@@ -118,7 +122,7 @@ function createTimeout(ms: number, message: string) {
 
 export const chatMessageFunction = inngest.createFunction(
   { id: "chat-message", retries: 1 },
-  { event: "athenic/chat.message" },
+  { event: "athenic/chat.message.received" },
   async ({ event, step }) => {
     const { userId, organisationId, clientId, message } = event.data;
 
@@ -150,6 +154,23 @@ export const chatMessageFunction = inngest.createFunction(
       // Inject MCP servers into the agent context
       mcpServers: mcpServersConfig,
     } as any);
+
+    // Send the response back to the API server to update client session
+    try {
+      await step.run("Send Response to API Server", async () => {
+        console.log(`Sending response to API server for client ${clientId}`);
+        
+        await axios.post(`${API_SERVER_URL}/chat/response`, {
+          clientId,
+          response: result.output,
+          requiresE2B: false,
+        });
+        
+        console.log(`Successfully sent response to API server for client ${clientId}`);
+      });
+    } catch (error) {
+      console.error(`Failed to send response to API server: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     return {
       response: result.output,

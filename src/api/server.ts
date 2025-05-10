@@ -104,18 +104,42 @@ apiRouter.get('/chat/stream/:clientId', (req: any, res: any) => {
     
     // Check if we have a response
     if (session.lastResponse) {
-      // Send the final response
-      res.write(`data: ${JSON.stringify({
-        response: session.lastResponse,
-        requiresE2B: session.requiresE2B || false,
-        references: session.references || null,
-        complete: true
-      })}\n\n`);
-      
-      clearInterval(sessionCheckInterval);
-      res.end();
-      
-      logger.info(`SSE stream completed for client ${clientId}`);
+      // Send the final response - handle both string and array response types
+      try {
+        // Convert response to string if it's an array of messages
+        let responseText = session.lastResponse;
+        if (Array.isArray(session.lastResponse)) {
+          // Extract text from the first message if available
+          const firstMessage = session.lastResponse[0];
+          if (firstMessage && firstMessage.content) {
+            responseText = firstMessage.content;
+          } else {
+            // Fallback to full JSON
+            responseText = JSON.stringify(session.lastResponse);
+          }
+        }
+        
+        res.write(`data: ${JSON.stringify({
+          response: responseText, // Send the extracted text or original string
+          requiresE2B: session.requiresE2B || false,
+          references: session.references || null,
+          complete: true
+        })}\n\n`);
+        
+        clearInterval(sessionCheckInterval);
+        res.end();
+        
+        logger.info(`SSE stream completed for client ${clientId}`);
+      } catch (error: any) {
+        logger.error(`Error sending SSE response: ${error.message}`);
+        res.write(`data: ${JSON.stringify({
+          error: `Error parsing SSE data: ${error.message}`,
+          complete: true
+        })}\n\n`);
+        
+        clearInterval(sessionCheckInterval);
+        res.end();
+      }
       return;
     }
     
@@ -303,7 +327,23 @@ apiRouter.post('/chat/response', (req: any, res: any) => {
   }
   
   // Log the detailed response and session state
-  logger.info(`Response for client ${clientId}: ${response.substring(0, 100) + (response.length > 100 ? '...' : '')}`);
+  // Handle response as either a string or an array of message objects
+  let responseLog = '';
+  if (typeof response === 'string') {
+    responseLog = response.substring(0, 100) + (response.length > 100 ? '...' : '');
+  } else if (Array.isArray(response)) {
+    // Extract content from the first message if available
+    const firstMessage = response[0];
+    if (firstMessage && firstMessage.content) {
+      responseLog = firstMessage.content.substring(0, 100) + (firstMessage.content.length > 100 ? '...' : '');
+    } else {
+      responseLog = JSON.stringify(response).substring(0, 100) + (JSON.stringify(response).length > 100 ? '...' : '');
+    }
+  } else {
+    responseLog = JSON.stringify(response).substring(0, 100) + (JSON.stringify(response).length > 100 ? '...' : '');
+  }
+  
+  logger.info(`Response for client ${clientId}: ${responseLog}`);
   logger.debug(`Client session updated`, { 
     clientId, 
     requiresE2B: requiresE2B ? 'Yes' : 'No',
