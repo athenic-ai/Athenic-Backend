@@ -253,7 +253,7 @@ Deno.serve(async (req: Request) => {
     } else if (path === '/mcp-connections' && req.method === 'GET') {
       return await handleGetMcpConnections(req, headers);
     } else if (path === '/mcp-server-definitions' && req.method === 'GET') {
-      return await handleGetMcpServerDefinitions(headers);
+      return await handleGetMcpServerDefinitions(headers, req);
     } else {
       // Invalid endpoint
       return new Response(
@@ -308,6 +308,16 @@ async function handleInstallMcpServer(req: Request, headers: HeadersInit): Promi
     
     const mcpServerObject = mcpServerObjects[0] as CustomObject;
     
+    // Get the MCP server's unique server ID from its metadata
+    const mcpServerUniqueId = mcpServerObject.metadata?.mcp_server_id;
+    if (!mcpServerUniqueId) {
+      console.error('Error: MCP server object is missing the required mcp_server_id in its metadata');
+      return new Response(
+        JSON.stringify({ success: false, error: 'MCP server definition is invalid. Missing mcp_server_id in metadata.' }), 
+        { status: 400, headers }
+      );
+    }
+    
     // Deploy the MCP server using the example code pattern
     const { serverUrl, sandboxId } = await deployMcpServer(mcpServerObject, provided_credential_schema || {}, organisationId);
     
@@ -327,7 +337,9 @@ async function handleInstallMcpServer(req: Request, headers: HeadersInit): Promi
           metadata: {
             title,
             mcp_status: 'mcpRunning',
-            mcp_server_id: mcp_server_id,
+            // Use the server's unique ID from metadata as the mcp_server_id 
+            // Do NOT include an 'id' field in the metadata
+            mcp_server_id: mcpServerUniqueId,
             created_at: new Date().toISOString(),
             e2b_sandbox_id: sandboxId,
             mcp_server_url: serverUrl,
@@ -346,11 +358,16 @@ async function handleInstallMcpServer(req: Request, headers: HeadersInit): Promi
       );
     }
     
+    // Return success with additional flags for frontend behavior
     return new Response(
       JSON.stringify({
         success: true,
         message: 'MCP server installed successfully',
-        connection: newConnection[0]
+        connection: newConnection[0],
+        // Add these fields to help the frontend handle the response correctly
+        should_dismiss_dialog: true,
+        should_stay_on_connections_screen: true,
+        connected_server_id: mcpServerUniqueId
       }), 
       { status: 200, headers }
     );
@@ -431,7 +448,7 @@ async function handleDeleteMcpServer(connectionId: string, headers: HeadersInit)
   } catch (error) {
     console.error('Error in handleDeleteMcpServer:', error);
     return new Response(
-      JSON.stringify({ error: 'Server Error', message: error.message }), 
+      JSON.stringify({ error: 'Server Error', message: error instanceof Error ? error.message : String(error) }), 
       { status: 500, headers }
     );
   }
@@ -454,7 +471,7 @@ async function handleGetMcpConnections(req: Request, headers: HeadersInit): Prom
       );
     }
     
-    // Fetch all MCP connections for the account
+    // Fetch all MCP connections for the organisation
     const { data: connections, error: fetchError } = await supabase
       .from('objects')
       .select('*')
@@ -472,6 +489,15 @@ async function handleGetMcpConnections(req: Request, headers: HeadersInit): Prom
       );
     }
     
+    // Create a map of connected server IDs for quick lookup
+    const connectedServerIds = new Set();
+    connections.forEach((connection: CustomObject) => {
+      // Use the metadata.mcp_server_id field which contains the unique server identifier
+      if (connection.metadata?.mcp_server_id) {
+        connectedServerIds.add(connection.metadata.mcp_server_id);
+      }
+    });
+    
     // Redact sensitive credential information before returning
     const redactedConnections = connections.map((connection: CustomObject) => ({
       ...connection,
@@ -480,30 +506,41 @@ async function handleGetMcpConnections(req: Request, headers: HeadersInit): Prom
         // Ensure credentials and sensitive info are redacted
         auth: connection.metadata.auth ? Object.keys(connection.metadata.auth).reduce(
           (acc: Record<string, string>, key: string) => ({ ...acc, [key]: '[REDACTED]' }), {}
-        ) : {}
+        ) : {},
+        provided_credential_schema: connection.metadata.provided_credential_schema ? 
+          Object.keys(connection.metadata.provided_credential_schema).reduce(
+            (acc: Record<string, string>, key: string) => ({ ...acc, [key]: '[REDACTED]' }), {}
+          ) : {},
+        // Add a connection_status field to make it easier for the frontend
+        connection_status: 'connected'
       }
     }));
     
-    // Return the connections
+    // Return the connections along with the set of connected server IDs
     return new Response(
       JSON.stringify({
         success: true,
-        connections: redactedConnections || []
+        connections: redactedConnections || [],
+        connected_server_ids: Array.from(connectedServerIds)
       }),
       { status: 200, headers }
     );
   } catch (error) {
     console.error('Error in handleGetMcpConnections:', error);
     return new Response(
-      JSON.stringify({ error: 'Server Error', message: error.message }), 
+      JSON.stringify({ error: 'Server Error', message: error instanceof Error ? error.message : String(error) }), 
       { status: 500, headers }
     );
   }
 }
 
 // Handle GET /mcp-server-definitions
-async function handleGetMcpServerDefinitions(headers: HeadersInit): Promise<Response> {
+async function handleGetMcpServerDefinitions(headers: HeadersInit, req: Request): Promise<Response> {
   try {
+    // Get the account_id from the query parameters if present
+    const url = new URL(req.url);
+    const organisationId = url.searchParams.get('account_id');
+    
     // Fetch all MCP server definitions
     const { data: serverDefinitions, error: fetchError } = await supabase
       .from('objects')
@@ -521,18 +558,66 @@ async function handleGetMcpServerDefinitions(headers: HeadersInit): Promise<Resp
       );
     }
     
+    // If organisationId is provided, fetch connections to determine which servers are installed
+    let connectedServerIds = new Set<string>();
+    if (organisationId) {
+      const { data: connections, error: connectionsError } = await supabase
+        .from('objects')
+        .select('*')
+        .eq('related_object_type_id', 'connection')
+        .eq('owner_organisation_id', organisationId);
+      
+      if (!connectionsError && connections) {
+        console.log(`Found ${connections.length} connections for organisation ${organisationId}`);
+        
+        // Collect server IDs from the connection metadata.mcp_server_id field
+        connections.forEach((connection: CustomObject) => {
+          if (connection.metadata?.mcp_server_id) {
+            console.log(`Connection ${connection.id} has mcp_server_id: ${connection.metadata.mcp_server_id}`);
+            connectedServerIds.add(connection.metadata.mcp_server_id);
+          } else {
+            console.log(`Connection ${connection.id} is missing mcp_server_id in metadata`);
+          }
+        });
+        
+        console.log(`Collected connected server IDs: ${Array.from(connectedServerIds).join(', ')}`);
+      } else if (connectionsError) {
+        console.error(`Error fetching connections: ${connectionsError.message}`);
+      }
+    }
+    
+    // Add installation status to each server definition by matching the mcp_server_id fields
+    const enhancedServerDefinitions = serverDefinitions.map((definition: CustomObject) => {
+      const serverUniqueId = definition.metadata?.mcp_server_id;
+      const isInstalled = serverUniqueId ? connectedServerIds.has(serverUniqueId) : false;
+      
+      if (serverUniqueId) {
+        console.log(`Server ${definition.id} has unique ID ${serverUniqueId}, is_installed: ${isInstalled}`);
+      } else {
+        console.log(`Server ${definition.id} is missing mcp_server_id in metadata`);
+      }
+      
+      return {
+        ...definition,
+        // A server is installed if its mcp_server_id (from metadata) is in our set of connected server IDs
+        is_installed: isInstalled,
+        // Add the unique ID to the top level for easier access by the frontend
+        server_unique_id: serverUniqueId || null
+      };
+    });
+    
     // Return the server definitions
     return new Response(
       JSON.stringify({
         success: true,
-        server_definitions: serverDefinitions || []
+        server_definitions: enhancedServerDefinitions || []
       }),
       { status: 200, headers }
     );
   } catch (error) {
     console.error('Error in handleGetMcpServerDefinitions:', error);
     return new Response(
-      JSON.stringify({ error: 'Server Error', message: error.message }), 
+      JSON.stringify({ error: 'Server Error', message: error instanceof Error ? error.message : String(error) }), 
       { status: 500, headers }
     );
   }
