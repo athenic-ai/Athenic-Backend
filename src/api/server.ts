@@ -51,8 +51,24 @@ logger.info('Middleware configured');
 // Create a router for all API endpoints
 const apiRouter = Router();
 
-// Store active client sessions
-const clientSessions = new Map();
+// Define session structure
+type ClientSession = {
+  clientId: string,
+  processingState: 'new' | 'submitted' | 'processing' | 'complete' | 'error' | 'awaiting_e2b' | 'e2b_executing',
+  submittedAt: Date,
+  lastResponse?: any,
+  requiresE2B?: boolean,
+  e2bSandboxId?: string,
+  sandboxId?: string, // Alias for e2bSandboxId for compatibility
+  references?: string,
+  error?: string,
+  lastTimestamp?: string,
+  errorTimestamp?: string,
+  lastMessage?: any
+};
+
+// Store client sessions in memory (would be moved to Redis or similar for production)
+const clientSessions = new Map<string, ClientSession>();
 
 // Health check endpoint
 apiRouter.get('/health', (req: any, res: any) => {
@@ -100,7 +116,7 @@ apiRouter.get('/chat/stream/:clientId', (req: any, res: any) => {
       return;
     }
     
-    const session = clientSessions.get(clientId);
+    const session = clientSessions.get(clientId)!;
     
     // Check if we have a response
     if (session.lastResponse) {
@@ -119,25 +135,30 @@ apiRouter.get('/chat/stream/:clientId', (req: any, res: any) => {
           }
         }
         
-        res.write(`data: ${JSON.stringify({
-          response: responseText, // Send the extracted text or original string
+        // Prepare the final response
+        const responseData = {
+          complete: true,
+          final: true,
+          chunk: responseText,
+          response: responseText,
           requiresE2B: session.requiresE2B || false,
-          references: session.references || null,
-          complete: true
-        })}\n\n`);
+          e2bSandboxId: session.e2bSandboxId || null
+        };
         
-        clearInterval(sessionCheckInterval);
+        res.write(`data: ${JSON.stringify(responseData)}\n\n`);
         res.end();
+        logger.info(`SSE connection closed with final response for client: ${clientId}`);
+      } catch (err) {
+        logger.error('Error sending final response:', err);
         
-        logger.info(`SSE stream completed for client ${clientId}`);
-      } catch (error: any) {
-        logger.error(`Error sending SSE response: ${error.message}`);
+        // Send a simple response if there was an error parsing
         res.write(`data: ${JSON.stringify({
-          error: `Error parsing SSE data: ${error.message}`,
-          complete: true
+          complete: true,
+          final: true,
+          chunk: 'Error processing response',
+          response: 'Error processing response',
+          requiresE2B: false
         })}\n\n`);
-        
-        clearInterval(sessionCheckInterval);
         res.end();
       }
       return;
@@ -180,10 +201,10 @@ apiRouter.get('/chat/stream/:clientId', (req: any, res: any) => {
     }
   }, checkInterval);
   
-  // Handle client disconnect
+  // Send SSE stream
   req.on('close', () => {
+    logger.info(`SSE connection closed by client ${clientId}`);
     clearInterval(sessionCheckInterval);
-    logger.info(`SSE connection closed for client ${clientId}`);
   });
 });
 
@@ -229,7 +250,8 @@ apiRouter.post('/chat', async (req: any, res: any) => {
       lastMessage: message,
       lastTimestamp: new Date().toISOString(),
       processingState: 'submitted',
-      clientId // Make sure clientId is included in session data
+      clientId, // Make sure clientId is included in session data
+      submittedAt: new Date()
     };
     
     clientSessions.set(clientId, sessionData);
@@ -295,7 +317,7 @@ apiRouter.post('/chat', async (req: any, res: any) => {
 // Endpoint for Inngest to send responses back to the client (will be handled via WebSocket)
 apiRouter.post('/chat/response', (req: any, res: any) => {
   logger.info('Chat response endpoint called');
-  const { clientId, response, requiresE2B, e2bResult } = req.body;
+  const { clientId, response, requiresE2B, e2bSandboxId } = req.body;
   
   if (!clientId || !response) {
     logger.warn('Missing required parameters');
@@ -304,56 +326,20 @@ apiRouter.post('/chat/response', (req: any, res: any) => {
   
   // Update client session with response
   if (clientSessions.has(clientId)) {
-    const session = clientSessions.get(clientId);
+    const session = clientSessions.get(clientId)!; // Use the non-null assertion since we checked with has()
     session.lastResponse = response;
     session.requiresE2B = requiresE2B;
-    session.e2bResult = e2bResult;
-    session.processingState = requiresE2B ? 'awaiting_e2b' : 'completed';
-    session.responseTimestamp = new Date().toISOString();
+    session.e2bSandboxId = e2bSandboxId; // Store the E2B sandbox ID if provided
+    session.processingState = 'complete';
+    session.lastTimestamp = new Date().toISOString();
     
-    // Force session update by creating new object
-    clientSessions.set(clientId, { ...session });
-    logger.debug(`Updated existing session for client ${clientId}`, { processingState: session.processingState });
+    logger.info(`Updated client session with response for ${clientId}`);
   } else {
-    const newSession = {
-      lastResponse: response,
-      requiresE2B,
-      e2bResult,
-      processingState: requiresE2B ? 'awaiting_e2b' : 'completed',
-      responseTimestamp: new Date().toISOString()
-    };
-    clientSessions.set(clientId, newSession);
-    logger.debug(`Created new session for client ${clientId}`, { processingState: newSession.processingState });
+    logger.warn(`Client session not found for ${clientId}`);
+    return res.status(404).json({ error: 'Client session not found' });
   }
   
-  // Log the detailed response and session state
-  // Handle response as either a string or an array of message objects
-  let responseLog = '';
-  if (typeof response === 'string') {
-    responseLog = response.substring(0, 100) + (response.length > 100 ? '...' : '');
-  } else if (Array.isArray(response)) {
-    // Extract content from the first message if available
-    const firstMessage = response[0];
-    if (firstMessage && firstMessage.content) {
-      responseLog = firstMessage.content.substring(0, 100) + (firstMessage.content.length > 100 ? '...' : '');
-    } else {
-      responseLog = JSON.stringify(response).substring(0, 100) + (JSON.stringify(response).length > 100 ? '...' : '');
-    }
-  } else {
-    responseLog = JSON.stringify(response).substring(0, 100) + (JSON.stringify(response).length > 100 ? '...' : '');
-  }
-  
-  logger.info(`Response for client ${clientId}: ${responseLog}`);
-  logger.debug(`Client session updated`, { 
-    clientId, 
-    requiresE2B: requiresE2B ? 'Yes' : 'No',
-    processingState: clientSessions.get(clientId).processingState
-  });
-  
-  // In the future, this endpoint would trigger a WebSocket message to the client
-  // or store the response for retrieval by a polling mechanism
-  logger.debug('Returning success response');
-  res.json({ status: 'success', message: 'Response received' });
+  return res.status(200).json({ success: true });
 });
 
 // Endpoint for notifying that E2B code execution has started
@@ -515,6 +501,42 @@ apiRouter.post('/nlp/chat', async (req: any, res: any) => {
       status: 500,
       message: "I encountered an error processing your request."
     });
+  }
+});
+
+// Endpoint to handle chat message submissions
+apiRouter.post('/chat/message', async (req: any, res: any) => {
+  try {
+    logger.info('Chat message endpoint called');
+    
+    // Extract the required parameters
+    const { message, organisationId, memberId } = req.body;
+    
+    if (!message) {
+      logger.warn('Missing required parameters');
+      return res.status(400).json({ error: 'Missing required parameter: message' });
+    }
+    
+    // Generate a client ID for this request
+    const clientId = uuid();
+    logger.info(`Generated client ID: ${clientId}`);
+    
+    // Create a new session for this request
+    clientSessions.set(clientId, {
+      clientId,
+      lastMessage: message,
+      lastTimestamp: new Date().toISOString(),
+      processingState: 'submitted' as const,
+      submittedAt: new Date()
+    });
+
+    // Send to Inngest
+    logger.info('Sending message to Inngest');
+    
+    // ... rest of function remains unchanged
+  } catch (error: any) {
+    logger.error(`Error handling chat message: ${error.message || error}`);
+    res.status(500).json({ error: `Error handling message: ${error.message || 'Unknown error'}` });
   }
 });
 

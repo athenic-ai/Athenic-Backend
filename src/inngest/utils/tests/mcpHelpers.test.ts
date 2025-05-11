@@ -46,23 +46,28 @@ const mockedFetchMcpConnectionsForOrganisation =
 
 describe('MCP Helpers', () => {
   // Store original env and reset it after each test
-  const originalEnv = process.env;
+  const originalEnv = { ...process.env };
   
   beforeEach(() => {
-    // Setup mock environment variables
-    process.env = { 
+    // Set up mock environment variables
+    process.env = {
       ...originalEnv,
       SUPABASE_URL: 'https://test-supabase-url.com',
-      SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
+      SUPABASE_SERVICE_KEY: 'test-service-role-key',
     };
     
-    // Reset all mocks before each test
-    jest.resetAllMocks();
+    // Set up the fetch mock
+    mockedFetch.mockClear();
+    // Also clear the mock for the helper function
+    mockedFetchMcpConnectionsForOrganisation.mockClear();
   });
   
   afterEach(() => {
     // Restore original environment
     process.env = originalEnv;
+    
+    // Restore all mocks
+    jest.restoreAllMocks();
   });
   
   describe('fetchMcpConnectionsForOrganisation', () => {
