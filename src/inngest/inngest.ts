@@ -290,13 +290,21 @@ function getE2bSandboxIdForMcpServer(serverName: string): string | null {
     console.log(`No mcpE2bSandboxMap available to find sandbox for ${serverName}`);
     return null;
   }
-  
-  const sandboxId = global.mcpE2bSandboxMap.get(serverName);
+  // Try direct match
+  let sandboxId = global.mcpE2bSandboxMap.get(serverName);
   if (!sandboxId) {
-    console.log(`No sandbox ID found for MCP server ${serverName}`);
+    // Try case-insensitive match
+    for (const [key, value] of global.mcpE2bSandboxMap.entries()) {
+      if (key.toLowerCase() === serverName.toLowerCase()) {
+        sandboxId = value;
+        break;
+      }
+    }
+  }
+  if (!sandboxId) {
+    console.log(`No sandbox ID found for MCP server ${serverName}. Available keys: ${Array.from(global.mcpE2bSandboxMap.keys()).join(', ')}`);
     return null;
   }
-  
   return sandboxId;
 }
 
@@ -406,22 +414,19 @@ export const chatMessageFunction = inngest.createFunction(
     try {
       mcpServers = await step.run("fetch-mcp-servers", async () => {
         console.log(`Fetching MCP server configurations for organisation: ${organisationId}`);
-        
         const { buildMcpServersConfig } = await import('./utils/mcpHelpers');
         console.log("Successfully imported mcpHelpers");
-        
         const configs = await buildMcpServersConfig(organisationId);
-        console.log(`MCP server configs: ${JSON.stringify(configs, null, 2)}`);
-        
+        console.log(`[INNGEST] MCP server configs returned from buildMcpServersConfig: ${JSON.stringify(configs, null, 2)}`);
         if (configs.length > 0) {
           const mcpNames = configs.map(c => c.name).join(', ');
-          console.log(`Found ${configs.length} MCP server configurations: ${mcpNames}`);
+          console.log(`[INNGEST] Found ${configs.length} MCP server configurations: ${mcpNames}`);
         } else {
-          console.log(`No MCP server configurations found for organisation: ${organisationId}`);
+          console.log(`[INNGEST] No MCP server configurations found for organisation: ${organisationId}`);
         }
-        
         return configs;
       });
+      console.log(`[INNGEST] mcpServers after fetch-mcp-servers step: ${JSON.stringify(mcpServers, null, 2)}`);
     } catch (error) {
       console.error("Error fetching MCP configurations:", error);
       console.log("Continuing chat processing without MCP servers");
@@ -433,20 +438,17 @@ export const chatMessageFunction = inngest.createFunction(
     // Define a function to process the message using the agent
     const processMessage = async (): Promise<AgentResult> => {
       console.log("Starting processMessage function execution");
-      console.log(`Running chatAgent with message: "${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"`);
-      
+      console.log(`Running chatAgent with message: \"${message.substring(0, 100)}${message.length > 100 ? '...' : ''}\"`);
       // Setup options for the agent run
       const runOptions = {
         state: initialState,
         ...(mcpServers.length > 0 ? { mcpServers: mcpServers } : {}),
       };
-      
-      console.log(`Agent run options: ${JSON.stringify(runOptions, null, 2)}`);
-      
+      console.log(`[INNGEST] Agent run options (before chatAgent.run): ${JSON.stringify(runOptions, null, 2)}`);
       try {
-        console.log("Calling chatAgent.run()");
+        console.log("Calling chatAgent.run() with mcpServers:", mcpServers);
         const result = await chatAgent.run(message, runOptions);
-        console.log(`Agent run complete, result: ${JSON.stringify(result, null, 2)}`);
+        console.log(`[INNGEST] Agent run complete, result: ${JSON.stringify(result, null, 2)}`);
         return result as AgentResult;
       } catch (error) {
         console.error("Error running chatAgent:", error);
@@ -488,7 +490,11 @@ export const chatMessageFunction = inngest.createFunction(
       
       if (toolName && mcpServerName) {
         console.log(`Executing tool ${toolName} from MCP server ${mcpServerName}`);
-        
+        // Add a warning if the mcp_server_name does not match any available config
+        const availableNames = mcpServers.map(s => s.name);
+        if (!availableNames.map(n => n.toLowerCase()).includes(mcpServerName.toLowerCase())) {
+          console.warn(`[INNGEST] WARNING: LLM requested MCP server '${mcpServerName}', but available MCP servers are: ${availableNames.join(', ')}`);
+        }
         try {
           // Execute the MCP tool in a new Inngest step
           const toolResult = await step.run('execute-mcp-tool', async () => {

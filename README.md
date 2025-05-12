@@ -204,6 +204,34 @@ Athenic uses a flexible object model in Supabase:
    - Uses Human-in-the-Loop for risky operations based on configurable risk thresholds
    - Leverages Inngest for durable execution over long timeframes
 
+## MCP Server Integration and Debugging
+
+Athenic supports dynamic integration of MCP servers, which are used by the Inngest agent to provide specialized tool capabilities (e.g., PubMed search). The flow is as follows:
+
+1. **Connection Objects:**
+   - When an MCP server is installed, a `connection` object is created in the `objects` table with `related_object_type_id = 'connection'` and relevant metadata (including `mcp_status`, `mcp_server_id`, `mcp_server_url`, and `title`).
+   - The connection must have `mcp_status: 'mcpRunning'` to be considered active.
+
+2. **MCP Server Discovery:**
+   - The backend function `buildMcpServersConfig` queries all active connection objects for the organisation, finds the corresponding `mcp_server` object, and builds a config array for AgentKit.
+   - The config includes the server `name`, `transport` type and URL, and the `e2b_sandbox_id` for visualization.
+
+3. **Passing to AgentKit:**
+   - The Inngest chat handler fetches the MCP server configs and passes them to the agent as `mcpServers`.
+   - The LLM can then call tools by specifying the `mcp_server_name` (which must match the `name` in the config).
+
+4. **Debugging:**
+   - Extensive logging has been added to help debug issues:
+     - All connection objects and their metadata are logged.
+     - Warnings are shown if the LLM requests an MCP server not present in the config.
+     - The sandbox ID lookup is case-insensitive and logs available keys if a lookup fails.
+   - If you see `MCP server not found: ...` errors, check the logs for mismatches or missing configs.
+
+5. **Troubleshooting Steps:**
+   - Ensure the connection object is present, active, and has the correct metadata.
+   - Ensure the `mcp_server` object exists and matches the `mcp_server_id`.
+   - Check the logs for any warnings or errors during the MCP config build and agent run steps.
+
 ## Contributing
 
 [Guidelines for contributing to the project, coding standards, etc.]

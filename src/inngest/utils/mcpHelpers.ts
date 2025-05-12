@@ -244,68 +244,85 @@ export async function buildMcpServersConfig(organisationId: string): Promise<any
       return [];
     }
 
-    console.log(`Found ${connections?.length || 0} MCP connections for org: ${organisationId}`);
-
+    console.log(`[MCP] Found ${connections?.length || 0} connection objects for org: ${organisationId}`);
     if (!connections || connections.length === 0) {
       return [];
     }
-    
+
+    // Log all connection objects
+    connections.forEach((conn, idx) => {
+      let meta = conn.metadata;
+      if (typeof meta === 'string') {
+        try { meta = JSON.parse(meta); } catch (e) { console.error(`[MCP] Could not parse metadata for connection ${conn.id}`); meta = {}; }
+      }
+      console.log(`[MCP] Connection[${idx}]: id=${conn.id}, title=${meta.title}, mcp_status=${meta.mcp_status}, mcp_server_id=${meta.mcp_server_id}, mcp_server_url=${meta.mcp_server_url}`);
+    });
+
     // Filter active connections by checking mcp_status
     const activeConnections = connections.filter(connection => {
-      const metadata = connection.metadata || {};
+      let metadata = connection.metadata;
+      if (typeof metadata === 'string') {
+        try { metadata = JSON.parse(metadata); } catch (e) { metadata = {}; }
+      }
       const status = metadata.mcp_status;
-      
-      // Check if the connection status is "mcpRunning"
       if (status !== "mcpRunning") {
-        console.log(`Skipping MCP server ${metadata.title || "Unknown"}: Not active`);
+        console.log(`[MCP] Skipping MCP server ${metadata.title || "Unknown"}: Not active (status=${status})`);
         return false;
       }
-      
       return true;
     });
-    
-    console.log(`Found ${activeConnections.length} active MCP connections`);
-    
+
+    console.log(`[MCP] Found ${activeConnections.length} active MCP connections`);
+    if (activeConnections.length === 0) {
+      return [];
+    }
+
     // Create a mapping to store e2b_sandbox_ids by MCP server title for later use
     const e2bSandboxIdMap = new Map<string, string>();
-    
+
     // Process active connections to find their corresponding mcp_server definitions
-    const mcpServerConfigs = [];
-    const mcpServerPromises = activeConnections.map(async (connection) => {
+    const mcpServerPromises = activeConnections.map(async (connection, idx) => {
       try {
-        const metadata = connection.metadata || {};
+        let metadata = connection.metadata;
+        if (typeof metadata === 'string') {
+          try { metadata = JSON.parse(metadata); } catch (e) { metadata = {}; }
+        }
         const { title, mcp_server_id, mcp_server_url, e2b_sandbox_id } = metadata;
-        
+
         if (!mcp_server_id) {
-          console.log(`Skipping connection ${title}: No mcp_server_id provided`);
+          console.log(`[MCP] Skipping connection ${title}: No mcp_server_id provided`);
           return null;
         }
-        
         if (!mcp_server_url) {
-          console.log(`Skipping connection ${title}: No mcp_server_url provided`);
+          console.log(`[MCP] Skipping connection ${title}: No mcp_server_url provided`);
           return null;
         }
-        
-        // Store the e2b_sandbox_id for this MCP server title
         if (e2b_sandbox_id && title) {
           e2bSandboxIdMap.set(title, e2b_sandbox_id);
         }
-        
+
         // Step 2: Find the corresponding mcp_server object
         const { data: mcpServerObjects, error: mcpServerError } = await supabase
           .from("objects")
           .select("*")
           .eq("related_object_type_id", "mcp_server")
-          .filter("metadata->mcp_server_id", "eq", mcp_server_id);
-          
-        if (mcpServerError || !mcpServerObjects || mcpServerObjects.length === 0) {
-          console.log(`Could not find mcp_server with id ${mcp_server_id}`);
+          .filter("metadata->>mcp_server_id", "eq", mcp_server_id);
+
+        if (mcpServerError) {
+          console.log(`[MCP] Error fetching mcp_server for id ${mcp_server_id}:`, mcpServerError);
+        }
+        if (!mcpServerObjects || mcpServerObjects.length === 0) {
+          console.log(`[MCP] Could not find mcp_server with id ${mcp_server_id} for connection ${title}`);
           return null;
         }
-        
+
         const mcpServerObject = mcpServerObjects[0];
-        const mcpServerMetadata = mcpServerObject.metadata || {};
-        
+        let mcpServerMetadata = mcpServerObject.metadata;
+        if (typeof mcpServerMetadata === 'string') {
+          try { mcpServerMetadata = JSON.parse(mcpServerMetadata); } catch (e) { mcpServerMetadata = {}; }
+        }
+        console.log(`[MCP] Found mcp_server: id=${mcpServerObject.id}, title=${mcpServerMetadata.title}, mcp_server_id=${mcpServerMetadata.mcp_server_id}`);
+
         // Step 3: Construct AgentKit MCP Configuration
         return {
           name: title || mcpServerMetadata.title,
@@ -313,28 +330,22 @@ export async function buildMcpServersConfig(organisationId: string): Promise<any
             type: mcp_server_url.includes("/sse") ? "sse" : "ws",
             url: mcp_server_url
           },
-          // Add e2b_sandbox_id to the config for later use
           e2b_sandbox_id
         };
       } catch (err) {
-        console.error(`Error processing MCP connection:`, err);
+        console.error(`[MCP] Error processing MCP connection:`, err);
         return null;
       }
     });
-    
+
     // Wait for all promises to resolve
     const results = await Promise.all(mcpServerPromises);
-    
-    // Filter out null results and store the final configs
     const mcpAgentKitConfigs = results.filter(config => config !== null);
-    
-    // Store the e2b_sandbox_id mapping for later use in a global variable or another accessible place
-    // This could be used by the inngest.ts file when executing MCP tools
     global.mcpE2bSandboxMap = e2bSandboxIdMap;
-    
+    console.log(`[MCP] Final MCP AgentKit configs: ${JSON.stringify(mcpAgentKitConfigs, null, 2)}`);
     return mcpAgentKitConfigs;
   } catch (err) {
-    console.error("Error building MCP server configs:", err);
+    console.error("[MCP] Error building MCP server configs:", err);
     return [];
   }
 }
