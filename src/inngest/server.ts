@@ -1,6 +1,7 @@
 import express from "express";
 import { serve } from "inngest/express";
-import { fn, inngest, chatMessageFunction } from "./inngest.js";
+import { fn, inngest, chatMessageFunction, handleDumpCreateRequested } from "./inngest.js";
+import { Logger } from '../utils/logger';
 
 /**
  * Creates and configures an Express server for Inngest
@@ -18,7 +19,7 @@ export function createInngestServer(port: number = 3001) {
     "/api/inngest",
     serve({
       client: inngest,
-      functions: [fn, chatMessageFunction],
+      functions: [fn, chatMessageFunction, handleDumpCreateRequested],
     })
   );
 

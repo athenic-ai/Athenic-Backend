@@ -10,6 +10,9 @@ import Logger from '../utils/logger.js';
 import ensureLogDirectories from '../utils/ensure-log-dirs.js';
 import fs from 'fs';
 import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import { Request, Response, NextFunction } from 'express';
+import { createDump } from './controllers/dump_controller.js';
 
 // Ensure log directories exist
 ensureLogDirectories();
@@ -51,6 +54,18 @@ logger.info('Middleware configured');
 // Create a router for all API endpoints
 const apiRouter = Router();
 
+// Middleware to potentially extract user info (example)
+// You might have existing middleware for this
+const addUserInfo = (req: Request, res: Response, next: NextFunction) => {
+  // Example: If using JWT or session, decode and attach user
+  // const token = req.headers.authorization?.split(' ')[1];
+  // if (token) req.user = decodeToken(token); 
+  // For now, just pass through
+  next();
+};
+
+apiRouter.use(addUserInfo); // Apply middleware
+
 // Define session structure
 type ClientSession = {
   clientId: string,
@@ -75,6 +90,9 @@ apiRouter.get('/health', (req: any, res: any) => {
   logger.debug('Health check endpoint called');
   res.json({ status: 'healthy', service: 'backend-api' });
 });
+
+// Dump creation endpoint
+apiRouter.post('/dump', createDump);
 
 // SSE endpoint for streaming chat responses
 apiRouter.get('/chat/stream/:clientId', (req: any, res: any) => {

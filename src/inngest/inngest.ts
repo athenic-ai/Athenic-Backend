@@ -9,6 +9,8 @@ import { type Message } from "@inngest/agent-kit";
 import { buildMcpServersConfig } from "./utils/mcpHelpers.js";
 import { createMcpIntegrationFunctions } from "./examples/mcpIntegrationExample.js";
 import axios from "axios";
+import { dumpNetwork } from './networks/dumpNetwork.js';
+import { handleDumpCreateRequested } from './functions/handleDumpCreateRequested.js';
 
 // Get API server URL from environment variable or use default
 const API_SERVER_URL = process.env.API_SERVER_URL || 'http://localhost:8001';
@@ -58,6 +60,14 @@ export const inngest = new Inngest({
         organisationId: z.string(),
         clientId: z.string(),
         message: z.string(),
+      }),
+    },
+    "dump/create.requested": {
+      data: z.object({
+        userId: z.string(),
+        accountId: z.string(),
+        inputText: z.string(),
+        clientId: z.string().optional(),
       }),
     },
   }),
@@ -646,10 +656,73 @@ export const chatMessageFunction = inngest.createFunction(
 // Create the MCP integration functions using the factory function
 const { runMcpEnabledFunction, testMcpIntegrationFunction } = createMcpIntegrationFunctions(inngest);
 
+/**
+ * Handler for dump creation requests
+ * Processes user input and creates dump objects
+ */
+export const handleDumpCreateRequested = inngest.createFunction(
+  { id: 'handle-dump-create-request', name: 'Handle Dump Creation Request' },
+  { event: 'dump/create.requested' },
+  async ({ event, step, logger }) => {
+    const { userId, accountId, inputText, clientId } = event.data;
+    logger.info(`Received dump create request for user ${userId}`, { inputText: inputText.substring(0, 50) });
+
+    const initialState = createState({ userId, accountId, inputText, clientId });
+
+    try {
+      const result = await step.run('process-dump-with-network', async () => {
+        return await dumpNetwork.run(inputText, { state: initialState });
+      });
+
+      logger.info('Dump processing finished.', { dumpId: result?.state?.results?.[0]?.output?.dumpId });
+      
+      // Send a completion event (can be used for notifications or UI updates)
+      await step.sendEvent({
+        name: 'dump/creation.completed',
+        data: { 
+          clientId, 
+          success: true, 
+          userId,
+          accountId,
+          dumpId: result?.state?.results?.[0]?.output?.dumpId || null,
+          inputText: inputText.substring(0, 100)  // Include truncated input for context
+        }
+      });
+
+      return { 
+        status: 'success', 
+        dumpId: result?.state?.results?.[0]?.output?.dumpId,
+        metadata: result?.state?.results?.[0]?.output?.metadata
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error('Error processing dump creation:', { error: errorMessage });
+      
+      await step.sendEvent({
+        name: 'dump/creation.failed',
+        data: { 
+          clientId, 
+          success: false, 
+          error: errorMessage,
+          userId,
+          accountId,
+          inputText: inputText.substring(0, 100) // Include truncated input for context
+        }
+      });
+
+      throw error; // Let Inngest handle retries
+    }
+  }
+);
+
 // Functions created elsewhere
 export const exportedFunctions = [
   runMcpEnabledFunction,
   testMcpIntegrationFunction,
   fn,
-  chatMessageFunction
+  chatMessageFunction,
+  handleDumpCreateRequested
 ];
+
+// Export the dump creation function
+export { handleDumpCreateRequested };
