@@ -1,7 +1,56 @@
 import express from "express";
 import { serve } from "inngest/express";
-import { fn, inngest, chatMessageFunction, handleDumpCreateRequested } from "./inngest.js";
-import { Logger } from '../utils/logger';
+import { fn, inngest, chatMessageFunction } from "./inngest.js";
+import { dumpNetwork } from './networks/dumpNetwork.js';
+import { createState } from '@inngest/agent-kit';
+import { Logger } from '../utils/logger.js';
+
+const logger = Logger.getLogger({
+  component: 'InngestServer'
+});
+
+// Create the dump creation function directly here to avoid circular dependency
+const handleDumpCreateRequested = inngest.createFunction(
+  { id: 'handle-dump-create-request', name: 'Handle Dump Creation Request' },
+  { event: 'dump/create.requested' },
+  async ({ event, step }) => {
+    const { userId, accountId, inputText, clientId } = event.data;
+    logger.info(`Processing dump creation request for user ${userId}`, { clientId, inputText });
+
+    // Create initial state for the agent network
+    const initialState = createState({
+      userId,
+      accountId,
+      inputText,
+    });
+
+    try {
+      // Process the dump with the dumpNetwork
+      const result = await step.run('process-dump-with-agent', async () => {
+        return await dumpNetwork.run(inputText, {
+          state: initialState,
+        });
+      });
+
+      logger.info('Dump processed successfully', { 
+        userId, 
+        result: result ? 'Success' : 'No result'
+      });
+
+      return { success: true, result };
+    } catch (error) {
+      logger.error('Error processing dump', { 
+        error: error instanceof Error ? error.message : String(error),
+        userId
+      });
+      
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+);
 
 /**
  * Creates and configures an Express server for Inngest

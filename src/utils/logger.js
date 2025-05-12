@@ -77,4 +77,5 @@ const logger = {
   }
 };
 
-module.exports = { logger, LOG_LEVELS }; 
+// Convert to ES modules export
+export { logger, LOG_LEVELS }; 

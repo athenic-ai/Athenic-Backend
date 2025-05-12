@@ -10,7 +10,6 @@ import { buildMcpServersConfig } from "./utils/mcpHelpers.js";
 import { createMcpIntegrationFunctions } from "./examples/mcpIntegrationExample.js";
 import axios from "axios";
 import { dumpNetwork } from './networks/dumpNetwork.js';
-import { handleDumpCreateRequested } from './functions/handleDumpCreateRequested.js';
 
 // Get API server URL from environment variable or use default
 const API_SERVER_URL = process.env.API_SERVER_URL || 'http://localhost:8001';
@@ -248,407 +247,319 @@ function extractToolCalls(agentResult: AgentResult): any[] {
                               
             const query = queryMatch ? queryMatch[1].trim() : "beech tree bark";
             
+            terminalLog(`Inferred query: ${query}`);
+            
             return [{
-              tool_name: "pubmed_search",
-              mcp_server_name: "PubMed",
-              tool_input: {
-                query: query
+              id: `tool_call_${Date.now()}`,
+              type: 'tool_call',
+              function: {
+                name: 'pubmed_search', // Hardcoded tool name based on context
+                arguments: JSON.stringify({ query: query })
               }
             }];
           }
         }
-        
-        // Check if content has structured tool calls
-        if (typeof content === 'object' && content !== null && 'tool_calls' in content) {
-          if (Array.isArray(content.tool_calls)) {
-            terminalLog(`Found tool_calls in content object: ${JSON.stringify(content.tool_calls)}`);
-            return content.tool_calls;
-          }
-        }
       }
     }
     
-    // If no structured tool calls found, check if AgentKit detected any
-    if (agentResult.toolCalls && Array.isArray(agentResult.toolCalls) && agentResult.toolCalls.length > 0) {
-      terminalLog(`Found toolCalls in agentResult: ${JSON.stringify(agentResult.toolCalls)}`);
-      return agentResult.toolCalls;
-    }
-    
-    terminalLog(`No tool calls found in agent response`);
-    return [];
+    return []; // Default to no tool calls
   } catch (error) {
-    console.error(`Error extracting tool calls: ${error}`);
+    terminalLog(`Error extracting tool calls: ${error}`);
     return [];
   }
 }
 
-// Helper function to find the MCP server by name
+// Function to find an MCP server by name
 function findMcpServerByName(mcpServers: any[], serverName: string): any | null {
-  const server = mcpServers.find(s => s.name.toLowerCase() === serverName.toLowerCase());
-  
-  if (!server) {
-    console.log(`Could not find MCP server with name: ${serverName}`);
-    return null;
-  }
-  
-  return server;
-}
-
-// Helper function to get e2b_sandbox_id for a given MCP server name
-function getE2bSandboxIdForMcpServer(serverName: string): string | null {
-  if (!global.mcpE2bSandboxMap) {
-    console.log(`No mcpE2bSandboxMap available to find sandbox for ${serverName}`);
-    return null;
-  }
-  // Try direct match
-  let sandboxId = global.mcpE2bSandboxMap.get(serverName);
-  if (!sandboxId) {
-    // Try case-insensitive match
-    for (const [key, value] of global.mcpE2bSandboxMap.entries()) {
-      if (key.toLowerCase() === serverName.toLowerCase()) {
-        sandboxId = value;
-        break;
-      }
-    }
-  }
-  if (!sandboxId) {
-    console.log(`No sandbox ID found for MCP server ${serverName}. Available keys: ${Array.from(global.mcpE2bSandboxMap.keys()).join(', ')}`);
-    return null;
-  }
-  return sandboxId;
-}
-
-// Helper function to execute a tool call on an MCP server
-async function executeMcpTool(mcpServer: any, toolName: string, toolInput: any): Promise<any> {
-  try {
-    terminalLog(`Executing MCP tool ${toolName} on server ${mcpServer.name}`);
-    
-    if (!mcpServer.transport || !mcpServer.transport.url) {
-      throw new Error(`Invalid MCP server configuration: ${JSON.stringify(mcpServer)}`);
-    }
-    
-    const serverUrl = mcpServer.transport.url;
-    terminalLog(`Server URL: ${serverUrl}`);
-    
-    // Determine API endpoint based on server URL and tool name
-    let toolUrl = '';
-    
-    // Handle different MCP server URL patterns
-    if (serverUrl.includes('/sse')) {
-      // If URL contains /sse, replace it with /api/tools/{toolName}
-      toolUrl = serverUrl.replace(/\/sse$/, `/api/tools/${toolName}`);
-    } else if (serverUrl.endsWith('/')) {
-      // If URL ends with a slash, append api/tools/{toolName}
-      toolUrl = `${serverUrl}api/tools/${toolName}`;
-    } else {
-      // Otherwise, append /api/tools/{toolName}
-      toolUrl = `${serverUrl}/api/tools/${toolName}`;
-    }
-    
-    terminalLog(`Making request to MCP server at: ${toolUrl}`);
-    terminalLog(`Tool input: ${JSON.stringify(toolInput)}`);
-    
-    // Attempt to make the request
-    let response;
-    try {
-      response = await axios.post(toolUrl, toolInput, {
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        timeout: 30000 // 30 second timeout
-      });
-    } catch (axiosError: any) {
-      // If the first URL pattern fails, try an alternative pattern
-      if (axiosError.code === 'ECONNREFUSED' || axiosError.response?.status === 404) {
-        terminalLog(`First URL pattern failed, trying alternative endpoint pattern`);
-        
-        // Try alternative URL pattern
-        const alternativeUrl = serverUrl.replace(/\/sse$/, '') + `/tools/${toolName}`;
-        terminalLog(`Trying alternative MCP server URL: ${alternativeUrl}`);
-        
-        response = await axios.post(alternativeUrl, toolInput, {
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          timeout: 30000
-        });
-      } else {
-        throw axiosError;
-      }
-    }
-    
-    terminalLog(`MCP server response status: ${response.status}`);
-    terminalLog(`MCP server response data: ${JSON.stringify(response.data)}`);
-    
-    return response.data;
-  } catch (error: any) {
-    const errorMessage = error.response?.data || error.message || String(error);
-    terminalLog(`Error executing MCP tool: ${errorMessage}`);
-    return {
-      error: `Failed to execute ${toolName} on ${mcpServer.name}: ${errorMessage}`
-    };
-  }
+  return mcpServers.find(server => server.serverName === serverName) || null;
 }
 
 /**
- * A function that handles chat messages
+ * Gets the E2B sandbox ID associated with a specific MCP server.
+ * This example assumes a fixed mapping or logic to determine the sandbox ID.
+ * In a real application, this might involve looking up configuration or managing sandbox lifecycles.
  */
-export const chatMessageFunction = inngest.createFunction(
-  { id: "chat-message", name: "Chat Message Handler", retries: 1 },
-  { event: "athenic/chat.message.received" },
-  async ({ event, step, logger }) => {
-    console.log("\n\n============== CHAT MESSAGE FUNCTION STARTED ==============");
-    console.log(`Received chat message event: ${JSON.stringify(event.data, null, 2)}`);
-    
-    const { userId, organisationId, clientId, message, timestamp = new Date().toISOString() } = event.data;
-    
-    console.log(`Processing chat message for clientId: ${clientId}, orgId: ${organisationId}`);
-    console.log(`Message content: "${message}"`);
+function getE2bSandboxIdForMcpServer(serverName: string): string | null {
+  // Example logic: Return a specific sandbox ID for a known server
+  // Replace this with your actual logic for managing sandboxes per server/tool
+  if (serverName === 'e2b-examples') {
+    // For testing, return a placeholder or dynamically managed ID
+    return process.env.E2B_SANDBOX_ID_MCP_EXAMPLES || null; 
+  } else if (serverName === 'e2b-code-interpreter') {
+    // Example: Another server might use a different sandbox
+    return process.env.E2B_SANDBOX_ID_CODE_INTERPRETER || null;
+  }
+  // Default: No specific sandbox associated
+  return null;
+}
 
-    // Initialize a local message history array
-    let currentMessageHistory: MessageHistoryItem[] = [
-      { role: "user", content: message, timestamp },
-    ];
+/**
+ * Executes a tool on an MCP server using E2B.
+ * Assumes the E2B environment has the necessary tools installed or can run the command.
+ */
+async function executeMcpTool(mcpServer: any, toolName: string, toolInput: any): Promise<any> {
+  const e2bSandboxId = getE2bSandboxIdForMcpServer(mcpServer.serverName);
+  if (!e2bSandboxId) {
+    throw new Error(`No E2B sandbox configured for MCP server: ${mcpServer.serverName}`);
+  }
+  if (!process.env.E2B_API_KEY) {
+    throw new Error("E2B_API_KEY environment variable not set.");
+  }
 
-    console.log("Creating initial state with message history");
-    
-    // Create the initial state for the agent run
-    const initialState = createState<ChatStateData>({
-      userId, organisationId, clientId, messageHistory: currentMessageHistory,
-    });
+  console.log(`Executing tool '${toolName}' on MCP server '${mcpServer.serverName}' in sandbox '${e2bSandboxId}'`);
 
-    console.log("Attempting to fetch MCP server configurations");
+  // Construct the command to execute the tool via E2B
+  // This is highly dependent on how your E2B environment and the MCP server tools are set up.
+  // Example: Assuming a CLI tool or script exists in the sandbox
+  const inputJsonString = JSON.stringify(toolInput).replace(/'/g, "'\\''"); // Escape single quotes for shell
+  const command = `mcp-tool-runner --server="${mcpServer.serverName}" --tool="${toolName}" --input='${inputJsonString}'`;
+  
+  console.log(`E2B Command: ${command}`);
+
+  // Use E2B SDK to execute the command
+  const { Sandbox } = await import('@e2b/sdk');
+  let sandbox: typeof Sandbox | null = null; 
+  
+  try {
+    sandbox = await Sandbox.reconnect(e2bSandboxId);
+    console.log(`Reconnected to sandbox: ${e2bSandboxId}`);
     
-    // Attempt to fetch MCP servers, but don't let failure stop the chat processing
-    let mcpServers: any[] = [];
-    try {
-      mcpServers = await step.run("fetch-mcp-servers", async () => {
-        console.log(`Fetching MCP server configurations for organisation: ${organisationId}`);
-        const { buildMcpServersConfig } = await import('./utils/mcpHelpers');
-        console.log("Successfully imported mcpHelpers");
-        const configs = await buildMcpServersConfig(organisationId);
-        console.log(`[INNGEST] MCP server configs returned from buildMcpServersConfig: ${JSON.stringify(configs, null, 2)}`);
-        if (configs.length > 0) {
-          const mcpNames = configs.map(c => c.name).join(', ');
-          console.log(`[INNGEST] Found ${configs.length} MCP server configurations: ${mcpNames}`);
-        } else {
-          console.log(`[INNGEST] No MCP server configurations found for organisation: ${organisationId}`);
-        }
-        return configs;
-      });
-      console.log(`[INNGEST] mcpServers after fetch-mcp-servers step: ${JSON.stringify(mcpServers, null, 2)}`);
-    } catch (error) {
-      console.error("Error fetching MCP configurations:", error);
-      console.log("Continuing chat processing without MCP servers");
-      // Continue with empty mcpServers array
+    const execution = await sandbox.process.start(command);
+    const output = await execution.wait();
+
+    console.log(`E2B Execution Output (stdout): ${output.stdout}`);
+    console.log(`E2B Execution Output (stderr): ${output.stderr}`);
+
+    if (output.exitCode !== 0) {
+      throw new Error(`Tool execution failed with exit code ${output.exitCode}: ${output.stderr}`);
     }
 
-    console.log("Defining process message function");
-    
-    // Define a function to process the message using the agent
-    const processMessage = async (): Promise<AgentResult> => {
-      console.log("Starting processMessage function execution");
-      console.log(`Running chatAgent with message: \"${message.substring(0, 100)}${message.length > 100 ? '...' : ''}\"`);
-      // Setup options for the agent run
-      const runOptions = {
-        state: initialState,
-        ...(mcpServers.length > 0 ? { mcpServers: mcpServers } : {}),
-      };
-      console.log(`[INNGEST] Agent run options (before chatAgent.run): ${JSON.stringify(runOptions, null, 2)}`);
-      try {
-        console.log("Calling chatAgent.run() with mcpServers:", mcpServers);
-        const result = await chatAgent.run(message, runOptions);
-        console.log(`[INNGEST] Agent run complete, result: ${JSON.stringify(result, null, 2)}`);
-        return result as AgentResult;
-      } catch (error) {
-        console.error("Error running chatAgent:", error);
-        return {
-          output: [{
-            type: 'text',
-            role: 'assistant',
-            content: "I'm sorry, I encountered an error processing your request. Please try again later."
-          }]
-        } as AgentResult;
-      }
-    };
+    // Parse the output (assuming the tool runner outputs JSON)
+    try {
+      return JSON.parse(output.stdout);
+    } catch (parseError) {
+      console.error(`Failed to parse tool output JSON: ${parseError}`);
+      // Return raw stdout if JSON parsing fails, might still be useful
+      return { rawOutput: output.stdout }; 
+    }
+  } catch (error) {
+    console.error(`E2B execution failed: ${error}`);
+    throw error; // Rethrow to be caught by the caller
+  } finally {
+    if (sandbox) {
+      await sandbox.close();
+      console.log(`Closed sandbox connection: ${e2bSandboxId}`);
+    }
+  }
+}
 
-    console.log("Calling processMessage function");
-    
-    // Call the agent processing function directly
-    const agentRunResult = await processMessage();
-    
-    console.log("Processing agent run result to extract response");
-    
-    // Check for tool calls in the LLM response
-    const toolCalls = extractToolCalls(agentRunResult);
-    
+export const chatMessageFunction = inngest.createFunction(
+  { id: 'chat-message-handler', name: 'Handle Chat Message' },
+  { event: 'athenic/chat.message' },
+  async ({ event, step, logger }) => {
+    const { userId, organisationId, clientId, message } = event.data;
+    console.log("\n\n============== STARTING CHAT MESSAGE FUNCTION ==============");
+    console.log(`Received message from user ${userId} in org ${organisationId} (client: ${clientId}): "${message}"`);
+
     let responseMessage = "I'm sorry, I couldn't process your request.";
-    let requiresE2B = false;
-    let e2bSandboxId = null;
+    let requiresE2B = false; // Flag if an E2B sandbox was needed
+    let e2bSandboxId = null; // Store the ID if used
+    const toolCalls: any[] = []; // Track executed tool calls
 
-    // If there are tool calls, execute them
-    if (toolCalls.length > 0) {
-      console.log(`Found ${toolCalls.length} tool calls to execute`);
-      
-      // Get the first tool call (we'll handle multiple tool calls in a future update)
-      const firstToolCall = toolCalls[0];
-      console.log(`Processing tool call: ${JSON.stringify(firstToolCall)}`);
-      
-      const toolName = firstToolCall.tool_name || firstToolCall.name;
-      const mcpServerName = firstToolCall.mcp_server_name || firstToolCall.server;
-      const toolInput = firstToolCall.tool_input || firstToolCall.parameters || firstToolCall.input || {};
-      
+    // 1. Fetch MCP Servers configuration for the organisation
+    let mcpServers: any[] = [];
+    try {
+      mcpServers = await buildMcpServersConfig(organisationId, logger);
+      console.log(`Fetched ${mcpServers.length} MCP servers for organisation ${organisationId}`);
+    } catch (error) {
+      console.error(`Failed to fetch MCP servers for organisation ${organisationId}: ${error}`);
+      // Proceed without MCP servers, but log the error
+    }
+
+    // 2. Initialize message history (in a real app, fetch from DB)
+    const initialMessageHistory: MessageHistoryItem[] = [
+      { role: 'user', content: message, timestamp: new Date().toISOString() }
+    ];
+    
+    // 3. Create initial agent state
+    const initialState = createState<ChatStateData>({
+      userId,
+      organisationId,
+      clientId,
+      messageHistory: initialMessageHistory,
+    });
+
+    // 4. Run the chat agent
+    const agentRunResult = await step.run('invoke-chat-agent', async () => {
+      return await chatAgent.run(message, { 
+        state: initialState, 
+        mcpServers: mcpServers, // Pass MCP config to the agent
+      });
+    });
+    
+    console.log(`Agent run completed. Result keys: ${Object.keys(agentRunResult || {})}`);
+    //console.log(`Full Agent Run Result: ${JSON.stringify(agentRunResult)}`);
+    
+    // 5. Process Agent Result: Check for Tool Calls
+    const extractedTools = extractToolCalls(agentRunResult);
+    console.log(`Extracted ${extractedTools.length} tool calls`);
+
+    if (extractedTools.length > 0) {
+      const firstToolCall = extractedTools[0]; // Handle only the first tool call for now
+      toolCalls.push(firstToolCall);
+      console.log(`Processing first tool call: ${JSON.stringify(firstToolCall)}`);
+
+      const toolName = firstToolCall.function?.name;
+      const toolInputString = firstToolCall.function?.arguments;
+      const mcpServerName = firstToolCall.mcp_server_name; // Check if the agent specified an MCP server
+
+      console.log(`Tool Name: ${toolName}, Server Name: ${mcpServerName}`);
+
       if (toolName && mcpServerName) {
-        console.log(`Executing tool ${toolName} from MCP server ${mcpServerName}`);
-        // Add a warning if the mcp_server_name does not match any available config
-        const availableNames = mcpServers.map(s => s.name);
-        if (!availableNames.map(n => n.toLowerCase()).includes(mcpServerName.toLowerCase())) {
-          console.warn(`[INNGEST] WARNING: LLM requested MCP server '${mcpServerName}', but available MCP servers are: ${availableNames.join(', ')}`);
-        }
-        try {
-          // Execute the MCP tool in a new Inngest step
-          const toolResult = await step.run('execute-mcp-tool', async () => {
-            // Find the MCP server by name
-            const mcpServer = findMcpServerByName(mcpServers, mcpServerName);
+        const targetMcpServer = findMcpServerByName(mcpServers, mcpServerName);
 
-            if (!mcpServer) {
-              throw new Error(`MCP server not found: ${mcpServerName}`);
+        if (!targetMcpServer) {
+          console.warn(`MCP server "${mcpServerName}" not found or configured for organisation ${organisationId}.`);
+          responseMessage = `I wanted to use the tool "${toolName}" from the "${mcpServerName}" integration, but it doesn't seem to be available or configured correctly for your account.`;
+        } else {
+          try {
+            console.log(`Attempting to execute tool "${toolName}" on server "${mcpServerName}"`);
+            requiresE2B = true; // Assume MCP tool execution requires E2B
+            e2bSandboxId = getE2bSandboxIdForMcpServer(mcpServerName); // Get sandbox ID
+            
+            if (!e2bSandboxId) {
+              throw new Error(`No E2B sandbox found for MCP server ${mcpServerName}`);
+            }
+
+            let toolInput = {};
+            try {
+              if (toolInputString) {
+                toolInput = JSON.parse(toolInputString);
+              }
+            } catch (parseError) {
+              console.error(`Failed to parse tool input arguments: ${parseError}`);
+              throw new Error("Invalid format for tool arguments.");
             }
             
-            // Get the E2B sandbox ID for this MCP server if available
-            e2bSandboxId = getE2bSandboxIdForMcpServer(mcpServerName);
-            if (e2bSandboxId) {
-              console.log(`Found e2b_sandbox_id for ${mcpServerName}: ${e2bSandboxId}`);
-              requiresE2B = true;
-            }
-            
-            // Execute the tool and get the result
-            return await executeMcpTool(mcpServer, toolName, toolInput);
-          });
-          
-          console.log(`Tool execution result: ${JSON.stringify(toolResult)}`);
-          
-          // Add the tool result to message history
-          currentMessageHistory.push({
-            role: 'function',
-            content: JSON.stringify(toolResult),
-            timestamp: new Date().toISOString()
-          });
-          
-          // Process the tool result with the agent
-          const summaryResult = await step.run('summarize-tool-result', async () => {
-            // Update the state with the new message history
-            const updatedState = createState<ChatStateData>({
-              userId, 
-              organisationId, 
-              clientId, 
-              messageHistory: currentMessageHistory,
+            const toolResult = await step.run('execute-mcp-tool', async () => {
+              return await executeMcpTool(targetMcpServer, toolName, toolInput);
             });
             
-            // Ask the agent to summarize the tool result
-            const summaryPrompt = `Here is the result from the ${toolName} tool: ${JSON.stringify(toolResult)}. Please summarize this information in a helpful way for the user who asked: "${message}"`;
+            console.log(`Tool execution result: ${JSON.stringify(toolResult)}`);
+
+            // Update message history for the next step
+            const currentMessageHistory = agentRunResult.state?.data?.messageHistory || initialMessageHistory;
+            // Add the agent's initial response (containing the tool call) to history
+            if (agentRunResult.output && agentRunResult.output.length > 0) {
+                const agentResponse = agentRunResult.output[agentRunResult.output.length - 1];
+                currentMessageHistory.push({
+                    role: 'assistant', // Assuming agent's response is assistant role
+                    content: JSON.stringify(agentResponse), // Store the raw agent response with tool call
+                    timestamp: new Date().toISOString()
+                });
+            }
             
-            return await chatAgent.run(summaryPrompt, { state: updatedState });
-          });
-          
-          console.log(`Summary result: ${JSON.stringify(summaryResult)}`);
-          
-          // Extract the summary from the agent result
-          if (summaryResult.output && summaryResult.output.length > 0) {
-            const lastMessage = summaryResult.output[summaryResult.output.length - 1];
-            if (lastMessage && lastMessage.type === 'text') {
-              const content = lastMessage.content;
-              if (typeof content === 'string') {
-                responseMessage = content;
-              } else if (Array.isArray(content)) {
-                responseMessage = content
-                  .map((part: any) => typeof part === 'string' ? part : (part?.text || ''))
-                  .filter(Boolean)
-                  .join(' ');
+            // Add the tool result to message history
+            currentMessageHistory.push({
+              role: 'function', // Use 'function' or 'tool' role based on OpenAI standards
+              content: JSON.stringify({ name: toolName, output: toolResult }), // Structure tool output
+              timestamp: new Date().toISOString()
+            });
+            
+            // Process the tool result with the agent to get a final response
+            const summaryResult = await step.run('summarize-tool-result', async () => {
+              // Update the state with the new message history
+              const updatedState = createState<ChatStateData>({
+                userId, 
+                organisationId, 
+                clientId, 
+                messageHistory: currentMessageHistory,
+              });
+              
+              // Ask the agent to summarize the tool result for the user
+              const summaryPrompt = `The tool "${toolName}" returned the following result: ${JSON.stringify(toolResult)}. Please present this information clearly to the user who asked: "${message}"`;
+              
+              return await chatAgent.run(summaryPrompt, { state: updatedState });
+            });
+            
+            console.log(`Summary result: ${JSON.stringify(summaryResult)}`);
+            
+            // Extract the final text response from the summary agent result
+            if (summaryResult.output && summaryResult.output.length > 0) {
+              const lastMessage = summaryResult.output[summaryResult.output.length - 1];
+              if (lastMessage && lastMessage.type === 'text') {
+                const content = lastMessage.content;
+                if (typeof content === 'string') {
+                  responseMessage = content;
+                } else if (Array.isArray(content)) {
+                  responseMessage = content
+                    .map((part: any) => typeof part === 'string' ? part : (part?.text || ''))
+                    .filter(Boolean)
+                    .join(' ');
+                }
               }
             }
+          } catch (toolError: any) {
+            console.error(`Error executing or processing tool "${toolName}": ${toolError}`);
+            responseMessage = `I tried to use the ${toolName} tool, but encountered an error: ${toolError.message}. Please try again later.`;
           }
-        } catch (toolError: any) {
-          console.error(`Error executing tool: ${toolError}`);
-          responseMessage = `I tried to use the ${toolName} tool, but encountered an error: ${toolError.message}. Please try again later.`;
         }
       } else {
-        console.log(`Missing tool_name or mcp_server_name in tool call: ${JSON.stringify(firstToolCall)}`);
-        responseMessage = "I wanted to use a tool to answer your question, but I couldn't identify which tool to use. Please try rephrasing your question.";
+        console.warn(`Missing tool_name or mcp_server_name in tool call: ${JSON.stringify(firstToolCall)}`);
+        responseMessage = "I wanted to use a tool to answer your question, but I couldn't identify which tool or integration to use. Could you specify it? For example, 'Use the GitHub tool to...'";
       }
     } else {
-      // If no tool calls, process the regular text response
+      // If no tool calls, process the regular text response from the agent
       try {
         console.log(`Processing text response from agent`);
-        
         if (agentRunResult && agentRunResult.output && agentRunResult.output.length > 0) {
-        console.log(`Found ${agentRunResult.output.length} messages in output`);
-        
-        // Get the last message from the agent output
-        const lastMessage = agentRunResult.output[agentRunResult.output.length - 1];
-        
-        console.log(`Last message type: ${lastMessage?.type || 'undefined'}`);
-        
-        if (lastMessage && lastMessage.type === 'text') {
-          console.log("Found text message");
-          
-          // Handle string content
-          if (typeof lastMessage.content === 'string') {
-            responseMessage = lastMessage.content;
-            console.log(`Text content length: ${responseMessage.length}`);
-          } 
-          // Handle array content (some LLMs return this format)
-          else if (Array.isArray(lastMessage.content)) {
-            console.log("Content is an array");
-            
-            // Join array elements if they are text parts
-            const textParts = lastMessage.content
-              .map((part: any) => {
-                if (typeof part === 'string') return part;
-                if (part && typeof part === 'object' && 'text' in part) return part.text;
-                return '';
-              })
-              .filter(Boolean);
-              
-            if (textParts.length > 0) {
-              responseMessage = textParts.join(' ');
-              console.log(`Joined text parts, length: ${responseMessage.length}`);
+          const lastMessage = agentRunResult.output[agentRunResult.output.length - 1];
+          if (lastMessage && lastMessage.type === 'text') {
+            const content = lastMessage.content;
+            if (typeof content === 'string') {
+              responseMessage = content;
+            } else if (Array.isArray(content)) {
+              responseMessage = content
+                .map((part: any) => typeof part === 'string' ? part : (part?.text || ''))
+                .filter(Boolean)
+                .join(' ');
             }
-          }
           }
         }
       } catch (error) {
         console.error("Error processing text response:", error);
+        // Keep the default error message
       }
     }
     
-    console.log(`Final response message: "${responseMessage.substring(0, 100)}${responseMessage.length > 100 ? '...' : ''}"`);
+    console.log(`Final response message preview: "${responseMessage.substring(0, 100)}${responseMessage.length > 100 ? '...' : ''}"`);
 
     // Send the response back to the API server
     try {
       console.log(`Sending response to API server at ${API_SERVER_URL}/chat/response`);
-      
-      const response = await axios.post(`${API_SERVER_URL}/chat/response`, {
+      await axios.post(`${API_SERVER_URL}/chat/response`, {
         clientId,
         response: responseMessage,
         requiresE2B,
         e2bSandboxId
       });
-      
-      console.log(`API server response: ${JSON.stringify(response.data)}`);
-    } catch (error) {
-      console.error("Error sending response to API server:", error);
+      console.log(`API server response received successfully.`);
+    } catch (error: any) {
+      // Log detailed error information if available
+      const errorDetails = error.response ? JSON.stringify(error.response.data) : error.message;
+      console.error(`Error sending response to API server: ${errorDetails}`);
     }
 
     console.log("============== CHAT MESSAGE FUNCTION COMPLETED ==============\n\n");
     
-    // Return the result
+    // Return relevant information
     return {
-      responseMessage,
-      mcpServerCount: mcpServers.length,
-      toolCallsExecuted: toolCalls.length,
-      requiresE2B,
-      active_e2b_sandbox_id: e2bSandboxId
+      status: 'completed',
+      responseLength: responseMessage.length,
+      mcpServersAvailable: mcpServers.length,
+      toolCallsAttempted: toolCalls.length,
+      e2bRequired: requiresE2B,
+      e2bSandboxIdUsed: e2bSandboxId
     };
   }
 );
@@ -656,73 +567,10 @@ export const chatMessageFunction = inngest.createFunction(
 // Create the MCP integration functions using the factory function
 const { runMcpEnabledFunction, testMcpIntegrationFunction } = createMcpIntegrationFunctions(inngest);
 
-/**
- * Handler for dump creation requests
- * Processes user input and creates dump objects
- */
-export const handleDumpCreateRequested = inngest.createFunction(
-  { id: 'handle-dump-create-request', name: 'Handle Dump Creation Request' },
-  { event: 'dump/create.requested' },
-  async ({ event, step, logger }) => {
-    const { userId, accountId, inputText, clientId } = event.data;
-    logger.info(`Received dump create request for user ${userId}`, { inputText: inputText.substring(0, 50) });
-
-    const initialState = createState({ userId, accountId, inputText, clientId });
-
-    try {
-      const result = await step.run('process-dump-with-network', async () => {
-        return await dumpNetwork.run(inputText, { state: initialState });
-      });
-
-      logger.info('Dump processing finished.', { dumpId: result?.state?.results?.[0]?.output?.dumpId });
-      
-      // Send a completion event (can be used for notifications or UI updates)
-      await step.sendEvent({
-        name: 'dump/creation.completed',
-        data: { 
-          clientId, 
-          success: true, 
-          userId,
-          accountId,
-          dumpId: result?.state?.results?.[0]?.output?.dumpId || null,
-          inputText: inputText.substring(0, 100)  // Include truncated input for context
-        }
-      });
-
-      return { 
-        status: 'success', 
-        dumpId: result?.state?.results?.[0]?.output?.dumpId,
-        metadata: result?.state?.results?.[0]?.output?.metadata
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Error processing dump creation:', { error: errorMessage });
-      
-      await step.sendEvent({
-        name: 'dump/creation.failed',
-        data: { 
-          clientId, 
-          success: false, 
-          error: errorMessage,
-          userId,
-          accountId,
-          inputText: inputText.substring(0, 100) // Include truncated input for context
-        }
-      });
-
-      throw error; // Let Inngest handle retries
-    }
-  }
-);
-
 // Functions created elsewhere
 export const exportedFunctions = [
   runMcpEnabledFunction,
   testMcpIntegrationFunction,
   fn,
   chatMessageFunction,
-  handleDumpCreateRequested
 ];
-
-// Export the dump creation function
-export { handleDumpCreateRequested };
